@@ -95,6 +95,13 @@ export class SubtitleController {
     return this.overlay;
   }
 
+  private readonly containerListeners = new Set<(el: Element) => void>();
+
+  /** Overlay moved (fullscreen enter/exit) — lets the VI control follow it. */
+  onOverlayContainerChange(cb: (el: Element) => void): void {
+    this.containerListeners.add(cb);
+  }
+
   get currentVideoKey(): string | null {
     return this.videoKey;
   }
@@ -286,6 +293,9 @@ export class SubtitleController {
   private ensureOverlay(): SubtitleOverlay {
     if (!this.overlay) {
       this.overlay = new SubtitleOverlay(this.env.doc, this.settings);
+      this.overlay.onContainerChange((el) => {
+        for (const l of this.containerListeners) l(el);
+      });
       this.overlay.onFullscreenChange(() => {
         this.render();
         if (this.target?.kind === 'iframe' && this.env.doc.fullscreenElement === this.target.el) {

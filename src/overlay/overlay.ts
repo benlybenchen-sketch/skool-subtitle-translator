@@ -1,6 +1,7 @@
 import type { Settings } from '../shared/types';
 import { clamp } from '../shared/util';
 import { OVERLAY_CSS } from './styles';
+import { addFullscreenListener, apiFullscreenElement, mountParent } from './fullscreen';
 
 export interface OverlayContent {
   vi?: string;
@@ -37,6 +38,9 @@ export class SubtitleOverlay {
   private visible = true;
   private height = 0;
   private readonly fsListeners = new Set<() => void>();
+  private readonly containerListeners = new Set<(el: Element) => void>();
+  private offFs: () => void;
+  private destroyed = false;
 
   constructor(
     private readonly doc: Document,
@@ -64,8 +68,7 @@ export class SubtitleOverlay {
     this.root.append(this.box, this.badge);
     shadow.append(css, this.root);
     this.mount();
-    doc.addEventListener('fullscreenchange', this.onFullscreen);
-    doc.addEventListener('webkitfullscreenchange', this.onFullscreen);
+    this.offFs = addFullscreenListener(doc, this.onFullscreen);
     doc.defaultView?.addEventListener('resize', this.schedule, { passive: true });
     doc.addEventListener('scroll', this.schedule, { passive: true, capture: true });
     this.applyStyle();
@@ -74,6 +77,12 @@ export class SubtitleOverlay {
   /** Element that currently hosts the overlay (body or fullscreen element). */
   get container(): Element | null {
     return this.host.parentElement;
+  }
+
+  /** Notified whenever the overlay moves to another container (fullscreen enter/exit). */
+  onContainerChange(cb: (el: Element) => void): () => void {
+    this.containerListeners.add(cb);
+    return () => this.containerListeners.delete(cb);
   }
 
   onFullscreenChange(cb: () => void): () => void {
@@ -148,18 +157,18 @@ export class SubtitleOverlay {
   }
 
   destroy(): void {
+    this.destroyed = true;
     this.ro?.disconnect();
-    this.doc.removeEventListener('fullscreenchange', this.onFullscreen);
-    this.doc.removeEventListener('webkitfullscreenchange', this.onFullscreen);
+    this.offFs();
     this.doc.defaultView?.removeEventListener('resize', this.schedule);
     this.doc.removeEventListener('scroll', this.schedule, { capture: true } as EventListenerOptions);
     this.host.remove();
     this.fsListeners.clear();
+    this.containerListeners.clear();
   }
 
   private fullscreenElement(): Element | null {
-    const d = this.doc as Document & { webkitFullscreenElement?: Element | null };
-    return d.fullscreenElement ?? d.webkitFullscreenElement ?? null;
+    return apiFullscreenElement(this.doc);
   }
 
   private onFullscreen = () => {
@@ -168,16 +177,17 @@ export class SubtitleOverlay {
     for (const l of this.fsListeners) l();
   };
 
-  /** Place the host inside the fullscreen element when it contains our target. */
+  /**
+   * Place the host inside the active fullscreen element (API or CSS pseudo-fullscreen), else <body>.
+   * Moving the same node never duplicates it; `contains()` is not required because the player's
+   * <video> may live inside a shadow root of the fullscreen element.
+   */
   private mount(): void {
-    const fs = this.fullscreenElement();
-    let parent: Element = this.doc.body ?? this.doc.documentElement;
-    if (fs && fs.tagName !== 'VIDEO' && this.target && (fs === this.target || fs.contains(this.target))) {
-      parent = fs.tagName === 'IFRAME' ? parent : fs;
-    } else if (fs && fs.tagName !== 'VIDEO' && fs.tagName !== 'IFRAME' && !this.target) {
-      parent = fs;
-    }
-    if (this.host.parentElement !== parent) parent.appendChild(this.host);
+    if (this.destroyed) return; // a pending rAF/fullscreen callback must not resurrect the host
+    const parent = mountParent(this.doc, this.target);
+    if (this.host.parentElement === parent) return;
+    parent.appendChild(this.host);
+    for (const l of this.containerListeners) l(parent);
   }
 
   private schedule = () => {
@@ -209,11 +219,18 @@ export class SubtitleOverlay {
 
   /** Recompute geometry. Public for tests. */
   layout(): void {
+    if (this.destroyed) return;
     const r = this.rect();
     if (!r || r.width < 2 || r.height < 2) {
       this.root.style.width = '0px';
       this.root.style.height = '0px';
       return;
+    }
+    // CSS pseudo-fullscreen has no event: re-check the container when the target fills the viewport
+    // or when we are currently mounted in such a container.
+    const w = this.doc.defaultView;
+    if (w && !this.fullscreenElement() && (this.host.parentElement !== this.doc.body || (r.width >= w.innerWidth * 0.95 && r.height >= w.innerHeight * 0.95))) {
+      this.mount();
     }
     this.root.style.left = `${r.left}px`;
     this.root.style.top = `${r.top}px`;

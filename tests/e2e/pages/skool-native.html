@@ -10,6 +10,11 @@
     </video>
   </div>
   <script>
+    // Mock of a player keyboard shortcut: "F" toggles fullscreen on the player container.
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'f') return;
+      document.fullscreenElement ? document.exitFullscreen() : document.getElementById('player').requestFullscreen();
+    });
     // Simulate Skool's SPA navigation to the next lesson: replace the player and push history.
     window.goNextLesson = () => {
       history.pushState({}, '', location.pathname + '?md=lesson2');

@@ -4,7 +4,7 @@ Run on 2026-11-03, Node 22, Chromium (Playwright 1.63 build), Linux.
 
 ```
 npm run typecheck   → 0 errors
-npm test            → 9 files, 124 tests passed
+npm test            → 10 files, 133 tests passed
 npm run test:e2e    → 16/16 passed (built extension loaded in Chromium, mock pages)
 ```
 
@@ -28,7 +28,7 @@ with a logged-in Skool account.
 | 9 | Playback speed | `controller.test`, `scheduler.test` (look-ahead scales with rate) | ✓ |
 | 10 | Pause / resume | `controller.test` | ✓ |
 | 11 | Dynamic lesson navigation | `runtime.test` (NavigationWatcher), `controller.test` (reset, cancel old jobs) | ✓ pushState + player replacement, no reload |
-| 12 | Fullscreen | `controller.test` (re-parenting; native `<video>` fullscreen → TextTrack fallback) | ✓ `requestFullscreen()` on the player container |
+| 12 | Fullscreen | `fullscreen.test` (VI control **and** subtitle overlay move into the fullscreen element and back; 6 F/Esc cycles without duplicates, listener leaks or sync loss; `webkitfullscreenchange`; video inside the fullscreen element's shadow root; CSS pseudo-fullscreen without the API; native `<video>` fullscreen → TextTrack fallback; no orphan after destroy), `controller.test` | ✓ 3 real "F" key-press enter/exit cycles: VI control is the topmost element, subtitle rendered inside the player, restored to `<body>`, one overlay + one panel, text still in sync |
 | 13 | Audio capture permission handling | `audio.test` (consent, host permission, offscreen error) | ✓ real offscreen document; invalid stream id → clean error, offscreen closed |
 | 14 | STT backend failure | `audio.test` (stop after 3 failures, immediate stop on 401) | — |
 | 15 | API rate limits | `translation.test` (429 + Retry-After, metrics) | — |

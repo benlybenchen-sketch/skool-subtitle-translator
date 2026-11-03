@@ -153,18 +153,64 @@ await test('Only one overlay exists (no duplicate subtitles)', async () => {
   assert(n === 1, `expected 1 overlay, found ${n}`);
 });
 
-await test('Overlay follows the player into fullscreen', async () => {
-  const inside = await page.evaluate(async () => {
-    await document.getElementById('player').requestFullscreen();
-    await new Promise((r) => setTimeout(r, 300));
-    const host = document.querySelector('[data-sst-overlay]');
-    const ok = document.fullscreenElement?.contains(host);
-    await document.exitFullscreen();
-    await new Promise((r) => setTimeout(r, 300));
-    return { ok, back: document.body.contains(host) && !document.getElementById('player').contains(host) };
-  });
-  assert(inside.ok, 'overlay not inside fullscreen element');
-  assert(inside.back, 'overlay not restored after fullscreen');
+await test('Fullscreen: VI control + subtitles move into the fullscreen element, 3 enter/exit cycles', async () => {
+  const probe = () =>
+    page.evaluate(() => {
+      const player = document.getElementById('player');
+      const ov = document.querySelector('[data-sst-overlay]');
+      const panel = document.querySelector('[data-sst-panel]');
+      const visible = (host, sel) => {
+        const el = host?.shadowRoot?.querySelector(sel);
+        if (!el) return false;
+        const b = el.getBoundingClientRect();
+        // must be the topmost element at its centre, i.e. really rendered in the top layer
+        const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+        return b.width > 0 && b.height > 0 && (hit === host || host.contains(hit));
+      };
+      return {
+        fs: document.fullscreenElement === player,
+        overlayInFs: player.contains(ov),
+        panelInFs: player.contains(panel),
+        panelVisible: visible(panel, '.pill'),
+        // overlay is pointer-events:none (controls stay clickable) → elementFromPoint skips it;
+        // check rendering + geometry inside the fullscreen player instead
+        subtitleVisible: (() => {
+          const el = ov?.shadowRoot?.querySelector('.vi');
+          if (!el || !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+          const b = el.getBoundingClientRect();
+          const p = player.getBoundingClientRect();
+          return b.width > 0 && b.top >= p.top && b.bottom <= p.bottom && b.left >= p.left && b.right <= p.right;
+        })(),
+        text: ov.shadowRoot.querySelector('.vi').textContent,
+        backInBody: ov.parentElement === document.body && panel.parentElement === document.body,
+        overlays: document.querySelectorAll('[data-sst-overlay]').length,
+        panels: document.querySelectorAll('[data-sst-panel]').length,
+      };
+    });
+  await page.evaluate(() => { const v = document.querySelector('video'); v.pause(); v.currentTime = 1.5; });
+  await page.waitForTimeout(300);
+  const cycles = [];
+  let after;
+  for (let i = 0; i < 3; i++) {
+    await page.keyboard.press('f'); // enter (real key press = user activation)
+    await page.waitForFunction(() => !!document.fullscreenElement);
+    await page.waitForTimeout(250);
+    cycles.push(await probe());
+    await page.keyboard.press('f'); // exit
+    await page.waitForFunction(() => !document.fullscreenElement);
+    await page.waitForTimeout(250);
+    after = await probe();
+  }
+  const r = { cycles, ...after, textAfter: after.text };
+  for (const [i, c] of r.cycles.entries()) {
+    assert(c.overlayInFs, `cycle ${i}: overlay not in fullscreen element`);
+    assert(c.panelInFs && c.panelVisible, `cycle ${i}: VI control not visible in fullscreen`);
+    assert(c.subtitleVisible, `cycle ${i}: subtitle not visible in fullscreen`);
+    assert(c.text === '[VI] Welcome back to the course.', `cycle ${i}: text=${c.text}`);
+  }
+  assert(r.backInBody, 'UI not restored to <body> after exit');
+  assert(r.overlays === 1 && r.panels === 1, `duplicates: overlays=${r.overlays} panels=${r.panels}`);
+  assert(r.textAfter === '[VI] Welcome back to the course.', `sync lost: ${r.textAfter}`);
 });
 
 await test('SPA lesson navigation: new video detected without reload', async () => {

@@ -81,6 +81,7 @@ async function main(): Promise<void> {
       () => void sendToBackground({ type: 'audio:stop' }).catch(() => undefined),
     );
     if (settings.showPanel) panel.mount();
+    controller.onOverlayContainerChange((el) => panel?.follow(el));
   }
 
   const offSettings = onSettingsChanged((s) => {
@@ -119,7 +120,7 @@ async function main(): Promise<void> {
     detector.stop();
     nav.stop();
     controller.destroy();
-    panel?.unmount();
+    panel?.destroy();
     offSettings();
     try {
       chrome.runtime.onMessage.removeListener(onMessage);

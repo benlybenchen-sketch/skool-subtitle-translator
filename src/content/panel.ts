@@ -1,5 +1,6 @@
 import type { Settings, TabStatus } from '../shared/types';
 import { adapterById } from '../players/adapters';
+import { addFullscreenListener, apiFullscreenElement } from '../overlay/fullscreen';
 
 const CSS = `
 :host { all: initial; }
@@ -29,6 +30,10 @@ export class ControlPanel {
   private collapsed = true;
   private settings: Settings;
   private status: TabStatus | null = null;
+  private wanted = false;
+  /** Container the subtitle overlay currently lives in (followed for CSS pseudo-fullscreen). */
+  private followed: Element | null = null;
+  private readonly offFs: () => void;
 
   constructor(
     private readonly doc: Document,
@@ -41,14 +46,42 @@ export class ControlPanel {
     this.host.setAttribute('data-sst-panel', '');
     this.shadow = this.host.attachShadow({ mode: 'open' });
     this.render();
+    this.offFs = addFullscreenListener(doc, () => this.place());
+  }
+
+  /** Same container rule as the subtitle overlay: inside the fullscreen element, else <body>. */
+  private parent(): Element {
+    const body = this.doc.body ?? this.doc.documentElement;
+    const fs = apiFullscreenElement(this.doc);
+    if (fs) return fs.tagName === 'VIDEO' || fs.tagName === 'IFRAME' ? body : fs;
+    return this.followed?.isConnected ? this.followed : body;
+  }
+
+  private place(): void {
+    if (!this.wanted) return;
+    const p = this.parent();
+    if (this.host.parentElement !== p) p.appendChild(this.host);
+  }
+
+  /** Called when the subtitle overlay changes container (covers custom fullscreen without the API). */
+  follow(container: Element): void {
+    this.followed = container === this.doc.body ? null : container;
+    this.place();
   }
 
   mount(): void {
-    if (!this.host.isConnected) (this.doc.body ?? this.doc.documentElement).appendChild(this.host);
+    this.wanted = true;
+    this.place();
   }
 
   unmount(): void {
+    this.wanted = false;
     this.host.remove();
+  }
+
+  destroy(): void {
+    this.unmount();
+    this.offFs();
   }
 
   setSettings(s: Settings): void {

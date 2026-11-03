@@ -33,7 +33,11 @@ boundaries. In that situation:
 - Advanced users can add CSS selectors for DOM-rendered captions in Settings (unsupported/heuristic).
 
 ## Fullscreen
-- Player-container fullscreen (most players): overlay moves into the fullscreen element ✓.
+- Player-container fullscreen (most players): the subtitle overlay **and the VI control** move into the
+  fullscreen element and return to `<body>` on exit (fixed after real-Skool report; tested on mock pages,
+  not yet re-verified on real Skool).
+- Custom CSS fullscreen (no Fullscreen API): detected when the video fills the viewport inside a
+  `position: fixed` ancestor; UI is mounted inside that container.
 - Native `<video>` element fullscreen (e.g. `video.requestFullscreen()` or the browser's own
   controls): HTML cannot be drawn above it; the extension mirrors the subtitle into a temporary
   Vietnamese `TextTrack` (rendered by Chrome; styling options do not apply).
