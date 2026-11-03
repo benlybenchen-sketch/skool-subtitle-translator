@@ -31,7 +31,7 @@ async function setup() {
   });
   container.append(video);
   document.body.append(container);
-  const settings = mergeSettings(DEFAULT_SETTINGS);
+  const settings = mergeSettings({ ...DEFAULT_SETTINGS, autoEnableCaptions: true });
   const c = new SubtitleController({ doc: document, isTop: true, adapter: skoolNativeAdapter, bridge, settings, raf: () => 0, cancelRaf: () => undefined });
   const panel = new ControlPanel(document, settings, () => undefined, () => undefined);
   panel.mount();
@@ -107,7 +107,7 @@ describe('fullscreen: VI control + subtitle overlay', () => {
     const video = makeVideo(document, { tracks: [new FakeTrack('captions', 'English', 'en', [new FakeCue(0, 5, 'Hi.')])] });
     host.attachShadow({ mode: 'open' }).append(video);
     document.body.append(host);
-    const c = new SubtitleController({ doc: document, isTop: true, adapter: skoolNativeAdapter, bridge, settings: mergeSettings(DEFAULT_SETTINGS), raf: () => 0, cancelRaf: () => undefined });
+    const c = new SubtitleController({ doc: document, isTop: true, adapter: skoolNativeAdapter, bridge, settings: mergeSettings({ ...DEFAULT_SETTINGS, autoEnableCaptions: true }), raf: () => 0, cancelRaf: () => undefined });
     cleanups.push(() => c.destroy());
     c.setTarget({ kind: 'video', el: video, provider: 'skool-native', area: 1 });
     setFs(host);

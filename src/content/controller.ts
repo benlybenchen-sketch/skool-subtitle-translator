@@ -24,6 +24,8 @@ export interface ControllerEnv {
   settings: Settings;
   /** Grace period to wait for late text tracks before declaring "no captions". */
   captionGraceMs?: number;
+  /** Max wait for a media change after SPA navigation when the <video> element is reused. */
+  navSettleMs?: number;
   schedulerOptions?: Partial<SchedulerOptions>;
   raf?: (cb: () => void) => number;
   cancelRaf?: (h: number) => void;
@@ -70,9 +72,32 @@ export class SubtitleController {
   private mediaCounts = { videos: 0, audios: 0 };
   private manual: { cues: Cue[]; label: string } | null = null;
   private destroyed = false;
+  /** Waiting for the user to press "Bắt đầu dịch" (autoStart / autoInitOnNavigation off). */
+  private paused: boolean;
+  private captionsOff = false;
+  /** After SPA navigation: the element of the previous lesson and a token against races. */
+  private navPrevEl: Element | null = null;
+  private navToken = 0;
+  private navWaitCleanup: (() => void) | null = null;
 
   constructor(private readonly env: ControllerEnv) {
     this.settings = env.settings;
+    this.paused = !env.settings.autoStart;
+  }
+
+  /** Track lifecycle log of the active TextTrack source (diagnostics only). */
+  trackLog(): string[] {
+    return this.timed instanceof TextTrackSource ? [...this.timed.log] : [];
+  }
+
+  /** User pressed "Bắt đầu dịch" (or auto-start). */
+  startSession(): void {
+    if (!this.paused) return;
+    this.paused = false;
+    this.scheduler?.setEnabled(this.settings.enabled && !this.audioActive);
+    this.applyVisibility();
+    this.render();
+    this.queueStatus();
   }
 
   // ---------------------------------------------------------------- public API
@@ -80,6 +105,7 @@ export class SubtitleController {
   get mode(): ActiveMode {
     if (!this.settings.enabled) return 'off';
     if (this.audioActive) return 'audio';
+    if (this.paused && this.target) return 'paused';
     // No accessible media: on the Skool page itself, Audio Mode (page overlay) is still available.
     if (!this.target) return this.env.isTop ? 'waiting-audio' : 'idle';
     if (this.captionSource && this.settings.modePreference !== 'audio') return 'caption';
@@ -124,8 +150,33 @@ export class SubtitleController {
     return this.anchor && this.anchor.isConnected ? this.anchor : null;
   }
 
-  setTarget(target: Target | null, anchor: Element | null = null): void {
+  setTarget(target: Target | null, anchor: Element | null = null, afterNavigation = false): void {
     if (this.destroyed) return;
+    if (afterNavigation) {
+      this.navWaitCleanup?.();
+      this.navWaitCleanup = null;
+      const token = ++this.navToken;
+      // Same media element as the previous lesson: its source/tracks may still be the OLD
+      // lesson's. Wait (bounded) for a media change signal so old cues are never attributed
+      // to the new lesson.
+      if (target && target.kind !== 'iframe' && target.el === this.navPrevEl) {
+        const el = target.el;
+        const go = () => {
+          cleanup();
+          if (token === this.navToken) this.setTarget(target, anchor);
+        };
+        const evs = ['emptied', 'loadstart', 'loadedmetadata'];
+        const timer = setTimeout(go, this.env.navSettleMs ?? 2000);
+        const cleanup = () => {
+          clearTimeout(timer);
+          for (const e of evs) el.removeEventListener(e, go);
+          if (this.navWaitCleanup === cleanup) this.navWaitCleanup = null;
+        };
+        for (const e of evs) el.addEventListener(e, go);
+        this.navWaitCleanup = cleanup;
+        return;
+      }
+    }
     if (anchor !== this.anchor) {
       this.anchor = anchor;
       this.overlay?.setTarget(this.overlayTargetEl());
@@ -160,10 +211,15 @@ export class SubtitleController {
   /** Lesson changed (SPA navigation): drop all per-video state. */
   reset(): void {
     const t = this.target;
+    this.navPrevEl = t?.el ?? null;
+    this.navWaitCleanup?.();
+    this.navWaitCleanup = null;
+    this.navToken++;
     this.teardownTarget();
     this.manual = null;
     this.target = null;
-    if (t) this.queueStatus();
+    this.paused = !this.settings.autoInitOnNavigation;
+    this.queueStatus();
   }
 
   updateSettings(next: Settings): void {
@@ -187,7 +243,11 @@ export class SubtitleController {
       this.rebuildTimeline(this.lastCues, false);
     }
     if (translationChanged) this.error = undefined;
-    this.scheduler?.setEnabled(next.enabled);
+    this.scheduler?.setEnabled(next.enabled && !this.paused && !this.audioActive);
+    if (!prev.autoEnableCaptions && next.autoEnableCaptions && this.captionsOff && this.target && this.target.kind !== 'iframe') {
+      this.stopSources();
+      this.attachCaptionSource();
+    }
     this.applyVisibility();
     this.render();
     this.queueStatus();
@@ -201,7 +261,7 @@ export class SubtitleController {
     // Audio Mode works without any accessible media element: page-level overlay.
     if (active && primary) this.ensureOverlay().setTarget(this.overlayTargetEl());
     this.overlay?.setIndicator(active && primary ? 'Audio Mode • đang nghe âm thanh tab' : null);
-    this.scheduler?.setEnabled(this.settings.enabled && !active);
+    this.scheduler?.setEnabled(this.settings.enabled && !active && !this.paused);
     this.applyVisibility();
     this.render();
     this.queueStatus();
@@ -230,6 +290,7 @@ export class SubtitleController {
   }
 
   destroy(): void {
+    this.navWaitCleanup?.();
     this.teardownTarget();
     this.overlay?.destroy();
     this.overlay = null;
@@ -375,8 +436,16 @@ export class SubtitleController {
           this.attachCaptionSource();
         }
       };
+      // `change` = a track's mode changed (e.g. the user turned CC on while we were waiting).
+      const onChange = () => {
+        if (this.captionsOff) onAdd();
+      };
       tracks.addEventListener('addtrack', onAdd);
-      this.trackListUnsub = () => tracks.removeEventListener('addtrack', onAdd);
+      tracks.addEventListener('change', onChange);
+      this.trackListUnsub = () => {
+        tracks.removeEventListener('addtrack', onAdd);
+        tracks.removeEventListener('change', onChange);
+      };
     }
     if (!video.paused) this.startLoop();
   }
@@ -414,7 +483,7 @@ export class SubtitleController {
     const video = t.el;
     clearTimeout(this.graceTimer);
     if (this.settings.modePreference === 'audio') {
-      this.captionState = findEnglishTrack(video) ? 'available' : 'unavailable';
+      this.captionState = findEnglishTrack(video, this.settings.sourceLanguage) ? 'available' : 'unavailable';
       this.queueStatus();
       return;
     }
@@ -422,9 +491,20 @@ export class SubtitleController {
       this.useTimedSource(new ManualSource(this.manual.cues, this.manual.label), 'manual');
       return;
     }
-    const choice = findEnglishTrack(video);
+    const choice = findEnglishTrack(video, this.settings.sourceLanguage);
+    this.captionsOff = false;
+    if (choice && choice.track.mode === 'disabled' && !this.settings.autoEnableCaptions) {
+      // Accessible English track, but CC is off and the user has not opted in to auto-enable:
+      // do not touch the player's caption state. Attach as soon as CC is turned on (change event).
+      this.captionsOff = true;
+      this.captionState = 'unavailable';
+      this.notice = 'Có phụ đề tiếng Anh nhưng CC đang tắt. Bật CC, hoặc bật "Tự bật phụ đề tiếng Anh" (một lần) để dịch tự động.';
+      this.applyVisibility();
+      this.queueStatus();
+      return;
+    }
     if (choice) {
-      const src = new TextTrackSource(video, choice.track);
+      const src = new TextTrackSource(video, choice.track, undefined, this.settings.autoEnableCaptions);
       this.useTimedSource(src, 'texttrack');
       if (choice.uncertain) this.notice = 'Không xác định được ngôn ngữ phụ đề — giả định là tiếng Anh.';
       return;
@@ -442,6 +522,8 @@ export class SubtitleController {
     this.graceTimer = setTimeout(() => {
       if (this.captionState === 'searching') {
         this.captionState = 'unavailable';
+        if (!video.textTracks?.length)
+          this.notice = 'Trình phát chưa cung cấp track phụ đề nào. Nếu bật CC trên trình phát làm xuất hiện phụ đề, tiện ích sẽ tự nhận ngay.';
         this.applyVisibility();
         this.queueStatus();
       }
@@ -494,7 +576,7 @@ export class SubtitleController {
         },
         { pretranslateAll: this.settings.pretranslateAll, ...this.env.schedulerOptions },
       );
-      this.scheduler.setEnabled(this.settings.enabled && !this.audioActive);
+      this.scheduler.setEnabled(this.settings.enabled && !this.audioActive && !this.paused);
     } else {
       this.scheduler.setTimeline(this.timeline);
     }
@@ -565,7 +647,7 @@ export class SubtitleController {
 
   private applyVisibility(): void {
     const m = this.mode;
-    const show = (m === 'caption' && !!this.target) || (m === 'audio' && this.audioPrimary);
+    const show = (m === 'caption' && !!this.target) || (m === 'audio' && this.audioPrimary); // 'paused' → hidden
     if (show && this.overlay) this.overlay.setTarget(this.overlayTargetEl());
     this.overlay?.setVisible(show);
     if (!show && this.native) {
@@ -607,6 +689,7 @@ export class SubtitleController {
     this.notice = undefined;
     this.liveHistory = [];
     this.missed = new Set();
+    this.captionsOff = false;
   }
 
   private queueStatus(): void {
@@ -637,6 +720,7 @@ export class SubtitleController {
       unitsFailed: counts.failed,
       error: this.error,
       notice: this.notice,
+      captionsOff: this.captionsOff || undefined,
       perf: this.scheduler
         ? { timeToFirstMs: this.scheduler.timeToFirstMs, missedDeadlines: this.missed.size, aheadCoverage: Math.round(this.scheduler.aheadCoverage() * 100) / 100 }
         : undefined,

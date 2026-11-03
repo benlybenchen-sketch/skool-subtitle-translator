@@ -109,6 +109,13 @@ Audio Mode thu **chỉ âm thanh của tab hiện tại**, sau khi bạn tự b�
 Lưu ý: Audio Mode phải được bắt đầu từ **popup của tiện ích** (yêu cầu bảo mật của Chrome về thao tác người dùng).
 Tiện ích không bao giờ tự thu âm thanh và không tải lên toàn bộ video.
 
+### Tự động bật phụ đề tiếng Anh & chuyển bài học
+
+- Mặc định tiện ích **không** tự thay đổi CC của trình phát. Nếu video có phụ đề tiếng Anh nhưng CC đang tắt,
+  nút VI hiện **"Tự bật phụ đề tiếng Anh"** — bấm một lần (hoặc Cài đặt → mục 5) để đồng ý; từ đó tiện ích tự dịch
+  mọi bài học mà không cần bấm CC (phụ đề Anh gốc vẫn ẩn).
+- Chuyển bài học trong Classroom: tiện ích tự khởi động lại cho bài mới, **không cần F5**.
+
 ### Khi popup báo "Không truy cập được phần tử video"
 
 Một số trình phát của Skool không để lộ phần tử `<video>` cho tiện ích (tiện ích không vượt qua

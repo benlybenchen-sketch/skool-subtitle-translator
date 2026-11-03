@@ -40,6 +40,7 @@ export class ControlPanel {
     settings: Settings,
     private readonly update: (patch: Partial<Settings>) => void,
     private readonly stopAudio: () => void,
+    private readonly startSession: () => void = () => undefined,
   ) {
     this.settings = settings;
     this.host = doc.createElement('div');
@@ -137,6 +138,8 @@ export class ControlPanel {
             <button class="b" data-a="smaller" aria-label="Nhỏ hơn">A−</button>
             <button class="b" data-a="bigger" aria-label="Lớn hơn">A+</button></span></div>
           ${rec ? `<div class="row"><span>Audio Mode</span><button class="b" data-a="stop">Dừng ghi</button></div>` : ''}
+          ${this.status?.frames.some((f) => f.mode === 'paused') ? `<div class="row"><span>Bài học này</span><button class="b on" data-a="start">Bắt đầu dịch</button></div>` : ''}
+          ${this.status?.frames.some((f) => f.captionsOff) && !s.autoEnableCaptions ? `<div class="row"><span class="muted">CC đang tắt</span><button class="b" data-a="autocc" title="Chuyển track tiếng Anh sang chế độ ẩn để đọc phụ đề (không hiện phụ đề Anh gốc)">Tự bật phụ đề tiếng Anh</button></div>` : ''}
         </div>`
     }</div>`;
     this.shadow.querySelectorAll<HTMLElement>('[data-a]').forEach((el) =>
@@ -173,6 +176,12 @@ export class ControlPanel {
         break;
       case 'stop':
         this.stopAudio();
+        break;
+      case 'start':
+        this.startSession();
+        break;
+      case 'autocc':
+        this.update({ autoEnableCaptions: true }); // explicit user opt-in, persisted
         break;
     }
     this.render();

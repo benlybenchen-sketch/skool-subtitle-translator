@@ -4,8 +4,8 @@ Run on 2026-11-03, Node 22, Chromium (Playwright 1.63 build), Linux.
 
 ```
 npm run typecheck   → 0 errors
-npm test            → 11 files, 157 tests passed
-npm run test:e2e    → 18/18 passed (built extension loaded in Chromium, mock pages)
+npm test            → 12 files, 174 tests passed
+npm run test:e2e    → 20/20 passed (built extension loaded in Chromium, mock pages)
 ```
 
 **Important:** every automated test uses mocks or mock pages. They prove the extension's own logic and
@@ -41,6 +41,8 @@ with a logged-in Skool account.
 | 20 | **Speed-first pretranslation** | `scheduler.test` (P1 small first batch, 90 s window covered before playback, P4 background with one slot, no duplicate cue requests, seek → P1 at new position, completed results kept, time-to-first measured), `translation.test` (Gemini 3.5 Flash-Lite request: minimal thinking, temperature 0.2, response schema; usage tokens; 1:1 ID validation; P1 jumps queued P4; glossary terminology), `cache.test` (tokens, cost estimate, median/p95) | ✓ paused video: all cues translated before playback, seek shows Vietnamese on the next frame, 0 missed deadlines, each segment requested exactly once |
 
 | 21 | **Seek recovery** (real-Skool report: subtitles vanished after seeking until CC was toggled) | `seek.test` (track disabled during seek, streaming track flushing cues, cues added without `cuechange`, TextTrack object replaced, at most one re-enable per seek, delayed responses after seek, rapid seeks paused at 2×, fullscreen + seek, captions genuinely removed → reported; 8/9 failed before the fix) | ✓ 12-min mock lesson whose player disables CC on every seek: +10 s, +5 min, −30 s, −10 min, rapid seeks, 2×, paused, fullscreen — correct Vietnamese line each time, one overlay, each cue translated at most once (fails on the pre-fix build) |
+
+| 22 | **Automatic captions & lesson switching** (real-Skool reports: CC had to be clicked; F5 needed after changing lesson) | `lifecycle.test` (disabled track untouched without opt-in + reported; auto-start when the user turns CC on; opt-in → `hidden`, translated before playback; player reverting the activation re-applied max 2×; async cues; auto-start off; A→B with the same `<video>` reused; late source swap never mixes lessons; switch with request in flight; rapid A→B→C→D; return to cached lesson with 0 provider calls; Back/Forward; element replaced; old element ignored; settings untouched; seek + fullscreen after switching; auto-init off). 8 navigation tests fail with the pre-fix wiring | ✓ same-element lesson switch with delayed source swap auto-translates without F5; opt-out leaves the track `disabled`, one click on the panel opt-in → `hidden` + translation, setting persisted |
 
 Additional: VAD chunker (pauses, forced cuts, noise/clicks, flush), WAV encoding/resampling, live
 segment assembly (fragment merge, overlap removal, hallucination filter), STT ordering under

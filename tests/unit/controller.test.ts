@@ -43,7 +43,7 @@ function setup(opts: { settings?: Partial<Settings>; tracks?: FakeTrack[]; delay
   const video = makeVideo(document, { tracks: opts.tracks ?? [track] });
   document.body.append(video);
   const br = bridge(opts.delayMs);
-  const settings = mergeSettings({ ...DEFAULT_SETTINGS, ...opts.settings });
+  const settings = mergeSettings({ ...DEFAULT_SETTINGS, autoEnableCaptions: true, ...opts.settings });
   const c = new SubtitleController({
     doc: document,
     isTop: true,

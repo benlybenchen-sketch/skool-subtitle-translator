@@ -31,6 +31,7 @@ export type BackgroundRequest =
   | { type: 'tab:status'; tabId: number }
   | { type: 'diag:run'; tabId: number }
   | { type: 'backend:check' }
+  | { type: 'session:start' }
   | { type: 'metrics:get' }
   | { type: 'cache:stats' }
   | { type: 'cache:clear' }
@@ -63,7 +64,9 @@ export type ContentMessage =
   | { type: 'audio:state'; active: boolean; primary: boolean; error?: string }
   | { type: 'manual:cues'; cues: Cue[]; label: string }
   | { type: 'tab:status:changed'; status: TabStatus }
-  | { type: 'diag:collect' };
+  | { type: 'diag:collect' }
+  | { type: 'nav:check' }
+  | { type: 'session:start' };
 
 /** Messages sent from the background to the offscreen document. */
 export type OffscreenMessage =

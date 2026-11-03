@@ -16,6 +16,18 @@
       document.fullscreenElement ? document.exitFullscreen() : document.getElementById('player').requestFullscreen();
     });
     // Simulate Skool's SPA navigation to the next lesson: replace the player and push history.
+    // Same <video> element reused for the next lesson (source + track swapped in place).
+    window.goNextLessonSameVideo = () => {
+      history.pushState({}, '', location.pathname + '?md=lesson3');
+      const v = document.getElementById('v');
+      v.querySelectorAll('track').forEach((t) => t.remove());
+      setTimeout(() => {
+        v.src = '/media/lesson2.wav';
+        const tr = document.createElement('track');
+        tr.kind = 'captions'; tr.srclang = 'en'; tr.label = 'English'; tr.src = '/media/lesson2.vtt';
+        v.append(tr);
+      }, 300); // media swapped a bit after the URL change, as SPAs often do
+    };
     window.goNextLesson = () => {
       history.pushState({}, '', location.pathname + '?md=lesson2');
       document.getElementById('lesson-title').textContent = 'Lesson 2';

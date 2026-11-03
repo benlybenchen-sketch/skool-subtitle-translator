@@ -41,6 +41,9 @@ function fill(s: Settings, keys: { t?: string; s?: string }): void {
   $('ctx').value = String(s.contextWindow);
   $('merge').checked = s.mergeFragments;
   $('pretranslate').checked = s.pretranslateAll;
+  $('auto-start').checked = s.autoStart;
+  $('auto-nav').checked = s.autoInitOnNavigation;
+  $('auto-cc').checked = s.autoEnableCaptions;
   $<HTMLTextAreaElement>('glossary').value = s.glossary;
   $<HTMLTextAreaElement>('dom-sel').value = s.customCaptionSelectors;
   $('panel').checked = s.showPanel;
@@ -65,6 +68,11 @@ function read(): Settings {
     contextWindow: Math.max(0, Math.min(8, Number($('ctx').value) || 0)),
     mergeFragments: $('merge').checked,
     pretranslateAll: $('pretranslate').checked,
+    autoStart: $('auto-start').checked,
+    autoInitOnNavigation: $('auto-nav').checked,
+    autoEnableCaptions: $('auto-cc').checked,
+    sourceLanguage: 'en',
+    targetLanguage: 'vi',
     glossary: $<HTMLTextAreaElement>('glossary').value,
     customCaptionSelectors: $<HTMLTextAreaElement>('dom-sel').value,
     showPanel: $('panel').checked,

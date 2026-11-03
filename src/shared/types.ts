@@ -78,13 +78,26 @@ export interface Settings {
   pretranslateAll: boolean;
   /** Merge short caption fragments into sentence-sized units before translating. */
   mergeFragments: boolean;
+  /** Start translating automatically when a lesson opens (else wait for "Bắt đầu dịch"). */
+  autoStart: boolean;
+  /**
+   * Opt-in: switch an accessible but disabled English track to "hidden" so its cues load
+   * (no native rendering). Off by default — the user's CC choice is otherwise left untouched.
+   */
+  autoEnableCaptions: boolean;
+  /** Re-initialise translation automatically after Skool SPA lesson changes. */
+  autoInitOnNavigation: boolean;
+  /** Source subtitle language (BCP-47 prefix). Only English is supported by the prompt today. */
+  sourceLanguage: 'en';
+  /** Target language. Only Vietnamese is supported today. */
+  targetLanguage: 'vi';
   /** Extra CSS selectors that point to caption text rendered in the DOM (advanced). */
   customCaptionSelectors: string;
 }
 
 export type CaptionState = 'searching' | 'available' | 'unavailable';
 export type CaptionSourceKind = 'texttrack' | 'dom' | 'manual' | 'live';
-export type ActiveMode = 'off' | 'idle' | 'caption' | 'audio' | 'waiting-audio';
+export type ActiveMode = 'off' | 'paused' | 'idle' | 'caption' | 'audio' | 'waiting-audio';
 
 /** What one frame (top Skool page or an embedded player iframe) reports. */
 export interface FrameStatus {
@@ -113,6 +126,8 @@ export interface FrameStatus {
   error?: string;
   notice?: string;
   perf?: CaptionPerf;
+  /** An English track exists but is disabled and auto-enable is off (user can opt in). */
+  captionsOff?: boolean;
   updatedAt: number;
 }
 

@@ -42,7 +42,7 @@ function bridge(delayMs = 0) {
   return b;
 }
 
-function setup(track: FakeTrack, opts: { delayMs?: number } = {}) {
+function setup(track: FakeTrack, opts: { delayMs?: number; autoEnableCaptions?: boolean } = {}) {
   document.body.innerHTML = '';
   const video = makeVideo(document, { tracks: [track] });
   const box = document.createElement('div');
@@ -55,7 +55,7 @@ function setup(track: FakeTrack, opts: { delayMs?: number } = {}) {
     isTop: true,
     adapter: skoolNativeAdapter,
     bridge: br,
-    settings: mergeSettings({ ...DEFAULT_SETTINGS, pretranslateAll: false }),
+    settings: mergeSettings({ ...DEFAULT_SETTINGS, pretranslateAll: false, autoEnableCaptions: opts.autoEnableCaptions ?? true }),
     raf: () => 0,
     cancelRaf: () => undefined,
   });
@@ -141,8 +141,9 @@ describe('seek recovery', () => {
 
   it('does not fight the user: re-enables a player-disabled track at most once per seek', async () => {
     const track = new FakeTrack('captions', 'English CC', 'en', ALL().slice(0, 3));
+    track.mode = 'showing'; // the user turned CC on themselves
     const modes: string[] = [];
-    const { video } = setup(track);
+    const { video } = setup(track, { autoEnableCaptions: false });
     await flush();
     let mode = track.mode;
     Object.defineProperty(track, 'mode', { get: () => mode, set: (m) => { modes.push(m); mode = m; } });

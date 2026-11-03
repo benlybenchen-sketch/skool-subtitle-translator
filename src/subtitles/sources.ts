@@ -14,7 +14,7 @@ export interface TrackChoice {
 }
 
 /** Pick the best English subtitle/caption track exposed by a media element. */
-export function findEnglishTrack(video: HTMLMediaElement): TrackChoice | null {
+export function findEnglishTrack(video: HTMLMediaElement, lang = 'en'): TrackChoice | null {
   const list = video.textTracks;
   if (!list || !list.length) return null;
   const tracks: TextTrack[] = [];
@@ -22,8 +22,9 @@ export function findEnglishTrack(video: HTMLMediaElement): TrackChoice | null {
     const t = list[i];
     if (!isOwn(t) && (t.kind === 'subtitles' || t.kind === 'captions')) tracks.push(t);
   }
-  const lang = (t: TextTrack) => (t.language || '').toLowerCase();
-  const english = tracks.filter((t) => lang(t) === 'en' || lang(t).startsWith('en-'));
+  const want = lang.toLowerCase();
+  const langOf = (t: TextTrack) => (t.language || '').toLowerCase();
+  const english = tracks.filter((t) => langOf(t) === want || langOf(t).startsWith(want + '-'));
   if (english.length) {
     // Prefer human captions over auto-generated, and an already-showing track.
     english.sort(
@@ -33,9 +34,9 @@ export function findEnglishTrack(video: HTMLMediaElement): TrackChoice | null {
     );
     return { track: english[0], uncertain: false };
   }
-  const byLabel = tracks.find((t) => /english|\ben\b/i.test(t.label));
+  const byLabel = want === 'en' ? tracks.find((t) => /english|\ben\b/i.test(t.label)) : undefined;
   if (byLabel) return { track: byLabel, uncertain: false };
-  const unlabeled = tracks.filter((t) => !lang(t));
+  const unlabeled = tracks.filter((t) => !langOf(t));
   if (unlabeled.length === 1) return { track: unlabeled[0], uncertain: true };
   return null;
 }
@@ -87,14 +88,38 @@ export class TextTrackSource implements TimedSource {
   private lastSeekAt = -Infinity;
   private rehidUsedForSeek = true;
   private bound: TextTrack | null = null;
+  private activatedAt = -Infinity;
+  private activationRetries = 0;
+  private readonly startedAt: number;
+  /** Small ring log of track lifecycle events (shown in diagnostics; no caption text). */
+  readonly log: string[] = [];
 
   static readonly SEEK_GRACE_MS = 2500;
+  /** After we switch a track to "hidden", a player reverting it within this window is re-applied. */
+  static readonly ACTIVATION_GRACE_MS = 3000;
+  static readonly MAX_ACTIVATION_RETRIES = 2;
 
   constructor(
     private readonly video: HTMLMediaElement,
     public track: TextTrack,
     private readonly now: () => number = () => Date.now(),
-  ) {}
+    /** May we switch a disabled track to "hidden"? (user opt-in: autoEnableCaptions) */
+    private readonly allowEnable = true,
+  ) {
+    this.startedAt = now();
+  }
+
+  private note(e: string): void {
+    this.log.push(`+${this.now() - this.startedAt}ms ${e}`);
+    if (this.log.length > 30) this.log.shift();
+  }
+
+  private activate(reason: string): void {
+    this.track.mode = 'hidden';
+    this.changedMode = true;
+    this.activatedAt = this.now();
+    this.note(`set mode=hidden (${reason})`);
+  }
 
   get label(): string {
     return this.track.label || this.track.language || 'English';
@@ -107,10 +132,8 @@ export class TextTrackSource implements TimedSource {
   start(onCues: (cues: Cue[]) => void, onState?: (s: TrackState) => void): void {
     this.onCues = onCues;
     this.onState = onState ?? null;
-    if (this.track.mode === 'disabled') {
-      this.track.mode = 'hidden';
-      this.changedMode = true;
-    }
+    this.note(`attach "${this.track.label}" lang=${this.track.language} mode=${this.track.mode} cues=${this.track.cues?.length ?? 'null'}`);
+    if (this.track.mode === 'disabled' && this.allowEnable) this.activate('auto-enable');
     this.bind(this.track);
     this.video.addEventListener('seeking', this.onSeeking);
     this.video.addEventListener('seeked', this.refresh);
@@ -166,15 +189,14 @@ export class TextTrackSource implements TimedSource {
     const replacement = findEnglishTrack(this.video);
     if (!this.inList(this.track) || (replacement && replacement.track !== this.track && !this.track.cues?.length)) {
       if (replacement) {
+        this.note(`track replaced → "${replacement.track.label}" mode=${replacement.track.mode}`);
         this.track = replacement.track;
         this.changedMode = false;
-        if (this.track.mode === 'disabled') {
-          this.track.mode = 'hidden';
-          this.changedMode = true;
-        }
+        if (this.track.mode === 'disabled' && this.allowEnable) this.activate('replacement');
         this.bind(this.track);
         this.sig = '';
       } else {
+        if (this.state !== 'lost') this.note('track removed, no replacement');
         this.setState('lost');
         return;
       }
@@ -182,10 +204,17 @@ export class TextTrackSource implements TimedSource {
     // 2. Disabled by the player right after a seek → re-enable once (hidden: no native rendering).
     if (this.track.mode === 'disabled') {
       const justSeeked = this.now() - this.lastSeekAt < TextTrackSource.SEEK_GRACE_MS;
+      const justActivated = this.now() - this.activatedAt < TextTrackSource.ACTIVATION_GRACE_MS;
       if (justSeeked && !this.rehidUsedForSeek) {
         this.rehidUsedForSeek = true;
+        this.note('player disabled track after seek → re-enable once');
         this.track.mode = 'hidden';
+      } else if (this.allowEnable && justActivated && this.activationRetries < TextTrackSource.MAX_ACTIVATION_RETRIES) {
+        // Player reverted our activation immediately (initialisation race): re-apply, bounded.
+        this.activationRetries++;
+        this.activate(`player reverted, retry ${this.activationRetries}`);
       } else {
+        if (this.state !== 'disabled') this.note('mode=disabled (left as is)');
         this.setState('disabled');
         return; // keep using the cues already read; never toggle CC repeatedly
       }

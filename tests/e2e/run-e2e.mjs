@@ -104,7 +104,9 @@ const setup = await context.newPage();
 await setup.goto(`chrome-extension://${extId}/settings/options.html`);
 await setup.evaluate(async () => {
   const { settings = {} } = await chrome.storage.sync.get('settings');
-  await chrome.storage.sync.set({ settings: { ...settings, provider: { kind: 'mock', endpoint: 'mock://', model: 'mock', temperature: 0 } } });
+  // autoEnableCaptions: the mock players expose non-default (disabled) English tracks; the user
+  // opt-in is given here explicitly. The opt-out behaviour has its own test below.
+  await chrome.storage.sync.set({ settings: { ...settings, autoEnableCaptions: true, provider: { kind: 'mock', endpoint: 'mock://', model: 'mock', temperature: 0 } } });
 });
 
 const overlayText = (frame) =>
@@ -228,6 +230,19 @@ await test('SPA lesson navigation: new video detected without reload', async () 
   await waitFor(async () => (await overlayText(page)) === '[VI] This is the second lesson.', 8000, 'lesson 2 overlay');
   const n = await page.evaluate(() => document.querySelectorAll('[data-sst-overlay]').length);
   assert(n === 1, `expected 1 overlay after navigation, found ${n}`);
+});
+
+await test('SPA navigation reusing the SAME <video> element (source swapped later): new lesson auto-translated, no F5', async () => {
+  await page.evaluate(() => window.goNextLessonSameVideo());
+  await page.waitForFunction(() => location.search.includes('lesson3'));
+  await page.waitForFunction(() => document.querySelector('video track'));
+  await page.evaluate(() => document.querySelector('video').play());
+  await waitFor(async () => {
+    await page.evaluate(() => (document.querySelector('video').currentTime = 1));
+    return (await overlayText(page)) === '[VI] This is the second lesson.';
+  }, 8000, 'lesson 3 overlay on reused element');
+  const n = await page.evaluate(() => document.querySelectorAll('[data-sst-overlay]').length);
+  assert(n === 1, `overlays=${n}`);
 });
 
 await test('Floating control panel is injected and collapsible', async () => {
@@ -445,6 +460,30 @@ await test('Seek regression: player disables CC on seek → Vietnamese subtitles
   const after = await setup.evaluate(() => chrome.runtime.sendMessage({ type: 'metrics:get' }));
   const translated = after.segmentsTranslated - before.segmentsTranslated;
   assert(translated <= 24, `each of the 24 cues may be translated at most once, got ${translated}`);
+  await p.close();
+});
+
+await test('CC off + auto-enable not opted in: nothing changed; one click on "Tự bật phụ đề tiếng Anh" starts translation', async () => {
+  await setup.evaluate(async () => {
+    const { settings } = await chrome.storage.sync.get('settings');
+    await chrome.storage.sync.set({ settings: { ...settings, autoEnableCaptions: false } });
+  });
+  const p = await context.newPage();
+  await p.goto('https://www.skool.com/test-group/classroom/course6?md=optin');
+  await p.waitForSelector('video');
+  await p.waitForTimeout(800);
+  const before = await p.evaluate(() => ({ mode: document.querySelector('video').textTracks[0].mode, overlay: document.querySelector('[data-sst-overlay]')?.shadowRoot?.querySelector('.vi')?.textContent ?? '' }));
+  assert(before.mode === 'disabled', `track mode changed without opt-in: ${before.mode}`);
+  await p.evaluate(() => document.querySelector('[data-sst-panel]').shadowRoot.querySelector('.pill').click());
+  const btn = await waitFor(() => p.evaluate(() => !!document.querySelector('[data-sst-panel]').shadowRoot.querySelector('[data-a="autocc"]')), 4000, 'opt-in button');
+  assert(btn, 'opt-in button missing');
+  await p.evaluate(() => document.querySelector('[data-sst-panel]').shadowRoot.querySelector('[data-a="autocc"]').click());
+  await p.evaluate(() => { const v = document.querySelector('video'); v.currentTime = 2; });
+  await waitFor(async () => (await overlayText(p)) === '[VI] Welcome back to the course.', 8000, 'translation after opt-in');
+  const mode = await p.evaluate(() => document.querySelector('video').textTracks[0].mode);
+  assert(mode === 'hidden', `expected hidden (no duplicate English rendering), got ${mode}`);
+  const persisted = await setup.evaluate(async () => (await chrome.storage.sync.get('settings')).settings.autoEnableCaptions);
+  assert(persisted === true, 'opt-in not persisted');
   await p.close();
 });
 

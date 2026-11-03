@@ -3,9 +3,9 @@ import { isContextInvalidated, sendToBackground } from '../shared/messages';
 import { loadSettings, onSettingsChanged, saveSettings } from '../shared/settings';
 import type { Settings } from '../shared/types';
 import { adapterForFrame, isSkoolUrl } from '../players/adapters';
-import { VideoDetector, type DetectionResult } from '../players/detector';
+import { VideoDetector } from '../players/detector';
+import { createLessonLifecycle } from './lifecycle';
 import { collectDiagnostics } from './diagnostics';
-import { NavigationWatcher } from '../skool/navigation';
 import { SubtitleController, type ControllerBridge } from './controller';
 import { ControlPanel } from './panel';
 
@@ -51,27 +51,9 @@ async function main(): Promise<void> {
   const detector = new VideoDetector(document, adapter);
   let panel: ControlPanel | null = null;
 
-  const nav = new NavigationWatcher(window, () => {
-    controller.reset();
-    detector.scan();
-  });
-
-  const info = (r: DetectionResult) => ({
-    embeds: [...new Set(r.embeds.map((e) => e.provider))],
-    videos: r.videos.length,
-    audios: r.audios.length,
-  });
-  detector.onChange((r, changed) => {
-    nav.check();
-    if (changed) controller.setTarget(r.primary, r.anchor);
-    controller.setDetectionInfo(info(r));
-  });
-
-  const r = detector.start();
-  controller.setTarget(r.primary, r.anchor);
-  controller.setDetectionInfo(info(r));
-  controller.announce();
-  nav.start();
+  const lifecycle = createLessonLifecycle(window, controller, detector);
+  const nav = lifecycle.nav;
+  lifecycle.start();
 
   if (isTop) {
     panel = new ControlPanel(
@@ -79,6 +61,7 @@ async function main(): Promise<void> {
       settings,
       (patch) => void saveSettings(patch),
       () => void sendToBackground({ type: 'audio:stop' }).catch(() => undefined),
+      () => void sendToBackground({ type: 'session:start' }).catch(() => undefined),
     );
     if (settings.showPanel) panel.mount();
     controller.onOverlayContainerChange((el) => panel?.follow(el));
@@ -109,16 +92,21 @@ async function main(): Promise<void> {
         panel?.setStatus(msg.status);
         break;
       case 'diag:collect':
-        sendResponse(collectDiagnostics(document, detector.result, controller.status()));
+        sendResponse({ ...collectDiagnostics(document, detector.result, controller.status()), trackLog: controller.trackLog() });
         return;
+      case 'nav:check':
+        nav.check(); // URL change reported by the background (tabs.onUpdated)
+        break;
+      case 'session:start':
+        controller.startSession();
+        break;
     }
     sendResponse({ ok: true });
   };
   chrome.runtime.onMessage.addListener(onMessage);
 
   const teardown = () => {
-    detector.stop();
-    nav.stop();
+    lifecycle.stop();
     controller.destroy();
     panel?.destroy();
     offSettings();

@@ -208,6 +208,12 @@ async function handle(msg: BackgroundRequest, sender: chrome.runtime.MessageSend
       await sendToFrame(msg.tabId, primary, { type: 'manual:cues', cues: msg.cues, label: msg.label });
       return { ok: true, frameId: primary };
     }
+    case 'session:start': {
+      if (tabId === undefined) return { ok: false };
+      const st = registry.get(tabId);
+      await Promise.all([0, ...st.frames.map((f) => f.frameId)].map((f) => sendToFrame(tabId, f, { type: 'session:start' })));
+      return { ok: true };
+    }
     case 'offscreen:ready':
       return { ok: true };
     case 'offscreen:started': {
@@ -246,9 +252,14 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 
 chrome.tabs.onUpdated.addListener((tabId, info) => {
   // Full (non-SPA) navigation away from Skool ends Audio Mode for that tab.
-  if (info.url && !isSkoolUrl(safeUrl(info.url) ?? new URL('about:blank'))) {
+  if (!info.url) return;
+  if (!isSkoolUrl(safeUrl(info.url) ?? new URL('about:blank'))) {
     void audio.stop(tabId, 'navigated');
     registry.removeTab(tabId);
+  } else {
+    // Skool SPA lesson change (pushState/replaceState also update the tab URL): tell the
+    // content script to re-check its lesson identity. Uses existing host permission only.
+    void sendToFrame(tabId, 0, { type: 'nav:check' });
   }
 });
 

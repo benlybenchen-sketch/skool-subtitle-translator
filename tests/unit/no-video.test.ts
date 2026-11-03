@@ -67,7 +67,7 @@ const mkController = (br: ControllerBridge) =>
     isTop: true,
     adapter: skoolNativeAdapter,
     bridge: br,
-    settings: mergeSettings(DEFAULT_SETTINGS),
+    settings: mergeSettings({ ...DEFAULT_SETTINGS, autoEnableCaptions: true }),
     captionGraceMs: 10,
     raf: () => 0,
     cancelRaf: () => undefined,

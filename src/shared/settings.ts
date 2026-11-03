@@ -66,6 +66,11 @@ export const DEFAULT_SETTINGS: Settings = {
   glossary: DEFAULT_GLOSSARY,
   contextWindow: 3,
   pretranslateAll: true,
+  autoStart: true,
+  autoEnableCaptions: false,
+  autoInitOnNavigation: true,
+  sourceLanguage: 'en',
+  targetLanguage: 'vi',
   mergeFragments: true,
   customCaptionSelectors: '',
 };

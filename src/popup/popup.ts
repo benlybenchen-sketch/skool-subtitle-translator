@@ -12,6 +12,7 @@ let settings: Settings;
 
 const MODE_LABEL: Record<string, string> = {
   off: 'Đã tắt',
+  paused: 'Đang chờ — bấm "Bắt đầu dịch" ở nút VI',
   idle: 'Chờ video',
   caption: 'Caption Mode (dịch phụ đề)',
   audio: 'Audio Mode (nghe âm thanh)',

@@ -20,6 +20,21 @@ boundaries. In that situation:
   fullscreen the overlay only shows if the fullscreen element is in the accessible DOM.
 - Use popup → **"Chạy chẩn đoán"** and share the result when reporting issues.
 
+## Automatic caption activation
+- Only works when the player exposes an English `TextTrack` *before* CC is clicked. If the Skool
+  player creates its track only when its CC menu is used, the extension cannot (and does not try
+  to) click player controls: the popup says no track exists yet, and translation starts the moment
+  CC is turned on. Popup → "Chạy chẩn đoán" → `trackLog` shows which case applies.
+- "Tự bật phụ đề tiếng Anh" is OFF until you opt in (Settings → 5, or the button on the VI panel).
+  It sets the English track to `hidden` (cues load, no duplicate English text). If the player
+  immediately reverts it, the extension re-applies it at most twice, then leaves it.
+- Not verified on real Skool yet.
+
+## Lesson switching
+- Lesson identity = route + `md` query parameter. After a change the session is rebuilt; if the same
+  `<video>` element is reused, the extension waits (max 2 s) for its source to change so cues of the
+  previous lesson are never attributed to the new one.
+
 ## Seeking and caption track lifecycle
 - Cues read from the player's TextTrack are kept for the whole lesson, so flushed/disabled tracks do
   not erase known subtitles. Parts of the video whose cues were never loaded can only be shown once

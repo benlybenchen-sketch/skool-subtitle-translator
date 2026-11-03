@@ -56,6 +56,8 @@ export interface FakeVideo extends HTMLVideoElement {
   _setTime(t: number): void;
   _play(): void;
   _pause(): void;
+  /** Swap the media source in place (same element), like an SPA player loading the next lesson. */
+  _setSrc(src: string, tracks: FakeTrack[]): void;
 }
 
 export function makeVideo(doc: Document, opts: { width?: number; height?: number; src?: string; tracks?: FakeTrack[] } = {}): FakeVideo {
@@ -65,6 +67,7 @@ export function makeVideo(doc: Document, opts: { width?: number; height?: number
   let time = 0;
   let paused = true;
   let rate = 1;
+  let curSrc = opts.src ?? 'https://video.skool.com/lesson-1.mp4?token=abc';
   Object.defineProperties(v, {
     textTracks: { get: () => list },
     currentTime: { get: () => time, set: (t: number) => (time = t) },
@@ -76,7 +79,7 @@ export function makeVideo(doc: Document, opts: { width?: number; height?: number
         v.dispatchEvent(new Event('ratechange'));
       },
     },
-    currentSrc: { get: () => opts.src ?? 'https://video.skool.com/lesson-1.mp4?token=abc' },
+    currentSrc: { get: () => curSrc },
     addTextTrack: {
       value: (kind: TextTrackKind, label: string, language: string) => {
         const t = new FakeTrack(kind, label, language);
@@ -99,6 +102,16 @@ export function makeVideo(doc: Document, opts: { width?: number; height?: number
   v._pause = () => {
     paused = true;
     v.dispatchEvent(new Event('pause'));
+  };
+  v._setSrc = (src, tracks) => {
+    curSrc = src;
+    time = 0;
+    for (let i = list.items.length - 1; i >= 0; i--) delete (list as any)[i];
+    list.items = [];
+    list.dispatchEvent(new Event('removetrack'));
+    v.dispatchEvent(new Event('emptied'));
+    v.dispatchEvent(new Event('loadstart'));
+    for (const t of tracks) list.add(t);
   };
   setRect(v, opts.width ?? 960, opts.height ?? 540);
   return v;
