@@ -76,9 +76,10 @@ await context.route(/^https:\/\/www\.skool\.com\//, (route) => {
   if (u.pathname === '/media/lesson.wav' || u.pathname === '/media/lesson2.wav') return serveMedia(route, WAV);
   if (u.pathname === '/media/lesson.vtt') return route.fulfill(serve(readFileSync(join(fixtures, 'lesson.vtt')), 'text/vtt'));
   if (u.pathname === '/media/lesson2.vtt') return route.fulfill(serve(VTT2, 'text/vtt'));
-  const page = u.search.includes('loom') ? 'skool-loom.html' : u.search.includes('nocaptions') ? 'skool-nocaptions.html' : 'skool-native.html';
+  const page = u.search.includes('novideo') ? 'skool-novideo.html' : u.search.includes('loom') ? 'skool-loom.html' : u.search.includes('nocaptions') ? 'skool-nocaptions.html' : 'skool-native.html';
   return route.fulfill(serve(readFileSync(join(pages, page)), 'text/html'));
 });
+await context.route(/^https:\/\/js\.stripe\.com\//, (route) => route.fulfill(serve('<!doctype html><title>stripe mock</title>', 'text/html')));
 await context.route(/^https:\/\/www\.loom\.com\//, (route) => {
   const u = new URL(route.request().url());
   if (u.pathname === '/media/lesson.wav') return serveMedia(route, WAV);
@@ -277,6 +278,55 @@ await test('Audio Mode: offscreen document loads; invalid/denied capture fails c
   const left = await sw.evaluate(async () => (await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] })).length);
   assert(left === 0, 'offscreen document should be closed after failure');
   void offscreenExists;
+  await p.close();
+});
+
+await test('Regression: Skool page with NO accessible <video> (2 <audio>, Stripe iframes, closed shadow player)', async () => {
+  const p = await context.newPage();
+  await p.goto('https://www.skool.com/test-group/classroom/course5?md=novideo');
+  await p.waitForSelector('#a2', { state: 'attached' });
+  await p.evaluate(() => document.getElementById('a2').play());
+  const tabId = await setup.evaluate(async () => (await chrome.tabs.query({ url: '*://www.skool.com/*novideo*' }))[0]?.id);
+  // 1. Status is reported (previously: nothing reported → "No video detected" with no explanation)
+  const st = await waitFor(async () => {
+    const r = await setup.evaluate((id) => chrome.runtime.sendMessage({ type: 'tab:status', tabId: id }), tabId);
+    const f = r.status.frames.find((x) => x.isTop);
+    return f && f.audioElements === 2 && f.captionState === 'unavailable' && r;
+  }, 8000, 'status for page without video');
+  const top = st.status.frames.find((x) => x.isTop);
+  assert(top.videoElements === 0, `videoElements=${top.videoElements}`);
+  assert(top.targetKind === 'media' || top.targetKind === null, `targetKind=${top.targetKind}`);
+  assert(top.pageAnchor === true, 'player anchor not found');
+  assert(top.mode === 'waiting-audio', `mode=${top.mode}`);
+  // 2. Diagnostics describe what is accessible
+  const diag = await setup.evaluate((id) => chrome.runtime.sendMessage({ type: 'diag:run', tabId: id }), tabId);
+  const d = diag.frames.find((f) => f.frameId === 0).report;
+  assert(d.videoLight === 0 && d.videoInOpenShadow === 0, 'closed-shadow video must not be visible');
+  assert(d.audioLight === 2, `audioLight=${d.audioLight}`);
+  assert(d.iframes.length === 3 && d.iframes.every((i) => i.host === 'js.stripe.com'), JSON.stringify(d.iframes));
+  assert(d.pageAnchor?.includes('LessonVideoPlayer'), `anchor=${d.pageAnchor}`);
+  // 3. Audio Mode can be started without any HTMLVideoElement (reaches the offscreen capture step)
+  const r = await setup.evaluate((id) => chrome.runtime.sendMessage({ type: 'audio:start', tabId: id, streamId: 'not-a-real-stream' }), tabId);
+  assert(r.ok, `audio:start refused: ${JSON.stringify(r)}`);
+  await waitFor(async () => {
+    const s2 = await setup.evaluate((id) => chrome.runtime.sendMessage({ type: 'tab:status', tabId: id }), tabId);
+    return !s2.status.audio.active && /thu âm thanh tab/.test(s2.status.audio.error ?? '');
+  }, 8000, 'capture attempted');
+  // 4. Page-level overlay shows live Vietnamese subtitles over the player area
+  await sw.evaluate(async (id) => {
+    await chrome.tabs.sendMessage(id, { type: 'audio:state', active: true, primary: true }, { frameId: 0 });
+    await chrome.tabs.sendMessage(id, { type: 'live:segment', id: 'live-1', en: 'Welcome back.', vi: 'Chào mừng trở lại.', final: true }, { frameId: 0 });
+  }, tabId);
+  const shown = await waitFor(() => overlayText(p), 4000, 'page-level overlay');
+  assert(shown === 'Chào mừng trở lại.', `overlay=${shown}`);
+  const geo = await p.evaluate(() => {
+    const root = document.querySelector('[data-sst-overlay]').shadowRoot.querySelector('.root');
+    const pr = document.getElementById('player').getBoundingClientRect();
+    return { w: root.style.width, pw: pr.width + 'px', badge: !root.querySelector('.badge').classList.contains('hidden') };
+  });
+  assert(geo.w === geo.pw, `overlay width ${geo.w} != player ${geo.pw}`);
+  assert(geo.badge, 'Audio Mode indicator not visible');
+  await sw.evaluate((id) => chrome.tabs.sendMessage(id, { type: 'audio:state', active: false, primary: true }, { frameId: 0 }), tabId);
   await p.close();
 });
 

@@ -109,6 +109,8 @@ export class TabRegistry {
     const frames = Object.values(r.frames);
     const videos = frames.filter((f) => f.targetKind === 'video').sort((a, b) => b.targetArea - a.targetArea);
     if (videos.length) return videos[0].frameId;
+    const media = frames.find((f) => f.targetKind === 'media');
+    if (media) return media.frameId;
     const iframeTarget = frames.find((f) => f.targetKind === 'iframe');
     if (iframeTarget) return iframeTarget.frameId;
     return frames.length ? 0 : null;

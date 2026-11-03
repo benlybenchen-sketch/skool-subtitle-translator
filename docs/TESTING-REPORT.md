@@ -4,8 +4,8 @@ Run on 2026-11-03, Node 22, Chromium (Playwright 1.63 build), Linux.
 
 ```
 npm run typecheck   → 0 errors
-npm test            → 8 files, 113 tests passed
-npm run test:e2e    → 15/15 passed (built extension loaded in Chromium, mock pages)
+npm test            → 9 files, 124 tests passed
+npm run test:e2e    → 16/16 passed (built extension loaded in Chromium, mock pages)
 ```
 
 **Important:** every automated test uses mocks or mock pages. They prove the extension's own logic and
@@ -35,6 +35,8 @@ with a logged-in Skool account.
 | 16 | Slow network | `translation.test` (timeout → retry), `controller.test` (dimmed English until translated) | — |
 | 17 | Duplicate subtitle prevention | `controller.test` (one overlay, audio/caption exclusivity, own fallback track ignored), `subtitles.test` (cue dedupe), `translation.test` (request dedupe) | ✓ exactly one overlay, also after navigation |
 | 18 | Service worker restarts | `runtime.test` (message retry, tab state rehydration), `scheduler.test` (transport error recovery), `audio.test` (audio session restore) | ✓ `ServiceWorker.stopAllWorkers` via CDP, then translation still works |
+
+| 19 | **Skool page with no accessible `<video>` but active playback** (real-lesson evidence: 0 `<video>`, 2 `<audio>`, 3 `js.stripe.com` iframes, player in an inaccessible/closed shadow root) | `no-video.test` (detection, status still reported, `<audio>` as media target, page-level overlay over player anchor / viewport, Caption Mode preferred when an `<audio>` exposes an English track, open vs closed shadow DOM, diagnostics, backend health states) | ✓ mock page reproducing the evidence: status + diagnostics correct, Audio Mode start accepted with no video element, page-level Vietnamese overlay shown over the player area |
 
 Additional: VAD chunker (pauses, forced cuts, noise/clicks, flush), WAV encoding/resampling, live
 segment assembly (fragment merge, overlap removal, hallucination filter), STT ordering under

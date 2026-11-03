@@ -15,10 +15,12 @@
     <section id="status" class="card">
       <div class="kv"><span>Trang</span><b id="st-page">…</b></div>
       <div class="kv"><span>Trình phát</span><b id="st-provider">…</b></div>
+      <div class="kv"><span>Phần tử video</span><b id="st-media">…</b></div>
       <div class="kv"><span>Phụ đề tiếng Anh</span><b id="st-captions">…</b></div>
       <div class="kv"><span>Chế độ</span><b id="st-mode">…</b></div>
       <div class="kv"><span>Đã dịch</span><b id="st-progress">–</b></div>
       <div class="kv"><span>Dịch vụ dịch</span><b id="st-translator">…</b></div>
+      <div class="kv"><span>Kết nối dịch</span><b id="st-backend">…</b></div>
       <div id="st-notice" class="notice hidden"></div>
       <div id="st-error" class="error hidden"></div>
     </section>
@@ -64,6 +66,13 @@
         <button id="cache-clear">Xóa cache</button>
         <label class="file">Nhập .vtt/.srt<input id="import" type="file" accept=".vtt,.srt,text/vtt" /></label>
       </div>
+    </section>
+
+    <section class="card">
+      <div class="row"><b>Chẩn đoán trang</b><button id="diag-btn">Chạy chẩn đoán</button></div>
+      <p class="hint">Liệt kê phần tử media/iframe/canvas mà tiện ích truy cập được (không chứa nội dung bài học hay cookie). Dùng khi báo lỗi.</p>
+      <div class="row hidden" id="diag-actions"><button id="diag-copy">Sao chép kết quả</button></div>
+      <pre id="diag-out" class="diag hidden"></pre>
     </section>
 
     <footer><a href="#" id="open-options">Cài đặt dịch vụ dịch &amp; quyền riêng tư →</a></footer>

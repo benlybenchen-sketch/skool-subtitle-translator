@@ -6,6 +6,20 @@ Wistia players, were **not** available during development and can change at any 
 uses only standards-based mechanisms (HTML5 `TextTrack`, documented embed URLs) plus one heuristic
 (YouTube caption DOM classes). Verify with the manual checklist in TESTING-REPORT.md.
 
+## Players with no accessible media element (observed on a real Skool lesson)
+Diagnostics from a real Skool Classroom lesson showed media playing with visible captions, but **no
+`<video>` element** in the DOM or in open shadow roots, two `<audio>` elements, and only Stripe
+iframes. The extension does not try to reach into closed shadow roots, DRM or other browser security
+boundaries. In that situation:
+- the popup reports **"Không truy cập được phần tử video"** and **Audio Mode is still available**;
+- Audio Mode shows a **page-level overlay** positioned over the largest visible player-shaped element
+  (heuristic: `canvas` or elements whose class/id contains "player"/"video"), or over the viewport;
+- if one of the `<audio>` elements is the lesson media and exposes an English text track, Caption Mode
+  uses it; otherwise the captions the player draws itself cannot be read;
+- page-level positioning is approximate and has **not been verified on real Skool yet**; in player
+  fullscreen the overlay only shows if the fullscreen element is in the accessible DOM.
+- Use popup → **"Chạy chẩn đoán"** and share the result when reporting issues.
+
 ## Captions a player does not expose cannot be read
 - Many embedded players render captions with their own engine and do **not** expose a `TextTrack`.
   The extension will report "Không truy cập được" (unavailable) and offer Audio Mode or `.vtt/.srt`

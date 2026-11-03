@@ -29,6 +29,8 @@ export type BackgroundRequest =
   | { type: 'translate:cancel'; videoKey: string }
   | { type: 'translate:test' }
   | { type: 'tab:status'; tabId: number }
+  | { type: 'diag:run'; tabId: number }
+  | { type: 'backend:check' }
   | { type: 'metrics:get' }
   | { type: 'cache:stats' }
   | { type: 'cache:clear' }
@@ -60,7 +62,8 @@ export type ContentMessage =
   | { type: 'live:segment'; id: string; en: string; vi?: string; final: boolean }
   | { type: 'audio:state'; active: boolean; primary: boolean; error?: string }
   | { type: 'manual:cues'; cues: Cue[]; label: string }
-  | { type: 'tab:status:changed'; status: TabStatus };
+  | { type: 'tab:status:changed'; status: TabStatus }
+  | { type: 'diag:collect' };
 
 /** Messages sent from the background to the offscreen document. */
 export type OffscreenMessage =

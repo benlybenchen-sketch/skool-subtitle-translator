@@ -92,7 +92,13 @@ export interface FrameStatus {
   provider: ProviderId | null;
   /** Players detected as iframes in this frame (top frame only). */
   embeddedProviders: ProviderId[];
-  targetKind: 'video' | 'iframe' | null;
+  /** video = visible <video>; media = accessible non-visual media (e.g. <audio>); iframe = player iframe; null = none accessible */
+  targetKind: 'video' | 'media' | 'iframe' | null;
+  /** Accessible media elements found in this frame (light DOM + open shadow roots). */
+  videoElements: number;
+  audioElements: number;
+  /** A visible player-like container was found for page-level overlay positioning. */
+  pageAnchor: boolean;
   targetArea: number;
   captionState: CaptionState;
   captionSource: CaptionSourceKind | null;

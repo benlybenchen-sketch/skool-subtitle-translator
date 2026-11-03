@@ -111,7 +111,7 @@ function deps(over: Partial<AudioDeps> & { settings?: Partial<Settings>; stt?: S
   const offscreen: any[] = [];
   const badges: string[] = [];
   const registry = new TabRegistry(sessionStore());
-  registry.updateFrame(7, 0, { isTop: true, host: 'www.skool.com', provider: 'skool-native', embeddedProviders: [], targetKind: 'video', targetArea: 100, captionState: 'unavailable', captionSource: null, mode: 'waiting-audio', videoKey: 'k', unitsTotal: 0, unitsTranslated: 0, unitsFailed: 0, updatedAt: 0 });
+  registry.updateFrame(7, 0, { isTop: true, host: 'www.skool.com', provider: 'skool-native', embeddedProviders: [], targetKind: 'video', targetArea: 100, captionState: 'unavailable', captionSource: null, mode: 'waiting-audio', videoKey: 'k', unitsTotal: 0, unitsTranslated: 0, unitsFailed: 0, updatedAt: 0, videoElements: 1, audioElements: 0, pageAnchor: false });
   const settings = mergeSettings({ ...DEFAULT_SETTINGS, ...over.settings });
   let offscreenOpen = false;
   const d: AudioDeps = {

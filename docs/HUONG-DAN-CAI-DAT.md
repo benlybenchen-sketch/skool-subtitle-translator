@@ -109,6 +109,15 @@ Audio Mode thu **chỉ âm thanh của tab hiện tại**, sau khi bạn tự b�
 Lưu ý: Audio Mode phải được bắt đầu từ **popup của tiện ích** (yêu cầu bảo mật của Chrome về thao tác người dùng).
 Tiện ích không bao giờ tự thu âm thanh và không tải lên toàn bộ video.
 
+### Khi popup báo "Không truy cập được phần tử video"
+
+Một số trình phát của Skool không để lộ phần tử `<video>` cho tiện ích (tiện ích không vượt qua
+closed Shadow DOM hay DRM). Khi đó:
+1. Popup hiện **"Phần tử video: ✗ Không truy cập được phần tử video"** và **Audio Mode: Sẵn sàng**.
+2. Bấm **"Bắt đầu Audio Mode"** — phụ đề tiếng Việt hiển thị **ở mức trang**, đặt lên vùng trình phát (hoặc cuối màn hình).
+3. Nếu dòng **"Kết nối dịch"** báo ✗, hãy kiểm tra backend (server cục bộ đang chạy, đã cấp quyền).
+4. Bấm **"Chạy chẩn đoán"** → **"Sao chép kết quả"** và gửi kèm khi báo lỗi (không chứa nội dung bài học hay cookie).
+
 ## 5. Kiểm thử trên một bài học Skool thật
 
 Kiểm thử tự động chỉ dùng trang mô phỏng. Hãy kiểm tra thủ công (đánh dấu từng mục):

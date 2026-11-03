@@ -8,7 +8,7 @@ export class NativeTrackFallback {
   private current: VTTCue | null = null;
   private key = '';
 
-  constructor(private readonly video: HTMLVideoElement) {}
+  constructor(private readonly video: HTMLMediaElement) {}
 
   static readonly LABEL = 'Tiếng Việt (SST)';
 

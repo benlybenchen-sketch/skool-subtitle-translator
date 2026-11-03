@@ -6,6 +6,7 @@ import { TranslationCache } from '../cache/translationCache';
 import { TranslationService } from '../translation/service';
 import { TabRegistry } from './tabRegistry';
 import { AudioSessionManager } from './audioSession';
+import { checkBackends } from '../translation/health';
 
 /*
  * MV3 service worker. All listeners are registered synchronously at the top
@@ -162,6 +163,23 @@ async function handle(msg: BackgroundRequest, sender: chrome.runtime.MessageSend
         cache: await cache.stats().catch(() => ({ entries: 0, approxBytes: 0 })),
       };
       return res;
+    }
+    case 'backend:check':
+      return checkBackends(await loadSettings(), await loadSecrets(), { hasPermission: hasEndpointPermission });
+    case 'diag:run': {
+      // Collect read-only diagnostics from every frame where our content script runs.
+      await pruneFrames(msg.tabId);
+      const ids = new Set([0, ...registry.get(msg.tabId).frames.map((f) => f.frameId)]);
+      const frames = await Promise.all(
+        [...ids].map(async (frameId) => {
+          try {
+            return { frameId, report: await chrome.tabs.sendMessage(msg.tabId, { type: 'diag:collect' } satisfies ContentMessage, { frameId }) };
+          } catch (e) {
+            return { frameId, error: (e as Error).message };
+          }
+        }),
+      );
+      return { collectedAt: new Date().toISOString(), extensionVersion: chrome.runtime.getManifest().version, frames };
     }
     case 'metrics:get':
       return service.metrics.snapshot();

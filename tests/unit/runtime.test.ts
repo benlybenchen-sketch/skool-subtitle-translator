@@ -30,8 +30,8 @@ describe('service worker restarts (messaging)', () => {
     const r1 = new TabRegistry(store);
     await r1.ready();
     r1.setSkool(3, true);
-    r1.updateFrame(3, 5, { isTop: false, host: 'player.vimeo.com', provider: 'vimeo', embeddedProviders: [], targetKind: 'video', targetArea: 500, captionState: 'available', captionSource: 'texttrack', mode: 'caption', videoKey: 'vimeo:1', unitsTotal: 4, unitsTranslated: 2, unitsFailed: 0, updatedAt: 1 });
-    r1.updateFrame(3, 0, { isTop: true, host: 'www.skool.com', provider: 'vimeo', embeddedProviders: ['vimeo'], targetKind: 'iframe', targetArea: 500, captionState: 'unavailable', captionSource: null, mode: 'waiting-audio', videoKey: 'x', unitsTotal: 0, unitsTranslated: 0, unitsFailed: 0, updatedAt: 1 });
+    r1.updateFrame(3, 5, { isTop: false, host: 'player.vimeo.com', provider: 'vimeo', embeddedProviders: [], targetKind: 'video', targetArea: 500, captionState: 'available', captionSource: 'texttrack', mode: 'caption', videoKey: 'vimeo:1', unitsTotal: 4, unitsTranslated: 2, unitsFailed: 0, updatedAt: 1, videoElements: 1, audioElements: 0, pageAnchor: false });
+    r1.updateFrame(3, 0, { isTop: true, host: 'www.skool.com', provider: 'vimeo', embeddedProviders: ['vimeo'], targetKind: 'iframe', targetArea: 500, captionState: 'unavailable', captionSource: null, mode: 'waiting-audio', videoKey: 'x', unitsTotal: 0, unitsTranslated: 0, unitsFailed: 0, updatedAt: 1, videoElements: 1, audioElements: 0, pageAnchor: false });
     await r1.flush();
     const r2 = new TabRegistry(store);
     await r2.ready();

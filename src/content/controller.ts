@@ -66,6 +66,8 @@ export class SubtitleController {
   private lastPlayheadPush = 0;
   private statusTimer: ReturnType<typeof setTimeout> | undefined;
   private embeddedProviders: FrameStatus['embeddedProviders'] = [];
+  private anchor: Element | null = null;
+  private mediaCounts = { videos: 0, audios: 0 };
   private manual: { cues: Cue[]; label: string } | null = null;
   private destroyed = false;
 
@@ -78,7 +80,8 @@ export class SubtitleController {
   get mode(): ActiveMode {
     if (!this.settings.enabled) return 'off';
     if (this.audioActive) return 'audio';
-    if (!this.target) return 'idle';
+    // No accessible media: on the Skool page itself, Audio Mode (page overlay) is still available.
+    if (!this.target) return this.env.isTop ? 'waiting-audio' : 'idle';
     if (this.captionSource && this.settings.modePreference !== 'audio') return 'caption';
     if (this.captionState === 'searching' && this.settings.modePreference !== 'audio') return 'idle';
     return 'waiting-audio';
@@ -96,23 +99,45 @@ export class SubtitleController {
     return this.videoKey;
   }
 
-  setEmbeddedProviders(p: FrameStatus['embeddedProviders']): void {
-    this.embeddedProviders = p;
+  setDetectionInfo(info: { embeds: FrameStatus['embeddedProviders']; videos: number; audios: number }): void {
+    this.embeddedProviders = info.embeds;
+    this.mediaCounts = { videos: info.videos, audios: info.audios };
     this.queueStatus();
   }
 
-  setTarget(target: Target | null): void {
+  /** Always report status, even when nothing was detected (so the popup can say why). */
+  announce(): void {
+    this.queueStatus();
+  }
+
+  /** Element the overlay is positioned over: the video/iframe itself, else the page anchor, else the viewport. */
+  private overlayTargetEl(): Element | null {
+    const t = this.target;
+    if (t && t.kind !== 'media') return t.el;
+    return this.anchor && this.anchor.isConnected ? this.anchor : null;
+  }
+
+  setTarget(target: Target | null, anchor: Element | null = null): void {
     if (this.destroyed) return;
-    if (target?.el === this.target?.el) return;
+    if (anchor !== this.anchor) {
+      this.anchor = anchor;
+      this.overlay?.setTarget(this.overlayTargetEl());
+    }
+    if (target?.el === this.target?.el) {
+      this.queueStatus();
+      return;
+    }
     this.teardownTarget();
     this.target = target;
     if (!target) {
+      if (this.audioActive && this.audioPrimary) this.ensureOverlay().setTarget(this.overlayTargetEl());
+      this.applyVisibility();
       this.queueStatus();
       return;
     }
     this.videoKey = this.computeVideoKey(target);
-    this.ensureOverlay().setTarget(target.el);
-    if (target.kind === 'video') {
+    this.ensureOverlay().setTarget(this.overlayTargetEl());
+    if (target.kind === 'video' || target.kind === 'media') {
       this.bindVideo(target.el);
       this.attachCaptionSource();
     } else {
@@ -144,7 +169,7 @@ export class SubtitleController {
       prev.glossary !== next.glossary ||
       JSON.stringify(prev.consent) !== JSON.stringify(next.consent);
     if (prev.modePreference !== next.modePreference || prev.customCaptionSelectors !== next.customCaptionSelectors) {
-      if (this.target?.kind === 'video') {
+      if (this.target && this.target.kind !== 'iframe') {
         this.stopSources();
         this.attachCaptionSource();
       }
@@ -166,6 +191,8 @@ export class SubtitleController {
     this.audioPrimary = primary;
     if (error) this.error = error;
     if (!active) this.clearLive();
+    // Audio Mode works without any accessible media element: page-level overlay.
+    if (active && primary) this.ensureOverlay().setTarget(this.overlayTargetEl());
     this.overlay?.setIndicator(active && primary ? 'Audio Mode • đang nghe âm thanh tab' : null);
     this.scheduler?.setEnabled(this.settings.enabled && !active);
     this.applyVisibility();
@@ -188,7 +215,7 @@ export class SubtitleController {
 
   onManualCues(cues: Cue[], label: string): void {
     this.manual = { cues, label };
-    if (this.target?.kind === 'video') {
+    if (this.target && this.target.kind !== 'iframe') {
       this.stopSources();
       this.attachCaptionSource();
     }
@@ -206,9 +233,13 @@ export class SubtitleController {
   /** Render the subtitle for the current playback time (cheap; called per frame while playing). */
   render = (): void => {
     const ov = this.overlay;
-    if (!ov || !this.target) return;
+    if (!ov) return;
     const mode = this.mode;
-    const video = this.target.kind === 'video' ? this.target.el : null;
+    if (!this.target && mode !== 'audio') {
+      ov.show(null);
+      return;
+    }
+    const video = this.target && this.target.kind !== 'iframe' ? this.target.el : null;
     let content: { en?: string; vi?: string } | null = null;
     let range: [number, number] = [0, 0];
 
@@ -270,7 +301,7 @@ export class SubtitleController {
     const loc = new URL(this.env.doc.location.href);
     const id = this.env.adapter.videoIdFromUrl(loc) ?? loc.pathname;
     let key = `${target.provider}:${id}`;
-    if (target.kind === 'video') {
+    if (target.kind !== 'iframe') {
       const src = stableMediaSrc(target.el.currentSrc || target.el.src);
       if (src) key += '|' + hash53(src);
     } else {
@@ -281,7 +312,7 @@ export class SubtitleController {
 
   private videoListeners: [string, EventListener][] = [];
 
-  private bindVideo(video: HTMLVideoElement): void {
+  private bindVideo(video: HTMLMediaElement): void {
     const on = (ev: string, fn: EventListener) => {
       video.addEventListener(ev, fn);
       this.videoListeners.push([ev, fn]);
@@ -306,12 +337,12 @@ export class SubtitleController {
     on('emptied', () => {
       // Source swapped in place (some players reuse the <video> between lessons).
       const t = this.target;
-      if (t?.kind === 'video') {
+      if (t && t.kind !== 'iframe') {
         const key = this.computeVideoKey(t);
         if (key !== this.videoKey) {
           this.teardownTarget();
           this.target = null;
-          this.setTarget(t);
+          this.setTarget(t, this.anchor);
         }
       }
     });
@@ -332,7 +363,7 @@ export class SubtitleController {
   private trackListUnsub: (() => void) | null = null;
 
   private pushPlayhead(): void {
-    const v = this.target?.kind === 'video' ? this.target.el : null;
+    const v = this.target && this.target.kind !== 'iframe' ? this.target.el : null;
     if (!v) return;
     const now = Date.now();
     if (now - this.lastPlayheadPush < 1000) return;
@@ -358,7 +389,7 @@ export class SubtitleController {
 
   private attachCaptionSource(): void {
     const t = this.target;
-    if (!t || t.kind !== 'video') return;
+    if (!t || t.kind === 'iframe') return;
     const video = t.el;
     clearTimeout(this.graceTimer);
     if (this.settings.modePreference === 'audio') {
@@ -413,7 +444,7 @@ export class SubtitleController {
     const units = segmentCues(cues, { merge: this.settings.mergeFragments });
     const prev = resetTranslations ? undefined : this.timeline ?? undefined;
     this.timeline = new Timeline(units, prev);
-    const video = this.target?.kind === 'video' ? this.target.el : null;
+    const video = this.target && this.target.kind !== 'iframe' ? this.target.el : null;
     if (!this.scheduler || resetTranslations) {
       this.scheduler?.dispose();
       this.scheduler = new TranslationScheduler(
@@ -502,6 +533,7 @@ export class SubtitleController {
   private applyVisibility(): void {
     const m = this.mode;
     const show = (m === 'caption' && !!this.target) || (m === 'audio' && this.audioPrimary);
+    if (show && this.overlay) this.overlay.setTarget(this.overlayTargetEl());
     this.overlay?.setVisible(show);
     if (!show && this.native) {
       this.native.disable();
@@ -529,7 +561,7 @@ export class SubtitleController {
     this.stopSources();
     clearTimeout(this.graceTimer);
     const t = this.target;
-    if (t?.kind === 'video') for (const [ev, fn] of this.videoListeners) t.el.removeEventListener(ev, fn);
+    if (t && t.kind !== 'iframe') for (const [ev, fn] of this.videoListeners) t.el.removeEventListener(ev, fn);
     this.videoListeners = [];
     this.trackListUnsub?.();
     this.trackListUnsub = null;
@@ -557,6 +589,9 @@ export class SubtitleController {
       provider: this.target?.provider ?? null,
       embeddedProviders: this.embeddedProviders,
       targetKind: this.target?.kind ?? null,
+      videoElements: this.mediaCounts.videos,
+      audioElements: this.mediaCounts.audios,
+      pageAnchor: !!this.anchor,
       targetArea: this.target ? Math.round(this.target.area % 1e7) : 0,
       captionState: this.target ? this.captionState : 'unavailable',
       captionSource: this.audioActive ? 'live' : this.captionSource,

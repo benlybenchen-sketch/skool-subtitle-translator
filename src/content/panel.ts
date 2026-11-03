@@ -66,7 +66,10 @@ export class ControlPanel {
     if (!st) return { line: 'Đang tìm video…' };
     const frames = st.frames;
     const withVideo = frames.filter((f) => f.targetKind);
-    if (!withVideo.length) return { line: 'Chưa thấy video trong bài học' };
+    if (!withVideo.length) {
+      if (st.audio.active) return { line: 'Audio Mode đang chạy (phụ đề hiển thị ở mức trang)', error: st.audio.error };
+      return { line: 'Không truy cập được phần tử video. Có thể bật Audio Mode từ biểu tượng tiện ích.', error: st.audio.error };
+    }
     const best = frames.find((f) => f.frameId === st.primaryFrameId) ?? withVideo[0];
     const err = st.audio.error ?? frames.find((f) => f.error)?.error;
     if (st.audio.active) return { line: 'Audio Mode đang chạy', error: err };

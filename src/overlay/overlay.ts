@@ -190,11 +190,27 @@ export class SubtitleOverlay {
     });
   };
 
+  /**
+   * Geometry source: the target element, or — page-level fallback when no media element is
+   * accessible — the fullscreen element or the viewport.
+   */
+  private rect(): { left: number; top: number; width: number; height: number } | null {
+    if (this.target) return this.target.getBoundingClientRect();
+    const fs = this.fullscreenElement();
+    if (fs && fs.tagName !== 'IFRAME' && fs.tagName !== 'VIDEO') return fs.getBoundingClientRect();
+    const w = this.doc.defaultView;
+    return w ? { left: 0, top: 0, width: w.innerWidth, height: w.innerHeight } : null;
+  }
+
+  /** True when positioned over the page/viewport instead of a media element. */
+  get pageLevel(): boolean {
+    return !this.target;
+  }
+
   /** Recompute geometry. Public for tests. */
   layout(): void {
-    const t = this.target;
-    const r = t?.getBoundingClientRect();
-    if (!t || !r || r.width < 2 || r.height < 2) {
+    const r = this.rect();
+    if (!r || r.width < 2 || r.height < 2) {
       this.root.style.width = '0px';
       this.root.style.height = '0px';
       return;
@@ -211,7 +227,8 @@ export class SubtitleOverlay {
 
   private applyStyle(): void {
     const s = this.style;
-    const h = this.height || 360;
+    // Page-level mode: size text as if over a ~600px tall player, not the full viewport.
+    const h = Math.min(this.height || 360, this.target ? Infinity : 600);
     const fontPx = clamp(h * 0.05 * s.fontScale, 12, 72);
     this.box.style.fontSize = `${fontPx.toFixed(1)}px`;
     this.box.style.bottom = `${clamp(s.bottomOffsetPct, 2, 60)}%`;

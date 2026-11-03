@@ -3,7 +3,8 @@ import { isContextInvalidated, sendToBackground } from '../shared/messages';
 import { loadSettings, onSettingsChanged, saveSettings } from '../shared/settings';
 import type { Settings } from '../shared/types';
 import { adapterForFrame, isSkoolUrl } from '../players/adapters';
-import { VideoDetector } from '../players/detector';
+import { VideoDetector, type DetectionResult } from '../players/detector';
+import { collectDiagnostics } from './diagnostics';
 import { NavigationWatcher } from '../skool/navigation';
 import { SubtitleController, type ControllerBridge } from './controller';
 import { ControlPanel } from './panel';
@@ -55,15 +56,21 @@ async function main(): Promise<void> {
     detector.scan();
   });
 
+  const info = (r: DetectionResult) => ({
+    embeds: [...new Set(r.embeds.map((e) => e.provider))],
+    videos: r.videos.length,
+    audios: r.audios.length,
+  });
   detector.onChange((r, changed) => {
     nav.check();
-    if (changed) controller.setTarget(r.primary);
-    if (isTop) controller.setEmbeddedProviders([...new Set(r.embeds.map((e) => e.provider))]);
+    if (changed) controller.setTarget(r.primary, r.anchor);
+    controller.setDetectionInfo(info(r));
   });
 
   const r = detector.start();
-  controller.setTarget(r.primary);
-  if (isTop) controller.setEmbeddedProviders([...new Set(r.embeds.map((e) => e.provider))]);
+  controller.setTarget(r.primary, r.anchor);
+  controller.setDetectionInfo(info(r));
+  controller.announce();
   nav.start();
 
   if (isTop) {
@@ -100,6 +107,9 @@ async function main(): Promise<void> {
       case 'tab:status:changed':
         panel?.setStatus(msg.status);
         break;
+      case 'diag:collect':
+        sendResponse(collectDiagnostics(document, detector.result, controller.status()));
+        return;
     }
     sendResponse({ ok: true });
   };

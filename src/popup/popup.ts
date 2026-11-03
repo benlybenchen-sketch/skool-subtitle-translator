@@ -62,6 +62,20 @@ function providerName(f: FrameStatus | undefined): string {
   return adapterById(f.provider).label + (f.isTop ? '' : ' (iframe)');
 }
 
+type Health = { state: string; detail?: string };
+let health: { translation: Health; stt: Health } | null = null;
+
+const HEALTH_LABEL: Record<string, string> = {
+  ready: '✓ Sẵn sàng',
+  configured: '✓ Đã cấu hình (chưa gọi thử)',
+  mock: 'Mock (không dịch thật)',
+  'no-consent': '✗ Chưa cho phép gửi dữ liệu tới dịch vụ từ xa',
+  'no-permission': '✗ Chưa cấp quyền endpoint (Cài đặt → Lưu & cấp quyền)',
+  'no-key': '✗ Thiếu API key',
+  unreachable: '✗ Không kết nối được backend',
+};
+const healthBad = (h?: Health) => !!h && h.state !== 'ready' && h.state !== 'configured' && h.state !== 'mock';
+
 function renderStatus(res: StatusResponse): void {
   const st: TabStatus = res.status;
   const frames = st.frames;
@@ -77,13 +91,28 @@ function renderStatus(res: StatusResponse): void {
       : frames.length
         ? 'Chưa thấy video'
         : '—';
+  // Distinguish "no accessible video element" from "no accessible captions".
+  const top = frames.find((f) => f.isTop);
+  const anyVideo = frames.some((f) => f.targetKind === 'video');
+  const anyMedia = frames.find((f) => f.targetKind === 'media');
+  const anyIframe = frames.some((f) => f.targetKind === 'iframe');
+  $('st-media').textContent = anyVideo
+    ? 'Có <video>'
+    : anyMedia
+      ? `Không có <video>; dùng phần tử media (${anyMedia.audioElements} audio) để đồng bộ`
+      : anyIframe
+        ? 'Trong iframe trình phát'
+        : frames.length
+          ? `✗ Không truy cập được phần tử video${top && top.audioElements ? ` (thấy ${top.audioElements} <audio>)` : ''}`
+          : '—';
+  const noAccessibleVideo = !!frames.length && !anyVideo && !anyMedia && !anyIframe;
   const anySearching = frames.some((f) => f.captionState === 'searching' && f.targetKind === 'video');
   $('st-captions').textContent = captioned
     ? `Có (${captioned.captionSource === 'texttrack' ? 'TextTrack' : captioned.captionSource === 'dom' ? 'DOM' : 'tệp nhập'}${captioned.trackLabel ? ': ' + captioned.trackLabel : ''})`
     : anySearching
       ? 'Đang kiểm tra…'
       : frames.length
-        ? 'Không truy cập được'
+        ? '✗ Không truy cập được phụ đề tiếng Anh'
         : '—';
   const mode = st.audio.active ? 'audio' : best?.mode ?? (frames.length ? 'idle' : 'idle');
   $('st-mode').textContent = settings.enabled ? MODE_LABEL[mode] ?? mode : MODE_LABEL.off;
@@ -94,6 +123,8 @@ function renderStatus(res: StatusResponse): void {
     notices.push('Trình phát nhúng không cho tiện ích đọc phụ đề. Hãy dùng Audio Mode hoặc nhập tệp .vtt/.srt.');
   }
   if (!st.isSkool) notices.push('Mở một bài học trên skool.com để dùng tiện ích.');
+  if (st.isSkool && noAccessibleVideo && !st.audio.active)
+    notices.push('Trình phát của bài học này không cho tiện ích truy cập phần tử video. Bạn vẫn có thể bật Audio Mode (phụ đề hiển thị ở mức trang).');
   $('st-notice').textContent = [...new Set(notices)].join(' ');
   $('st-notice').classList.toggle('hidden', !notices.length);
   const errors = [st.audio.error, ...frames.map((f) => f.error)].filter(Boolean) as string[];
@@ -111,8 +142,10 @@ function renderStatus(res: StatusResponse): void {
   } else {
     btn.textContent = 'Bắt đầu Audio Mode';
     btn.className = 'primary';
-    pill.textContent = 'Tắt';
+    const sttBad = healthBad(health?.stt);
+    pill.textContent = !st.isSkool ? 'Không khả dụng' : sttBad ? 'STT chưa sẵn sàng' : 'Sẵn sàng';
     pill.className = 'pill';
+    pill.title = sttBad ? HEALTH_LABEL[health!.stt.state] ?? '' : '';
   }
   btn.disabled = !st.isSkool && !st.audio.active;
   const a = st.audio;
@@ -127,6 +160,39 @@ function renderStatus(res: StatusResponse): void {
   $('cache-hit').textContent = lookups ? `${Math.round((m.cacheHits / lookups) * 100)}% (${m.cacheHits}/${lookups})` : '–';
   $('latency').textContent = m.requests ? `${m.avgLatencyMs} / ${m.p95LatencyMs} ms` : '–';
   $('failures').textContent = `${m.failedRequests} / ${m.retries}${m.rateLimited ? ` · 429×${m.rateLimited}` : ''}`;
+}
+
+function renderHealth(): void {
+  const el = $('st-backend');
+  if (!health) {
+    el.textContent = '…';
+    return;
+  }
+  el.textContent = HEALTH_LABEL[health.translation.state] ?? health.translation.state;
+  el.className = healthBad(health.translation) ? 'bad' : 'ok';
+}
+
+async function checkHealth(): Promise<void> {
+  try {
+    health = await sendToBackground({ type: 'backend:check' });
+  } catch {
+    health = null;
+  }
+  renderHealth();
+}
+
+async function runDiagnostics(): Promise<void> {
+  if (tabId === undefined) return;
+  const out = $('diag-out');
+  out.classList.remove('hidden');
+  out.textContent = 'Đang chẩn đoán…';
+  try {
+    const r = await sendToBackground({ type: 'diag:run', tabId });
+    out.textContent = JSON.stringify(r, null, 1);
+    $('diag-actions').classList.remove('hidden');
+  } catch (e) {
+    out.textContent = (e as Error).message;
+  }
 }
 
 async function refresh(): Promise<void> {
@@ -202,7 +268,10 @@ async function init(): Promise<void> {
     e.preventDefault();
     void chrome.runtime.openOptionsPage();
   });
-  await refresh();
+  $('diag-btn').addEventListener('click', () => void runDiagnostics());
+  $('diag-copy').addEventListener('click', () => void navigator.clipboard.writeText($('diag-out').textContent ?? ''));
+  onSettingsChanged(() => void checkHealth());
+  await Promise.all([refresh(), checkHealth()]);
   setInterval(refresh, 1500); // popup is short-lived; light refresh while open
 }
 
