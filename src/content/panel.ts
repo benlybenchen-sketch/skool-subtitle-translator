@@ -1,4 +1,5 @@
 import type { Settings, TabStatus } from '../shared/types';
+import { adapterById } from '../players/adapters';
 
 const CSS = `
 :host { all: initial; }
@@ -72,12 +73,12 @@ export class ControlPanel {
     const captioned = frames.find((f) => f.captionState === 'available' && f.captionSource);
     if (captioned) {
       return {
-        line: `Phụ đề: ${captioned.unitsTranslated}/${captioned.unitsTotal} đoạn đã dịch (${captioned.provider ?? ''})`,
+        line: `Phụ đề: ${captioned.unitsTranslated}/${captioned.unitsTotal} đoạn đã dịch${captioned.provider ? ` · ${adapterById(captioned.provider).label}` : ''}`,
         error: err,
       };
     }
     if (frames.some((f) => f.captionState === 'searching')) return { line: 'Đang kiểm tra phụ đề…', error: err };
-    return { line: `Không có phụ đề truy cập được (${best.provider ?? 'video'}). Dùng Audio Mode từ biểu tượng tiện ích.`, error: err };
+    return { line: `Không có phụ đề truy cập được (${best.provider ? adapterById(best.provider).label : 'video'}). Dùng Audio Mode từ biểu tượng tiện ích.`, error: err };
   }
 
   private render(): void {
