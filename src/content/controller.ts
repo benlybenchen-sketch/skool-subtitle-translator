@@ -344,7 +344,12 @@ export class SubtitleController {
       this.scheduler?.setPlayhead(video.currentTime, video.playbackRate);
       this.render();
     });
-    on('seeked', () => this.render());
+    on('seeked', () => {
+      // Seek completed: re-anchor prefetching on the final position (some players fire
+      // `seeking` before currentTime settles), then render from the playback clock.
+      this.scheduler?.setPlayhead(video.currentTime, video.playbackRate);
+      this.render();
+    });
     on('timeupdate', () => {
       if (this.rafHandle === null) this.render();
       this.pushPlayhead();
@@ -449,7 +454,19 @@ export class SubtitleController {
     this.captionSource = kind;
     this.captionState = 'available';
     this.trackLabel = src.label;
-    src.start((cues) => this.rebuildTimeline(cues, false));
+    src.start(
+      (cues) => this.rebuildTimeline(cues, false),
+      (state) => {
+        this.notice =
+          state === 'lost'
+            ? 'Phụ đề tiếng Anh của trình phát không còn truy cập được — chỉ hiển thị các đoạn đã đọc trước đó.'
+            : state === 'disabled'
+              ? 'CC của trình phát đang tắt — dùng phụ đề đã tải; bật CC để tải tiếp phần mới.'
+              : undefined;
+        this.render();
+        this.queueStatus();
+      },
+    );
     this.applyVisibility();
     this.queueStatus();
   }

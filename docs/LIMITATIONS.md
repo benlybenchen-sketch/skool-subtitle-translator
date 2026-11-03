@@ -20,6 +20,15 @@ boundaries. In that situation:
   fullscreen the overlay only shows if the fullscreen element is in the accessible DOM.
 - Use popup → **"Chạy chẩn đoán"** and share the result when reporting issues.
 
+## Seeking and caption track lifecycle
+- Cues read from the player's TextTrack are kept for the whole lesson, so flushed/disabled tracks do
+  not erase known subtitles. Parts of the video whose cues were never loaded can only be shown once
+  the player loads them (cue loading is the player's job).
+- If the player disables the English track right after a seek, the extension re-enables it in
+  "hidden" mode once per seek (within 2.5 s). Outside that window a disabled track is treated as the
+  user's choice and left alone; the popup notes that CC is off.
+- Fixed against mock players reproducing the reported behaviour; not yet re-verified on real Skool.
+
 ## Captions a player does not expose cannot be read
 - Many embedded players render captions with their own engine and do **not** expose a `TextTrack`.
   The extension will report "Không truy cập được" (unavailable) and offer Audio Mode or `.vtt/.srt`

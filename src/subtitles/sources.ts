@@ -56,65 +56,165 @@ export function readTrackCues(track: TextTrack): Cue[] {
 export interface TimedSource {
   readonly kind: 'texttrack' | 'manual';
   readonly label: string;
-  start(onCues: (cues: Cue[]) => void): void;
+  start(onCues: (cues: Cue[]) => void, onState?: (s: 'ok' | 'disabled' | 'lost') => void): void;
   stop(): void;
 }
 
+export type TrackState = 'ok' | 'disabled' | 'lost';
+
 /**
- * Reads cues from an HTML5 TextTrack. A disabled track has no cues, so it is
- * switched to "hidden" (loaded but not rendered by the browser). Players that
- * stream captions (HLS) add cues over time; we re-read on cuechange/load.
+ * Reads cues from an HTML5 TextTrack, robust to player lifecycle changes around seeking:
+ *  - Cumulative cue store: cues are only ever ADDED (keyed by time+text). Players that flush
+ *    cues outside the buffer (HLS) or disable the track on seek therefore never erase subtitles
+ *    that were already read for those timestamps.
+ *  - Track replacement: if the player removes the track or adds a new English track object,
+ *    listeners move to the new track automatically.
+ *  - Self-healing: re-checks a cheap cue signature on seeked/timeupdate (≈4 Hz media events —
+ *    no timers/polling), so missed `cuechange` events cannot desynchronise us.
+ *  - A disabled track has no cues. Right after a seek (when players reset tracks) it is switched
+ *    back to "hidden" — at most ONCE per seek. Outside that window a disabled track is treated
+ *    as the user's choice and left alone.
  */
 export class TextTrackSource implements TimedSource {
   readonly kind = 'texttrack' as const;
   private changedMode = false;
-  private lastCount = -1;
+  private sig = '';
+  private store = new Map<string, Cue>();
   private onCues: ((c: Cue[]) => void) | null = null;
+  private onState: ((s: TrackState) => void) | null = null;
+  private state: TrackState = 'ok';
   private trackEls: HTMLTrackElement[] = [];
+  private lastSeekAt = -Infinity;
+  private rehidUsedForSeek = true;
+  private bound: TextTrack | null = null;
+
+  static readonly SEEK_GRACE_MS = 2500;
 
   constructor(
     private readonly video: HTMLMediaElement,
-    readonly track: TextTrack,
+    public track: TextTrack,
+    private readonly now: () => number = () => Date.now(),
   ) {}
 
   get label(): string {
     return this.track.label || this.track.language || 'English';
   }
 
-  start(onCues: (cues: Cue[]) => void): void {
+  get trackState(): TrackState {
+    return this.state;
+  }
+
+  start(onCues: (cues: Cue[]) => void, onState?: (s: TrackState) => void): void {
     this.onCues = onCues;
+    this.onState = onState ?? null;
     if (this.track.mode === 'disabled') {
       this.track.mode = 'hidden';
       this.changedMode = true;
     }
-    this.track.addEventListener('cuechange', this.refresh);
+    this.bind(this.track);
+    this.video.addEventListener('seeking', this.onSeeking);
     this.video.addEventListener('seeked', this.refresh);
+    this.video.addEventListener('timeupdate', this.refresh);
     this.video.addEventListener('loadeddata', this.refresh);
+    const list = this.video.textTracks;
+    list?.addEventListener?.('addtrack', this.refresh);
+    list?.addEventListener?.('removetrack', this.refresh);
+    list?.addEventListener?.('change', this.refresh);
+    this.refresh();
+  }
+
+  private bind(track: TextTrack): void {
+    this.unbind();
+    this.bound = track;
+    track.addEventListener('cuechange', this.refresh);
     for (const el of this.video.querySelectorAll('track')) {
-      if ((el as HTMLTrackElement).track === this.track) {
+      if ((el as HTMLTrackElement).track === track) {
         el.addEventListener('load', this.refresh);
         this.trackEls.push(el as HTMLTrackElement);
       }
     }
-    this.refresh();
+  }
+
+  private unbind(): void {
+    this.bound?.removeEventListener('cuechange', this.refresh);
+    for (const el of this.trackEls) el.removeEventListener('load', this.refresh);
+    this.trackEls = [];
+    this.bound = null;
+  }
+
+  private onSeeking = (): void => {
+    this.lastSeekAt = this.now();
+    this.rehidUsedForSeek = false;
+  };
+
+  private inList(t: TextTrack): boolean {
+    const list = this.video.textTracks;
+    if (!list) return false;
+    for (let i = 0; i < list.length; i++) if (list[i] === t) return true;
+    return false;
+  }
+
+  private setState(s: TrackState): void {
+    if (s === this.state) return;
+    this.state = s;
+    this.onState?.(s);
   }
 
   refresh = (): void => {
-    const cues = this.track.cues;
-    const count = cues?.length ?? 0;
-    if (count === this.lastCount) return;
-    this.lastCount = count;
-    this.onCues?.(readTrackCues(this.track));
+    if (!this.onCues) return;
+    // 1. Track replaced/removed?
+    const replacement = findEnglishTrack(this.video);
+    if (!this.inList(this.track) || (replacement && replacement.track !== this.track && !this.track.cues?.length)) {
+      if (replacement) {
+        this.track = replacement.track;
+        this.changedMode = false;
+        if (this.track.mode === 'disabled') {
+          this.track.mode = 'hidden';
+          this.changedMode = true;
+        }
+        this.bind(this.track);
+        this.sig = '';
+      } else {
+        this.setState('lost');
+        return;
+      }
+    }
+    // 2. Disabled by the player right after a seek → re-enable once (hidden: no native rendering).
+    if (this.track.mode === 'disabled') {
+      const justSeeked = this.now() - this.lastSeekAt < TextTrackSource.SEEK_GRACE_MS;
+      if (justSeeked && !this.rehidUsedForSeek) {
+        this.rehidUsedForSeek = true;
+        this.track.mode = 'hidden';
+      } else {
+        this.setState('disabled');
+        return; // keep using the cues already read; never toggle CC repeatedly
+      }
+    }
+    this.setState('ok');
+    // 3. Cheap signature check; merge new cues into the cumulative store.
+    const list = this.track.cues;
+    const n = list?.length ?? 0;
+    const sig = n ? `${n}|${list![0].startTime}|${list![n - 1].endTime}` : '0';
+    if (sig === this.sig) return;
+    this.sig = sig;
+    const before = this.store.size;
+    for (const c of readTrackCues(this.track)) this.store.set(c.id, c);
+    if (this.store.size !== before) this.onCues([...this.store.values()]);
   };
 
   stop(): void {
-    this.track.removeEventListener('cuechange', this.refresh);
+    this.unbind();
+    this.video.removeEventListener('seeking', this.onSeeking);
     this.video.removeEventListener('seeked', this.refresh);
+    this.video.removeEventListener('timeupdate', this.refresh);
     this.video.removeEventListener('loadeddata', this.refresh);
-    for (const el of this.trackEls) el.removeEventListener('load', this.refresh);
-    this.trackEls = [];
+    const list = this.video.textTracks;
+    list?.removeEventListener?.('addtrack', this.refresh);
+    list?.removeEventListener?.('removetrack', this.refresh);
+    list?.removeEventListener?.('change', this.refresh);
     if (this.changedMode && this.track.mode === 'hidden') this.track.mode = 'disabled';
     this.onCues = null;
+    this.onState = null;
   }
 }
 

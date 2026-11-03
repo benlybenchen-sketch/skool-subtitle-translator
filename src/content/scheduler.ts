@@ -265,7 +265,10 @@ export class TranslationScheduler {
     if (this.disposed) return;
     const byId = new Map((results ?? []).map((r) => [r.id, r]));
     const changed: TimedUnit[] = [];
-    for (const u of batch) {
+    for (const sent of batch) {
+      // The timeline may have been rebuilt (new cues after a seek) while this was in flight:
+      // apply the result to the current unit object so nothing is lost or re-requested.
+      const u = this.timeline.get(sent.id) ?? sent;
       const r = byId.get(u.id);
       if (r?.vi) {
         u.vi = r.vi;

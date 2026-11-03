@@ -4,8 +4,8 @@ Run on 2026-11-03, Node 22, Chromium (Playwright 1.63 build), Linux.
 
 ```
 npm run typecheck   → 0 errors
-npm test            → 10 files, 148 tests passed
-npm run test:e2e    → 17/17 passed (built extension loaded in Chromium, mock pages)
+npm test            → 11 files, 157 tests passed
+npm run test:e2e    → 18/18 passed (built extension loaded in Chromium, mock pages)
 ```
 
 **Important:** every automated test uses mocks or mock pages. They prove the extension's own logic and
@@ -39,6 +39,8 @@ with a logged-in Skool account.
 | 19 | **Skool page with no accessible `<video>` but active playback** (real-lesson evidence: 0 `<video>`, 2 `<audio>`, 3 `js.stripe.com` iframes, player in an inaccessible/closed shadow root) | `no-video.test` (detection, status still reported, `<audio>` as media target, page-level overlay over player anchor / viewport, Caption Mode preferred when an `<audio>` exposes an English track, open vs closed shadow DOM, diagnostics, backend health states) | ✓ mock page reproducing the evidence: status + diagnostics correct, Audio Mode start accepted with no video element, page-level Vietnamese overlay shown over the player area |
 
 | 20 | **Speed-first pretranslation** | `scheduler.test` (P1 small first batch, 90 s window covered before playback, P4 background with one slot, no duplicate cue requests, seek → P1 at new position, completed results kept, time-to-first measured), `translation.test` (Gemini 3.5 Flash-Lite request: minimal thinking, temperature 0.2, response schema; usage tokens; 1:1 ID validation; P1 jumps queued P4; glossary terminology), `cache.test` (tokens, cost estimate, median/p95) | ✓ paused video: all cues translated before playback, seek shows Vietnamese on the next frame, 0 missed deadlines, each segment requested exactly once |
+
+| 21 | **Seek recovery** (real-Skool report: subtitles vanished after seeking until CC was toggled) | `seek.test` (track disabled during seek, streaming track flushing cues, cues added without `cuechange`, TextTrack object replaced, at most one re-enable per seek, delayed responses after seek, rapid seeks paused at 2×, fullscreen + seek, captions genuinely removed → reported; 8/9 failed before the fix) | ✓ 12-min mock lesson whose player disables CC on every seek: +10 s, +5 min, −30 s, −10 min, rapid seeks, 2×, paused, fullscreen — correct Vietnamese line each time, one overlay, each cue translated at most once (fails on the pre-fix build) |
 
 Additional: VAD chunker (pauses, forced cuts, noise/clicks, flush), WAV encoding/resampling, live
 segment assembly (fragment merge, overlap removal, hallucination filter), STT ordering under

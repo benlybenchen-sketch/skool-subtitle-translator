@@ -31,6 +31,11 @@ function wav(seconds, rate = 8000) {
   return b;
 }
 const WAV = wav(30);
+const LONG_WAV = wav(720); // 12-minute lesson for minute-level seeks
+const LONG_VTT = 'WEBVTT\n\n' + Array.from({ length: 24 }, (_, i) => {
+  const ts = (s) => new Date(s * 1000).toISOString().slice(11, 23);
+  return `${ts(i * 30)} --> ${ts(i * 30 + 20)}\nLesson cue number ${i}.\n`;
+}).join('\n');
 const VTT2 = 'WEBVTT\n\n00:00:00.500 --> 00:00:04.000\nThis is the second lesson.\n';
 
 const results = [];
@@ -76,7 +81,9 @@ await context.route(/^https:\/\/www\.skool\.com\//, (route) => {
   if (u.pathname === '/media/lesson.wav' || u.pathname === '/media/lesson2.wav') return serveMedia(route, WAV);
   if (u.pathname === '/media/lesson.vtt') return route.fulfill(serve(readFileSync(join(fixtures, 'lesson.vtt')), 'text/vtt'));
   if (u.pathname === '/media/lesson2.vtt') return route.fulfill(serve(VTT2, 'text/vtt'));
-  const page = u.search.includes('novideo') ? 'skool-novideo.html' : u.search.includes('loom') ? 'skool-loom.html' : u.search.includes('nocaptions') ? 'skool-nocaptions.html' : 'skool-native.html';
+  if (u.pathname === '/media/long.wav') return serveMedia(route, LONG_WAV);
+  if (u.pathname === '/media/long.vtt') return route.fulfill(serve(LONG_VTT, 'text/vtt'));
+  const page = u.search.includes('seekreset') ? 'skool-seek.html' : u.search.includes('novideo') ? 'skool-novideo.html' : u.search.includes('loom') ? 'skool-loom.html' : u.search.includes('nocaptions') ? 'skool-nocaptions.html' : 'skool-native.html';
   return route.fulfill(serve(readFileSync(join(pages, page)), 'text/html'));
 });
 await context.route(/^https:\/\/js\.stripe\.com\//, (route) => route.fulfill(serve('<!doctype html><title>stripe mock</title>', 'text/html')));
@@ -403,6 +410,41 @@ await test('Pretranslation: cues translated before playback reaches them, shown 
   const after = await setup.evaluate(() => chrome.runtime.sendMessage({ type: 'metrics:get' }));
   const translated = after.segmentsTranslated - before.segmentsTranslated;
   assert(translated === st.unitsTotal, `expected ${st.unitsTotal} segments requested once, got ${translated}`);
+  await p.close();
+});
+
+await test('Seek regression: player disables CC on seek → Vietnamese subtitles recover without toggling CC', async () => {
+  const before = await setup.evaluate(() => chrome.runtime.sendMessage({ type: 'metrics:get' }));
+  const p = await context.newPage();
+  await p.goto('https://www.skool.com/test-group/classroom/course8?md=seekreset');
+  await p.waitForSelector('video');
+  await p.evaluate(() => document.querySelector('video').play());
+  const expectAt = async (t, label, rate = 1) => {
+    await p.evaluate(({ t, rate }) => { const v = document.querySelector('video'); v.playbackRate = rate; v.currentTime = t; }, { t, rate });
+    const want = `[VI] Lesson cue number ${Math.floor(t / 30)}.`;
+    await waitFor(async () => (await overlayText(p)) === want, 4000, `${label}: "${want}" (got ${JSON.stringify(await overlayText(p))})`);
+  };
+  await expectAt(5, 'start');
+  await expectAt(15, '+10 s');
+  await expectAt(315, '+5 min');
+  await expectAt(285, '-30 s');
+  await expectAt(5 + 30 * 0.2, '-10 min'); // back near the start
+  for (const t of [400, 95, 610, 35]) await p.evaluate((t) => (document.querySelector('video').currentTime = t), t); // rapid
+  await expectAt(455, 'after rapid seeks');
+  await expectAt(605, '2× speed', 2);
+  await p.evaluate(() => document.querySelector('video').pause());
+  await expectAt(125, 'paused');
+  await p.keyboard.press('f');
+  await p.waitForFunction(() => !!document.fullscreenElement);
+  await expectAt(245, 'fullscreen');
+  const inFs = await p.evaluate(() => document.getElementById('player').contains(document.querySelector('[data-sst-overlay]')));
+  assert(inFs, 'overlay left the fullscreen player');
+  await p.keyboard.press('f');
+  const n = await p.evaluate(() => document.querySelectorAll('[data-sst-overlay]').length);
+  assert(n === 1, `overlays=${n}`);
+  const after = await setup.evaluate(() => chrome.runtime.sendMessage({ type: 'metrics:get' }));
+  const translated = after.segmentsTranslated - before.segmentsTranslated;
+  assert(translated <= 24, `each of the 24 cues may be translated at most once, got ${translated}`);
   await p.close();
 });
 

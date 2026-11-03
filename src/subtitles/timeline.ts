@@ -11,7 +11,7 @@ export class Timeline {
       .map((u) => {
         const old = previous?.get(u.id);
         return old && old.text === u.text
-          ? { ...u, vi: old.vi, status: old.status === 'inflight' ? 'pending' : old.status, attempts: old.attempts }
+          ? { ...u, vi: old.vi, status: old.status, attempts: old.attempts }
           : { ...u, status: 'pending' as const, attempts: 0 };
       });
     for (const u of this.units) this.byId.set(u.id, u);
