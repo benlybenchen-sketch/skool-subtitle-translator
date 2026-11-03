@@ -158,7 +158,19 @@ function renderStatus(res: StatusResponse): void {
   const lookups = m.cacheHits + m.cacheMisses;
   $('cache-info').textContent = `${res.cache.entries} đoạn · ${(res.cache.approxBytes / 1024).toFixed(0)} KB`;
   $('cache-hit').textContent = lookups ? `${Math.round((m.cacheHits / lookups) * 100)}% (${m.cacheHits}/${lookups})` : '–';
-  $('latency').textContent = m.requests ? `${m.avgLatencyMs} / ${m.p95LatencyMs} ms` : '–';
+  $('latency').textContent = m.requests ? `${m.medianLatencyMs} / ${m.p95LatencyMs} ms` : '–';
+  const perf = captioned?.perf;
+  $('ttfs').textContent = perf?.timeToFirstMs !== undefined ? `${perf.timeToFirstMs} ms` : '–';
+  $('coverage').textContent = perf ? `${Math.round(perf.aheadCoverage * 100)}%` : '–';
+  $('missed').textContent = perf ? `${perf.missedDeadlines} đoạn` : '–';
+  $('tokens').textContent =
+    m.inputTokens || m.outputTokens ? `${m.inputTokens.toLocaleString()} / ${m.outputTokens.toLocaleString()}` : '–';
+  $('cost').textContent =
+    m.estimatedCostUsd === null
+      ? 'không rõ giá model'
+      : m.inputTokens || m.outputTokens
+        ? '≈ $' + m.estimatedCostUsd.toFixed(4)
+        : '–';
   $('failures').textContent = `${m.failedRequests} / ${m.retries}${m.rateLimited ? ` · 429×${m.rateLimited}` : ''}`;
 }
 

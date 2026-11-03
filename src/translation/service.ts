@@ -5,6 +5,8 @@ import { TranslationCache } from '../cache/translationCache';
 import { TranslationQueue, type QueueOptions } from './queue';
 import { PROMPT_VERSION } from './prompt';
 import { glossaryVersion, parseGlossary } from './glossary';
+import { supportsThinkingLevel } from './providers/gemini';
+import { estimateCostUsd } from './pricing';
 import { createProvider } from './providers';
 import type { TranslationProvider } from './types';
 import { ConfigError, HttpError } from './errors';
@@ -24,7 +26,18 @@ export interface ServiceDeps {
 /** Settings fingerprint that participates in the cache key. */
 export function settingsFingerprint(s: Settings): string {
   return hash53(
-    [s.provider.kind, s.provider.endpoint, s.provider.model, s.provider.temperature, PROMPT_VERSION, glossaryVersion(s.glossary), 'en', 'vi'].join('|'),
+    [
+      s.provider.kind,
+      s.provider.endpoint,
+      s.provider.model,
+      s.provider.temperature,
+      s.provider.kind === 'gemini' && supportsThinkingLevel(s.provider.model) ? 'think:minimal' : '',
+      PROMPT_VERSION,
+      glossaryVersion(s.glossary),
+      'en',
+      'vi',
+      s.mergeFragments ? 'merge' : 'nomerge',
+    ].join('|'),
   );
 }
 
@@ -40,7 +53,20 @@ export class Metrics {
   segmentsTranslated = 0;
   cacheHits = 0;
   cacheMisses = 0;
+  inputTokens = 0;
+  outputTokens = 0;
+  /** Cost of tokens with a known model price (USD). */
+  estimatedCostUsd = 0;
+  pricedModel = true;
   private latencies: number[] = [];
+
+  recordUsage(model: string, input: number, output: number) {
+    this.inputTokens += input;
+    this.outputTokens += output;
+    const c = estimateCostUsd(model, input, output);
+    if (c === null) this.pricedModel = false;
+    else this.estimatedCostUsd += c;
+  }
 
   recordLatency(ms: number) {
     this.latencies.push(ms);
@@ -58,7 +84,11 @@ export class Metrics {
       cacheHits: this.cacheHits,
       cacheMisses: this.cacheMisses,
       avgLatencyMs: Math.round(avg),
+      medianLatencyMs: Math.round(percentile(this.latencies, 50)),
       p95LatencyMs: Math.round(percentile(this.latencies, 95)),
+      inputTokens: this.inputTokens,
+      outputTokens: this.outputTokens,
+      estimatedCostUsd: this.pricedModel ? Math.round(this.estimatedCostUsd * 1e6) / 1e6 : null,
     };
   }
 }
@@ -67,6 +97,7 @@ export class Metrics {
 export class TranslationService {
   readonly metrics = new Metrics();
   readonly queue: TranslationQueue;
+  private currentModel = '';
 
   constructor(private readonly deps: ServiceDeps) {
     this.queue = new TranslationQueue({
@@ -79,6 +110,7 @@ export class TranslationService {
         } else if (e.type === 'retry') this.metrics.retries++;
         else if (e.type === 'rate-limited') this.metrics.rateLimited++;
         else if (e.type === 'failure') this.metrics.failedRequests++;
+        else if (e.type === 'usage') this.metrics.recordUsage(this.currentModel, e.usage.inputTokens, e.usage.outputTokens);
         deps.queueOptions?.onEvent?.(e);
       },
     });
@@ -95,8 +127,9 @@ export class TranslationService {
     }
   }
 
-  async translateUnits(videoKey: string, units: UnitPayload[], context: string[]): Promise<UnitResult[]> {
+  async translateUnits(videoKey: string, units: UnitPayload[], context: string[], priority = 2): Promise<UnitResult[]> {
     const settings = await this.deps.getSettings();
+    this.currentModel = settings.provider.kind === 'mock' ? 'mock' : settings.provider.model;
     try {
       await this.checkConfig(settings);
     } catch (e) {
@@ -138,6 +171,7 @@ export class TranslationService {
           context: context.slice(-Math.max(0, settings.contextWindow)),
           glossary: parseGlossary(settings.glossary),
           group: videoKey,
+          priority,
         },
       );
       const toCache: { key: string; videoKey: string; vi: string }[] = [];

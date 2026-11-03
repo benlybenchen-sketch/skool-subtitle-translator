@@ -27,7 +27,7 @@ describe('TranslationScheduler (prefetch & prioritisation)', () => {
   it('translates the units around the playhead first', async () => {
     const tl = new Timeline(units(100));
     const b = mkBridge();
-    const s = new TranslationScheduler(tl, 'v', b, () => undefined, () => undefined, { batchSize: 5, maxInFlight: 1, lookAhead: 20 });
+    const s = new TranslationScheduler(tl, 'v', b, () => undefined, () => undefined, { batchSize: 5, maxInFlight: 1, lookAhead: 20, pretranslateAll: false });
     s.setPlayhead(250);
     await flush();
     expect(b.calls[0][0]).toBe('line 49'); // lookBehind 3s → unit at 245–249 is still relevant
@@ -37,7 +37,7 @@ describe('TranslationScheduler (prefetch & prioritisation)', () => {
   it('only prefetches within the look-ahead window (cost control)', async () => {
     const tl = new Timeline(units(100));
     const b = mkBridge();
-    const s = new TranslationScheduler(tl, 'v', b, () => undefined, () => undefined, { batchSize: 50, lookAhead: 30 });
+    const s = new TranslationScheduler(tl, 'v', b, () => undefined, () => undefined, { batchSize: 50, lookAhead: 30, pretranslateAll: false });
     s.setPlayhead(0);
     await new Promise((r) => setTimeout(r, 10));
     const done = tl.units.filter((u) => u.status === 'done').length;
@@ -47,7 +47,7 @@ describe('TranslationScheduler (prefetch & prioritisation)', () => {
   it('scales the look-ahead with playback speed', async () => {
     const tl = new Timeline(units(100));
     const b = mkBridge();
-    const s = new TranslationScheduler(tl, 'v', b, () => undefined, () => undefined, { batchSize: 50, lookAhead: 30 });
+    const s = new TranslationScheduler(tl, 'v', b, () => undefined, () => undefined, { batchSize: 50, lookAhead: 30, pretranslateAll: false });
     s.setPlayhead(0, 2);
     await new Promise((r) => setTimeout(r, 10));
     expect(tl.units.filter((u) => u.status === 'done').length).toBe(13); // 0..60s
@@ -159,5 +159,108 @@ describe('TranslationScheduler (prefetch & prioritisation)', () => {
     await flush();
     expect(b.cancelled).toEqual(['video-x']);
     expect(tl.units[0].vi).toBeUndefined();
+  });
+});
+
+describe('priority tiers (speed-first pretranslation)', () => {
+  const mk = (opts = {}) => {
+    const tl = new Timeline(units(60, 5)); // 300 s of cues every 5 s
+    const sent: { texts: string[]; priority?: number }[] = [];
+    let release: (() => void)[] = [];
+    const b: TranslateBridge = {
+      translate: (_k, us, _c, priority) =>
+        new Promise((resolve) => {
+          sent.push({ texts: us.map((u) => u.text), priority });
+          release.push(() => resolve(us.map((u) => ({ id: u.id, vi: 'vi ' + u.text }))));
+        }),
+      cancel() {},
+    };
+    const s = new TranslationScheduler(tl, 'v', b, () => undefined, () => undefined, opts);
+    const drain = async () => {
+      for (let i = 0; i < 200 && release.length; i++) {
+        const r = release;
+        release = [];
+        r.forEach((f) => f());
+        await flush();
+      }
+    };
+    return { tl, s, sent, drain, releaseAll: () => release.splice(0).forEach((f) => f()) };
+  };
+
+  it('first request is a small P1 batch at the playhead (fast first subtitle)', () => {
+    const { s, sent } = mk();
+    s.setPlayhead(0);
+    expect(sent[0].priority).toBe(1);
+    expect(sent[0].texts).toEqual(['line 0', 'line 1', 'line 2', 'line 3']); // firstBatchSize 4
+  });
+
+  it('starts translating before playback reaches a cue, covering the 90 s window first', async () => {
+    const { tl, s, sent, drain } = mk({ pretranslateAll: false });
+    s.setPlayhead(0);
+    await drain();
+    // nothing played yet, but every cue starting within 90 s is already translated
+    expect(tl.units.filter((u) => u.start <= 90).every((u) => u.status === 'done')).toBe(true);
+    expect(tl.units.some((u) => u.start > 90 && u.status === 'done')).toBe(false);
+    expect(sent.map((x) => x.priority).slice(0, 3)).toEqual([1, 2, 3]); // 0–19 s, 20–69 s, 70 s+
+    expect(s.aheadCoverage()).toBe(1);
+  });
+
+  it('then translates the rest of the transcript in the background (P4, one slot max)', async () => {
+    const { tl, s, sent, drain } = mk();
+    s.setPlayhead(0);
+    await drain();
+    expect(tl.counts().done).toBe(60);
+    const p4 = sent.filter((x) => x.priority === 4);
+    expect(p4.length).toBeGreaterThan(0);
+    // P4 only starts once every cue of the 90 s window has been dispatched
+    let lastWindowReq = -1;
+    sent.forEach((x, i) => {
+      if (x.texts.some((t) => Number(t.split(' ')[1]) * 5 <= 90)) lastWindowReq = i;
+    });
+    expect(sent.findIndex((x) => x.priority === 4)).toBeGreaterThan(lastWindowReq);
+  });
+
+  it('never sends a cue twice (no duplicate requests)', async () => {
+    const { s, sent, drain } = mk();
+    s.setPlayhead(0);
+    s.setPlayhead(0);
+    s.setPlayhead(100);
+    await drain();
+    const all = sent.flatMap((x) => x.texts);
+    expect(new Set(all).size).toBe(all.length);
+    expect(all.length).toBe(60);
+  });
+
+  it('seeking re-prioritises: the next request targets the new position with P1', async () => {
+    const { s, sent, releaseAll } = mk();
+    s.setPlayhead(0);
+    s.setPlayhead(200); // seek while two requests are in flight
+    releaseAll(); // in-flight results for 0 s are kept, not cancelled
+    await flush();
+    const afterSeek = sent.slice(2);
+    expect(afterSeek[0].priority).toBe(1);
+    expect(afterSeek[0].texts[0]).toBe('line 39'); // unit at 195–199 s (look-behind 3 s)
+  });
+
+  it('keeps completed translations after seeking away and back', async () => {
+    const { tl, s, drain } = mk({ pretranslateAll: false });
+    s.setPlayhead(0);
+    await drain();
+    const first = tl.units[0].vi;
+    s.setPlayhead(250);
+    await drain();
+    s.setPlayhead(0);
+    expect(tl.units[0].vi).toBe(first);
+    expect(s.nextBatch()?.priority ?? 0).not.toBe(1); // nothing to redo at 0 s
+  });
+
+  it('measures time to first translated segment', async () => {
+    let now = 1000;
+    const tl = new Timeline(units(3));
+    const s = new TranslationScheduler(tl, 'v', mkBridge(), () => undefined, () => undefined, { now: () => now });
+    now = 1350;
+    s.setPlayhead(0);
+    await flush();
+    expect(s.timeToFirstMs).toBe(350);
   });
 });

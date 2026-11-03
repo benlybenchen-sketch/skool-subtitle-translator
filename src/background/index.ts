@@ -147,7 +147,7 @@ async function handle(msg: BackgroundRequest, sender: chrome.runtime.MessageSend
       }
       return { ok: true };
     case 'translate:units':
-      return { results: await service.translateUnits(msg.videoKey, msg.units, msg.context) };
+      return { results: await service.translateUnits(msg.videoKey, msg.units, msg.context, msg.priority) };
     case 'translate:cancel':
       service.cancel(msg.videoKey);
       return { ok: true };

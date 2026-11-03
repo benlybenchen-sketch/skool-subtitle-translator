@@ -62,7 +62,7 @@ OPENAI_BASE_URL=http://localhost:11434/v1 OPENAI_MODEL=qwen2.5:7b npm run local-
 
 ### Lựa chọn khác: gọi trực tiếp OpenAI / Gemini từ tiện ích
 
-1. Nhà cung cấp = **OpenAI-compatible** (endpoint `https://api.openai.com/v1`, model `gpt-4o-mini`) hoặc **Google Gemini** (model `gemini-2.0-flash`).
+1. Nhà cung cấp = **OpenAI-compatible** (endpoint `https://api.openai.com/v1`, model `gpt-4o-mini`) hoặc **Google Gemini** (khuyến nghị: model `gemini-3.5-flash-lite`, temperature `0.2`).
 2. Nhập API key.
 3. Ở mục **3. Quyền riêng tư**, tích **"Cho phép gửi văn bản phụ đề tới dịch vụ dịch từ xa"** (bắt buộc, nếu không tiện ích sẽ không gửi gì).
 4. Bấm **"Lưu & cấp quyền"** và chấp nhận quyền truy cập domain của nhà cung cấp.

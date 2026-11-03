@@ -11,7 +11,7 @@
  *   PORT=8787 HOST=127.0.0.1 LOCAL_TOKEN=(optional bearer token)
  *   TRANSLATE_BACKEND=openai|gemini|mock
  *   OPENAI_API_KEY, OPENAI_BASE_URL (default https://api.openai.com/v1; Ollama: http://localhost:11434/v1), OPENAI_MODEL
- *   GEMINI_API_KEY, GEMINI_MODEL (default gemini-2.0-flash)
+ *   GEMINI_API_KEY, GEMINI_MODEL (default gemini-3.5-flash-lite)
  *   STT_BASE_URL (OpenAI-compatible, default OPENAI_BASE_URL), STT_API_KEY (default OPENAI_API_KEY), STT_MODEL (default whisper-1)
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -34,7 +34,7 @@ function pickTranslator(): TranslationProvider {
   if (kind === 'gemini')
     return new GeminiProvider({
       endpoint: env.GEMINI_BASE_URL ?? 'https://generativelanguage.googleapis.com/v1beta',
-      model: env.GEMINI_MODEL ?? 'gemini-2.0-flash',
+      model: env.GEMINI_MODEL ?? 'gemini-3.5-flash-lite',
       apiKey: env.GEMINI_API_KEY,
       temperature: 0.2,
     });
@@ -111,7 +111,12 @@ const server = createServer(async (req, res) => {
         target?: string;
       };
       const segments = (body.segments ?? []).filter((s) => s && typeof s.id === 'string' && typeof s.text === 'string').slice(0, 64);
+      const usage = { inputTokens: 0, outputTokens: 0 };
       const out = await translator.translateBatch({
+        onUsage: (u) => {
+          usage.inputTokens += u.inputTokens;
+          usage.outputTokens += u.outputTokens;
+        },
         segments,
         context: (body.context ?? []).slice(-8),
         glossary: (body.glossary ?? []).slice(0, 200),
@@ -119,7 +124,7 @@ const server = createServer(async (req, res) => {
         targetLang: body.target ?? 'vi',
         signal: ac.signal,
       });
-      return send(res, 200, { translations: Object.entries(out).map(([id, text]) => ({ id, text })) }, origin);
+      return send(res, 200, { translations: Object.entries(out).map(([id, text]) => ({ subtitle_id: id, translated_text: text })), usage }, origin);
     }
     if (req.method === 'POST' && req.url === '/transcribe') {
       const wav = await readBody(req, 15_000_000);

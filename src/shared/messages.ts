@@ -25,7 +25,7 @@ export type BackgroundRequest =
   | { type: 'frame:hello'; isTop: boolean }
   | { type: 'frame:status'; status: Omit<FrameStatus, 'frameId'> }
   | { type: 'frame:gone' }
-  | { type: 'translate:units'; videoKey: string; units: UnitPayload[]; context: string[] }
+  | { type: 'translate:units'; videoKey: string; units: UnitPayload[]; context: string[]; priority?: number }
   | { type: 'translate:cancel'; videoKey: string }
   | { type: 'translate:test' }
   | { type: 'tab:status'; tabId: number }

@@ -74,6 +74,8 @@ export interface Settings {
   glossary: string;
   /** Number of preceding segments sent as context. */
   contextWindow: number;
+  /** After the 90 s prefetch window is covered, translate the rest of an accessible transcript in the background. */
+  pretranslateAll: boolean;
   /** Merge short caption fragments into sentence-sized units before translating. */
   mergeFragments: boolean;
   /** Extra CSS selectors that point to caption text rendered in the DOM (advanced). */
@@ -110,7 +112,18 @@ export interface FrameStatus {
   unitsFailed: number;
   error?: string;
   notice?: string;
+  perf?: CaptionPerf;
   updatedAt: number;
+}
+
+/** Measured (not assumed) caption-translation performance for the current video. */
+export interface CaptionPerf {
+  /** Captions available → first Vietnamese segment received. */
+  timeToFirstMs?: number;
+  /** Segments that became visible on screen before their translation arrived. */
+  missedDeadlines: number;
+  /** Share of segments in the next 90 s that are already translated (0–1). */
+  aheadCoverage: number;
 }
 
 export interface AudioStatus {
@@ -141,7 +154,12 @@ export interface MetricsSnapshot {
   cacheHits: number;
   cacheMisses: number;
   avgLatencyMs: number;
+  medianLatencyMs: number;
   p95LatencyMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  /** null when the model's price is unknown */
+  estimatedCostUsd: number | null;
 }
 
 export interface CacheStats {

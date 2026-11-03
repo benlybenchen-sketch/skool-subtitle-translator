@@ -23,7 +23,7 @@ npm install && npm run build
 
 Other variables: `PORT`, `HOST`, `LOCAL_TOKEN` (optional bearer token — put the same value in the
 extension's API key field), `OPENAI_MODEL` (default `gpt-4o-mini`), `GEMINI_MODEL` (default
-`gemini-2.0-flash`), `STT_API_KEY`, `STT_MODEL` (default `whisper-1`).
+`gemini-3.5-flash-lite`), `STT_API_KEY`, `STT_MODEL` (default `whisper-1`).
 
 API (for writing your own backend):
 
@@ -44,7 +44,7 @@ Extension settings: provider **Backend cục bộ**, endpoint `http://localhost:
 |---|---|---|---|
 | OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` | Bearer key; uses `response_format: json_object` |
 | Any OpenAI-compatible (Ollama, LM Studio, vLLM, OpenRouter, Groq…) | its `/v1` base URL | depends | Ollama/LM Studio on localhost need no key |
-| Google Gemini | `https://generativelanguage.googleapis.com/v1beta` | `gemini-2.0-flash` | Key sent in `x-goog-api-key` header (not in the URL) |
+| Google Gemini (**recommended, speed-first**) | `https://generativelanguage.googleapis.com/v1beta` | `gemini-3.5-flash-lite` | Key in `x-goog-api-key` header; sends `thinkingConfig.thinkingLevel: "minimal"` (Gemini 3.x only), temperature 0.2, `responseSchema` JSON |
 | STT: OpenAI Whisper API | `https://api.openai.com/v1` | `whisper-1` | `/audio/transcriptions` |
 | STT: faster-whisper / speaches / LocalAI | `http://localhost:8000/v1` | e.g. `Systran/faster-whisper-small.en` | OpenAI-compatible |
 
@@ -59,6 +59,25 @@ exactly that endpoint origin (`optional_host_permissions`), nothing broader.
 - Only the background service worker reads keys; content scripts running on Skool pages never do.
 - Prefer: the local backend, spend-limited keys, or "remember only for this browser session"
   (`chrome.storage.session`), and use "Xóa mọi API key đã lưu" when done.
+
+## Speed-first pipeline (defaults)
+
+| Setting | Value |
+|---|---|
+| Model | `gemini-3.5-flash-lite` (switchable: any Gemini, OpenAI-compatible, local) |
+| Thinking | `minimal` (only sent to `gemini-3*` models; older models get no thinking field) |
+| Temperature | 0.2 |
+| Output | structured JSON `{"translations":[{"subtitle_id","translated_text"}]}`, validated 1:1 |
+| Batches | first batch 4 cues (fast first subtitle), then 10 cues (≤12 per request) |
+| Concurrency | 2 requests; background work may use only 1 so urgent work always has a slot |
+| Priorities | P1 needed now · P2 next 30 s · P3 next 90 s · P4 rest of transcript (background, toggle in Settings) |
+| Cache | IndexedDB, survives reloads; key includes model, temperature, thinking, prompt version, glossary, merge setting, lesson, text |
+
+Model ID and the `thinkingLevel` field were checked against public documentation via web search on
+2026-11-03; the request was **not** executed against the live Gemini API from this environment
+(no key / Google docs hosts not reachable). If Google rejects a field, the popup shows the HTTP error.
+Cost in the popup is an **estimate** from list prices ($0.30 / $2.50 per 1M input/output tokens for
+`gemini-3.5-flash-lite`, $0.15 / $0.60 for `gpt-4o-mini`); unknown models show tokens only.
 
 ## Translation quality features
 

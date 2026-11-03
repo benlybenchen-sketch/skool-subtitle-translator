@@ -37,7 +37,11 @@ export class OpenAICompatibleProvider implements TranslationProvider {
       }),
     });
     await ensureOk(res, 'OpenAI-compatible');
-    const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+    const data = (await res.json()) as {
+      choices?: { message?: { content?: string } }[];
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    };
+    if (data.usage) req.onUsage?.({ inputTokens: data.usage.prompt_tokens ?? 0, outputTokens: data.usage.completion_tokens ?? 0 });
     const content = data.choices?.[0]?.message?.content ?? '';
     return parseTranslations(extractJson(content), req.segments.map((s) => s.id));
   }

@@ -106,3 +106,30 @@ describe('TranslationService', () => {
     expect((await svc.translateUnits('v', [{ id: 'u', text: 'Hi' }], []))[0].vi).toBe('[VI] Hi');
   });
 });
+
+describe('cost & latency metrics', () => {
+  it('accumulates input/output tokens, estimated cost, median and p95 latency', async () => {
+    const s = mergeSettings({ ...DEFAULT_SETTINGS, provider: { kind: 'gemini', endpoint: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-3.5-flash-lite', temperature: 0.2 }, consent: { remoteTranslation: true, remoteAudio: false } });
+    const svc = new TranslationService({
+      cache: newCache(),
+      getSettings: async () => s,
+      getSecrets: async () => ({}),
+      providerFactory: () => ({
+        id: 'usage',
+        async translateBatch(r) {
+          r.onUsage?.({ inputTokens: 1000, outputTokens: 200 });
+          return Object.fromEntries(r.segments.map((x) => [x.id, 'vi']));
+        },
+      }),
+      queueOptions: { sleep: async () => undefined },
+    });
+    await svc.translateUnits('v', [{ id: 'a', text: 'A' }], [], 1);
+    await svc.translateUnits('v', [{ id: 'b', text: 'B' }], [], 4);
+    const m = svc.metrics.snapshot();
+    expect(m.inputTokens).toBe(2000);
+    expect(m.outputTokens).toBe(400);
+    expect(m.estimatedCostUsd).toBeCloseTo((2000 * 0.3 + 400 * 2.5) / 1e6, 9);
+    expect(m.requests).toBe(2);
+    expect(m.medianLatencyMs).toBeGreaterThanOrEqual(0);
+  });
+});

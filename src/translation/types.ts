@@ -9,6 +9,12 @@ export interface BatchSegment {
   text: string;
 }
 
+export interface TokenUsage {
+  inputTokens: number;
+  /** Output tokens including any thinking tokens (billed as output). */
+  outputTokens: number;
+}
+
 export interface BatchRequest {
   segments: BatchSegment[];
   /** Preceding source segments (oldest first) for context only. */
@@ -17,6 +23,8 @@ export interface BatchRequest {
   sourceLang: string;
   targetLang: string;
   signal: AbortSignal;
+  /** Providers report token usage here when the API returns it. */
+  onUsage?: (u: TokenUsage) => void;
 }
 
 /** Returns a map id → translation. Missing IDs are treated as failures. */

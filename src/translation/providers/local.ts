@@ -39,6 +39,8 @@ export class LocalHttpProvider implements TranslationProvider {
       }),
     });
     await ensureOk(res, 'Local backend');
-    return parseTranslations(await res.json(), req.segments.map((s) => s.id));
+    const data = (await res.json()) as { usage?: { inputTokens?: number; outputTokens?: number } };
+    if (data.usage) req.onUsage?.({ inputTokens: data.usage.inputTokens ?? 0, outputTokens: data.usage.outputTokens ?? 0 });
+    return parseTranslations(data, req.segments.map((s) => s.id));
   }
 }

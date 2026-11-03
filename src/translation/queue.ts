@@ -1,4 +1,4 @@
-import type { BatchSegment, GlossaryEntry, TranslationProvider } from './types';
+import type { BatchSegment, GlossaryEntry, TokenUsage, TranslationProvider } from './types';
 import { ConfigError, HttpError, ParseError } from './errors';
 import { abortError, isAbortError, sleep as defaultSleep } from '../shared/util';
 import { relevantGlossary } from './glossary';
@@ -17,6 +17,8 @@ export interface QueueContext {
   group: string;
   sourceLang?: string;
   targetLang?: string;
+  /** 1 = needed now … 4 = background. Lower numbers get free request slots first. */
+  priority?: number;
 }
 
 export type QueueEvent =
@@ -24,7 +26,8 @@ export type QueueEvent =
   | { type: 'success'; size: number; latencyMs: number }
   | { type: 'retry'; attempt: number; delayMs: number; reason: string }
   | { type: 'rate-limited'; delayMs: number }
-  | { type: 'failure'; size: number; reason: string };
+  | { type: 'failure'; size: number; reason: string }
+  | { type: 'usage'; usage: TokenUsage };
 
 export interface QueueOptions {
   concurrency: number;
@@ -71,7 +74,8 @@ export class TranslationQueue {
   private readonly inflight = new Map<string, Promise<string>>();
   private readonly groups = new Map<string, AbortController>();
   private active = 0;
-  private readonly waiters: (() => void)[] = [];
+  private readonly waiters: { priority: number; seq: number; wake: () => void }[] = [];
+  private waiterSeq = 0;
   private budget: number;
 
   constructor(opts: Partial<QueueOptions> = {}) {
@@ -170,17 +174,25 @@ export class TranslationQueue {
     return batches;
   }
 
-  private async acquire(signal: AbortSignal): Promise<void> {
+  private async acquire(signal: AbortSignal, priority: number): Promise<void> {
     while (this.active >= this.opts.concurrency) {
-      await new Promise<void>((r) => this.waiters.push(r));
+      await new Promise<void>((wake) => this.waiters.push({ priority, seq: this.waiterSeq++, wake }));
       if (signal.aborted) throw abortError();
     }
     this.active++;
   }
 
+  /** Wake the most urgent waiter (lowest priority number, then FIFO). */
   private release(): void {
     this.active--;
-    this.waiters.shift()?.();
+    if (!this.waiters.length) return;
+    let best = 0;
+    for (let i = 1; i < this.waiters.length; i++) {
+      const w = this.waiters[i];
+      const b = this.waiters[best];
+      if (w.priority < b.priority || (w.priority === b.priority && w.seq < b.seq)) best = i;
+    }
+    this.waiters.splice(best, 1)[0].wake();
   }
 
   private async runBatch(
@@ -190,7 +202,7 @@ export class TranslationQueue {
     attempt: number,
   ): Promise<Map<string, ItemResult>> {
     if (signal.aborted) throw abortError();
-    await this.acquire(signal);
+    await this.acquire(signal, ctx.priority ?? 2);
     const started = Date.now();
     const timeout = new AbortController();
     const timer = setTimeout(() => timeout.abort(), this.opts.timeoutMs);
@@ -207,6 +219,7 @@ export class TranslationQueue {
         sourceLang: ctx.sourceLang ?? 'en',
         targetLang: ctx.targetLang ?? 'vi',
         signal: combined,
+        onUsage: (usage) => this.opts.onEvent?.({ type: 'usage', usage }),
       });
     } catch (e) {
       error = timeout.signal.aborted && !signal.aborted ? Object.assign(new Error('Translation request timed out'), { name: 'TimeoutError' }) : e;

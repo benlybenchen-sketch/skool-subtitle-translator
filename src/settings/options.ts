@@ -19,7 +19,8 @@ const HINTS: Record<TranslationProviderKind, string> = {
     'Chạy "npm run local-server" trong repo. Server giữ API key trong biến môi trường (OPENAI_API_KEY / GEMINI_API_KEY) hoặc chuyển tiếp tới Ollama — tiện ích không cần biết key.',
   openai:
     'OpenAI: https://api.openai.com/v1 (model gpt-4o-mini). Ollama cục bộ: http://localhost:11434/v1 (model ví dụ qwen2.5:7b, không cần key).',
-  gemini: 'Gemini API: https://generativelanguage.googleapis.com/v1beta, model ví dụ gemini-2.0-flash. Key từ Google AI Studio.',
+  gemini:
+    'Khuyến nghị (nhanh, rẻ): model gemini-3.5-flash-lite, temperature 0.2, thinking "minimal", JSON có cấu trúc. Endpoint https://generativelanguage.googleapis.com/v1beta, key từ Google AI Studio.',
   mock: 'Chỉ để thử giao diện: hiển thị "[VI] câu gốc" thay vì bản dịch thật.',
 };
 
@@ -39,6 +40,7 @@ function fill(s: Settings, keys: { t?: string; s?: string }): void {
   $('c-audio').checked = s.consent.remoteAudio;
   $('ctx').value = String(s.contextWindow);
   $('merge').checked = s.mergeFragments;
+  $('pretranslate').checked = s.pretranslateAll;
   $<HTMLTextAreaElement>('glossary').value = s.glossary;
   $<HTMLTextAreaElement>('dom-sel').value = s.customCaptionSelectors;
   $('panel').checked = s.showPanel;
@@ -62,6 +64,7 @@ function read(): Settings {
     consent: { remoteTranslation: $('c-text').checked, remoteAudio: $('c-audio').checked },
     contextWindow: Math.max(0, Math.min(8, Number($('ctx').value) || 0)),
     mergeFragments: $('merge').checked,
+    pretranslateAll: $('pretranslate').checked,
     glossary: $<HTMLTextAreaElement>('glossary').value,
     customCaptionSelectors: $<HTMLTextAreaElement>('dom-sel').value,
     showPanel: $('panel').checked,

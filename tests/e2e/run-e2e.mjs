@@ -376,6 +376,36 @@ await test('Regression: Skool page with NO accessible <video> (2 <audio>, Stripe
   await p.close();
 });
 
+await test('Pretranslation: cues translated before playback reaches them, shown instantly, no duplicate requests', async () => {
+  const before = await setup.evaluate(() => chrome.runtime.sendMessage({ type: 'metrics:get' }));
+  const p = await context.newPage();
+  await p.goto('https://www.skool.com/test-group/classroom/course7?md=pretranslate');
+  await p.waitForSelector('video');
+  const tabId = await setup.evaluate(async () => (await chrome.tabs.query({ url: '*://www.skool.com/*md=pretranslate*' }))[0]?.id);
+  // video stays PAUSED at 0 s — nothing has been displayed yet
+  const st = await waitFor(async () => {
+    const r = await setup.evaluate((id) => chrome.runtime.sendMessage({ type: 'tab:status', tabId: id }), tabId);
+    const f = r.status.frames.find((x) => x.captionSource === 'texttrack');
+    return f && f.unitsTotal > 0 && f.unitsTranslated === f.unitsTotal && f;
+  }, 8000, 'all cues pretranslated while paused');
+  assert(st.perf && st.perf.timeToFirstMs >= 0, `timeToFirst missing: ${JSON.stringify(st.perf)}`);
+  assert(st.perf.missedDeadlines === 0, `missed deadlines: ${st.perf.missedDeadlines}`);
+  // seek to a later cue: the Vietnamese text must be there on the very next frame (no pending English)
+  const shown = await p.evaluate(async () => {
+    const v = document.querySelector('video');
+    v.currentTime = 12.5;
+    await new Promise((r) => v.addEventListener('seeked', r, { once: true }));
+    await new Promise((r) => requestAnimationFrame(() => r()));
+    const vi = document.querySelector('[data-sst-overlay]').shadowRoot.querySelector('.vi');
+    return { text: vi.textContent, pending: vi.classList.contains('pending') };
+  });
+  assert(shown.text === "[VI] Let's open Shopify." && !shown.pending, JSON.stringify(shown));
+  const after = await setup.evaluate(() => chrome.runtime.sendMessage({ type: 'metrics:get' }));
+  const translated = after.segmentsTranslated - before.segmentsTranslated;
+  assert(translated === st.unitsTotal, `expected ${st.unitsTotal} segments requested once, got ${translated}`);
+  await p.close();
+});
+
 await test('Local backend server (mock mode): /health, /translate, /transcribe, website origins refused', async () => {
   const { spawn } = await import('node:child_process');
   const srv = spawn(process.execPath, [join(root, 'dist-server/local-server.mjs')], {
@@ -389,7 +419,7 @@ await test('Local backend server (mock mode): /health, /translate, /transcribe, 
       headers: { 'Content-Type': 'application/json', Origin: 'chrome-extension://abc' },
       body: JSON.stringify({ segments: [{ id: 's0', text: 'Hello' }], context: [], glossary: [] }),
     }).then((r) => r.json());
-    assert(tr.translations[0].text === '[VI] Hello', JSON.stringify(tr));
+    assert(tr.translations[0].subtitle_id === 's0' && tr.translations[0].translated_text === '[VI] Hello', JSON.stringify(tr));
     const st = await fetch('http://127.0.0.1:8799/transcribe', { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: wav(1) }).then((r) => r.json());
     assert(typeof st.text === 'string' && st.text.length > 0, JSON.stringify(st));
     const evil = await fetch('http://127.0.0.1:8799/translate', { method: 'POST', headers: { Origin: 'https://evil.example' }, body: '{}' });

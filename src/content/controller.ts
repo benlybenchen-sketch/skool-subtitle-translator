@@ -260,6 +260,11 @@ export class SubtitleController {
         range = [video.currentTime, video.currentTime + 5];
       } else if (this.timeline) {
         const u = this.timeline.activeAt(video.currentTime);
+        if (u && !u.vi && u.status !== 'error' && !this.missed.has(u.id) && this.settings.enabled) {
+          // Visible before its translation arrived → a missed deadline (measured, reported).
+          this.missed.add(u.id);
+          this.queueStatus();
+        }
         if (u) {
           content = { en: u.text, vi: u.vi };
           range = [u.start, u.end];
@@ -289,6 +294,7 @@ export class SubtitleController {
   // ---------------------------------------------------------------- internals
 
   private lastCues: Cue[] = [];
+  private missed = new Set<string>();
 
   private ensureOverlay(): SubtitleOverlay {
     if (!this.overlay) {
@@ -469,7 +475,7 @@ export class SubtitleController {
           this.error = msg;
           this.queueStatus();
         },
-        this.env.schedulerOptions,
+        { pretranslateAll: this.settings.pretranslateAll, ...this.env.schedulerOptions },
       );
       this.scheduler.setEnabled(this.settings.enabled && !this.audioActive);
     } else {
@@ -583,6 +589,7 @@ export class SubtitleController {
     this.error = undefined;
     this.notice = undefined;
     this.liveHistory = [];
+    this.missed = new Set();
   }
 
   private queueStatus(): void {
@@ -613,6 +620,9 @@ export class SubtitleController {
       unitsFailed: counts.failed,
       error: this.error,
       notice: this.notice,
+      perf: this.scheduler
+        ? { timeToFirstMs: this.scheduler.timeToFirstMs, missedDeadlines: this.missed.size, aheadCoverage: Math.round(this.scheduler.aheadCoverage() * 100) / 100 }
+        : undefined,
       updatedAt: Date.now(),
     };
   }

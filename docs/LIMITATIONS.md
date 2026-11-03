@@ -59,10 +59,15 @@ boundaries. In that situation:
 
 ## Translation
 - Quality depends on the model you configure. The mock provider only prefixes "[VI]".
+- The Gemini 3.5 Flash-Lite request format (`thinkingLevel: "minimal"`, `responseSchema`) was not
+  executed against the live API during development; real latency, quality and token usage must be
+  measured on real lessons (popup shows median/p95 latency, time to first subtitle, tokens, cost).
+- "Dịch trước toàn bộ phụ đề" (default ON) translates the whole accessible transcript in the
+  background after the 90 s window — faster seeking, but costs tokens for parts you may not watch.
 - Sentence merging uses punctuation and timing heuristics; caption files without punctuation produce
   shorter, less contextual units.
-- Look-ahead prefetch translates up to ~150 s (scaled by playback rate) ahead of the playhead, so
-  first-time playback of a long video makes many small requests as it progresses.
+- The prefetch window is 90 s (scaled by playback rate); with background pretranslation off, a long
+  video is translated progressively as it plays.
 - Changing provider, model, temperature or glossary invalidates cached translations by design.
 
 ## Other

@@ -65,6 +65,7 @@ export const DEFAULT_SETTINGS: Settings = {
   consent: { remoteTranslation: false, remoteAudio: false },
   glossary: DEFAULT_GLOSSARY,
   contextWindow: 3,
+  pretranslateAll: true,
   mergeFragments: true,
   customCaptionSelectors: '',
 };
@@ -139,7 +140,8 @@ export function sttIsRemote(s: Settings): boolean {
 
 export const PROVIDER_PRESETS: Record<string, { endpoint: string; model: string }> = {
   openai: { endpoint: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
-  gemini: { endpoint: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-2.0-flash' },
+  // Recommended speed-first model (structured JSON, minimal thinking).
+  gemini: { endpoint: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-3.5-flash-lite' },
   local: { endpoint: 'http://localhost:8787', model: 'default' },
   mock: { endpoint: 'mock://', model: 'mock' },
 };

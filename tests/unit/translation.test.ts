@@ -26,7 +26,7 @@ describe('prompt & parsing', () => {
     expect(p).toContain('ROAS => (keep as "ROAS")');
     expect(p).toContain('funnel => phễu bán hàng');
     expect(p).toContain('> Previous line.');
-    expect(p).toContain('"i":"s0"');
+    expect(p).toContain('"subtitle_id":"s0"');
   });
 
   it('extracts JSON from fenced/noisy replies', () => {
@@ -264,5 +264,88 @@ describe('TranslationQueue', () => {
     // the group can be reused afterwards
     const ok = await q.translate([{ key: 'b', text: 'B' }], ctx(new MockProvider(), 'lesson-1'));
     expect(ok.get('b')?.vi).toBe('[VI] B');
+  });
+});
+
+describe('speed-first Gemini 3.5 Flash-Lite configuration', () => {
+  const geminiReply = (body: unknown) =>
+    vi.fn(async () =>
+      jsonResponse({
+        candidates: [{ content: { parts: [{ text: JSON.stringify(body) }] } }],
+        usageMetadata: { promptTokenCount: 120, candidatesTokenCount: 40, thoughtsTokenCount: 5 },
+      }),
+    );
+
+  it('sends minimal thinking, temperature 0.2 and a structured JSON schema; reports token usage', async () => {
+    const fetchImpl = geminiReply({ translations: [{ subtitle_id: 's0', translated_text: 'Tỷ lệ ROAS là 3,5x.' }] });
+    const usage: any[] = [];
+    const p = new GeminiProvider({ endpoint: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-3.5-flash-lite', apiKey: 'k', temperature: 0.2, fetchImpl: fetchImpl as any });
+    const out = await p.translateBatch({ ...req(['Our ROAS is 3.5x.']), onUsage: (u) => usage.push(u) });
+    expect(out).toEqual({ s0: 'Tỷ lệ ROAS là 3,5x.' });
+    const body = JSON.parse((fetchImpl.mock.calls[0] as any)[1].body);
+    expect((fetchImpl.mock.calls[0] as any)[0]).toContain('/models/gemini-3.5-flash-lite:generateContent');
+    expect(body.generationConfig).toMatchObject({ temperature: 0.2, responseMimeType: 'application/json', thinkingConfig: { thinkingLevel: 'minimal' } });
+    expect(body.generationConfig.responseSchema.properties.translations.items.required).toEqual(['subtitle_id', 'translated_text']);
+    expect(usage).toEqual([{ inputTokens: 120, outputTokens: 45 }]); // thinking tokens billed as output
+  });
+
+  it('does not send thinkingConfig to pre-3.x models (switching models keeps working)', async () => {
+    const fetchImpl = geminiReply({ translations: [{ subtitle_id: 's0', translated_text: 'x' }] });
+    await new GeminiProvider({ endpoint: 'https://g', model: 'gemini-2.0-flash', temperature: 0.2, fetchImpl: fetchImpl as any }).translateBatch(req(['a']));
+    expect(JSON.parse((fetchImpl.mock.calls[0] as any)[1].body).generationConfig.thinkingConfig).toBeUndefined();
+  });
+
+  it('validates the one-to-one mapping: unknown, duplicate and empty items are rejected', () => {
+    const out = parseTranslations(
+      { translations: [
+        { subtitle_id: 's0', translated_text: 'một' },
+        { subtitle_id: 's0', translated_text: 'trùng lặp' },
+        { subtitle_id: 's1', translated_text: '   ' },
+        { subtitle_id: 's9', translated_text: 'bịa' },
+      ] },
+      ['s0', 's1'],
+    );
+    expect(out).toEqual({ s0: 'một' }); // s1 missing → retried by the queue, never fabricated
+  });
+
+  it('OpenAI-compatible provider reports usage too', async () => {
+    const usage: any[] = [];
+    const fetchImpl = vi.fn(async () => jsonResponse({ choices: [{ message: { content: '{"translations":[{"subtitle_id":"s0","translated_text":"x"}]}' } }], usage: { prompt_tokens: 10, completion_tokens: 3 } }));
+    await new OpenAICompatibleProvider({ endpoint: 'https://x/v1', model: 'gpt-4o-mini', temperature: 0.2, fetchImpl: fetchImpl as any }).translateBatch({ ...req(['a']), onUsage: (u) => usage.push(u) });
+    expect(usage).toEqual([{ inputTokens: 10, outputTokens: 3 }]);
+  });
+
+  it('estimates cost only for models with a known price', async () => {
+    const { estimateCostUsd } = await import('../../src/translation/pricing');
+    expect(estimateCostUsd('gemini-3.5-flash-lite', 1_000_000, 1_000_000)).toBeCloseTo(2.8);
+    expect(estimateCostUsd('some-unknown-model', 100, 100)).toBeNull();
+  });
+
+  it('glossary terms are sent so technical terminology is preserved', () => {
+    const p = buildUserPrompt({ ...req(['Check the ROAS of this funnel']), glossary: relevantGlossary(parseGlossary('ROAS\nfunnel => phễu bán hàng (funnel)\nCTR'), ['Check the ROAS of this funnel']) });
+    expect(p).toContain('ROAS => (keep as "ROAS")');
+    expect(p).toContain('funnel => phễu bán hàng (funnel)');
+    expect(p).not.toContain('CTR');
+  });
+});
+
+describe('queue priorities', () => {
+  it('a P1 request waiting for a slot jumps ahead of queued P4 background work', async () => {
+    const order: string[] = [];
+    let gate!: () => void;
+    const first = new Promise<void>((r) => (gate = r));
+    const p = new ScriptedProvider(async (t) => {
+      order.push(t[0]);
+      if (t[0] === 'busy') await first;
+      return echo(t);
+    });
+    const q = new TranslationQueue({ concurrency: 1, sleep: noSleep });
+    const busy = q.translate([{ key: 'b', text: 'busy' }], { ...ctx(p), priority: 2 });
+    const bg = q.translate([{ key: 'g', text: 'background' }], { ...ctx(p), priority: 4 });
+    const urgent = q.translate([{ key: 'u', text: 'urgent' }], { ...ctx(p), priority: 1 });
+    await new Promise((r) => setTimeout(r, 5));
+    gate();
+    await Promise.all([busy, bg, urgent]);
+    expect(order).toEqual(['busy', 'urgent', 'background']);
   });
 });

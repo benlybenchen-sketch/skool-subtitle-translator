@@ -35,8 +35,8 @@ async function main(): Promise<void> {
   const adapter = adapterForFrame(loc);
 
   const bridge: ControllerBridge = {
-    async translate(videoKey, units, context) {
-      const res = await sendToBackground<TranslateResponse>({ type: 'translate:units', videoKey, units, context }, { retries: 3 });
+    async translate(videoKey, units, context, priority) {
+      const res = await sendToBackground<TranslateResponse>({ type: 'translate:units', videoKey, units, context, priority }, { retries: 3 });
       return res.results;
     },
     cancel(videoKey) {
