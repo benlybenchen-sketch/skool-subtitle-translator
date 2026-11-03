@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "Skool Vietnamese Subtitle Translator",
+  "short_name": "Skool VI Subs",
+  "version": "2.0.0",
+  "description": "Dịch phụ đề / lời nói tiếng Anh trong bài học Skool sang phụ đề tiếng Việt đồng bộ ngay trên video.",
+  "minimum_chrome_version": "116",
+  "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "action": {
+    "default_title": "Phụ đề tiếng Việt cho Skool",
+    "default_popup": "popup/popup.html",
+    "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png" }
+  },
+  "options_page": "settings/options.html",
+  "background": { "service_worker": "background.js", "type": "module" },
+  "permissions": ["storage", "offscreen", "tabCapture"],
+  "host_permissions": ["https://*.skool.com/*"],
+  "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://*.skool.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://www.loom.com/embed/*",
+        "https://www.loom.com/share/*",
+        "https://player.vimeo.com/video/*",
+        "https://www.youtube.com/embed/*",
+        "https://www.youtube-nocookie.com/embed/*",
+        "https://fast.wistia.net/embed/*",
+        "https://fast.wistia.com/embed/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

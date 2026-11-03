@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cài đặt – Skool VI Subtitles</title>
+    <link rel="stylesheet" href="./options.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Cài đặt phụ đề tiếng Việt</h1>
+
+      <section>
+        <h2>1. Dịch vụ dịch (Translation provider)</h2>
+        <div class="grid">
+          <label for="p-kind">Nhà cung cấp</label>
+          <select id="p-kind">
+            <option value="local">Backend cục bộ (khuyến nghị) — server/ trong repo</option>
+            <option value="openai">OpenAI-compatible (OpenAI, Ollama, LM Studio, vLLM…)</option>
+            <option value="gemini">Google Gemini</option>
+            <option value="mock">Mock (thử nghiệm, không dịch thật)</option>
+          </select>
+          <label for="p-endpoint">Endpoint</label><input id="p-endpoint" type="url" spellcheck="false" />
+          <label for="p-model">Model</label><input id="p-model" type="text" spellcheck="false" />
+          <label for="p-temp">Temperature</label><input id="p-temp" type="number" min="0" max="1.5" step="0.1" />
+          <label for="p-key">API key</label>
+          <div><input id="p-key" type="password" autocomplete="off" spellcheck="false" placeholder="(không bắt buộc với backend cục bộ / Ollama)" /></div>
+        </div>
+        <p class="hint" id="p-hint"></p>
+      </section>
+
+      <section>
+        <h2>2. Audio Mode — nhận dạng giọng nói (STT)</h2>
+        <div class="grid">
+          <label for="s-kind">Backend STT</label>
+          <select id="s-kind">
+            <option value="local">Backend cục bộ (server/ trong repo → Whisper)</option>
+            <option value="openai">OpenAI-compatible /audio/transcriptions (OpenAI Whisper, faster-whisper-server…)</option>
+            <option value="mock">Mock (thử nghiệm)</option>
+          </select>
+          <label for="s-endpoint">Endpoint</label><input id="s-endpoint" type="url" spellcheck="false" />
+          <label for="s-model">Model</label><input id="s-model" type="text" spellcheck="false" />
+          <label for="s-key">API key STT</label><input id="s-key" type="password" autocomplete="off" spellcheck="false" />
+        </div>
+      </section>
+
+      <section class="privacy">
+        <h2>3. Quyền riêng tư &amp; bảo mật</h2>
+        <p>
+          Với endpoint <b>không phải localhost</b>, nội dung phụ đề (văn bản) và/hoặc các đoạn âm thanh ngắn của bài học sẽ được
+          gửi tới máy chủ của nhà cung cấp bạn chọn. Chỉ bật khi bạn có quyền xem nội dung khóa học và chấp nhận chính sách của nhà
+          cung cấp đó. Tiện ích <b>không</b> gửi cookie, thông tin đăng nhập hay toàn bộ tệp video.
+        </p>
+        <label class="check"><input id="c-text" type="checkbox" /> Cho phép gửi <b>văn bản phụ đề</b> tới dịch vụ dịch từ xa</label>
+        <label class="check"><input id="c-audio" type="checkbox" /> Cho phép gửi <b>đoạn âm thanh tab</b> tới dịch vụ STT từ xa (chỉ khi bạn bật Audio Mode)</label>
+        <div class="warn">
+          <b>Rủi ro khi lưu API key trong tiện ích:</b> key được lưu không mã hóa trong hồ sơ Chrome của bạn
+          (<code>chrome.storage.local</code>, không đồng bộ). Phần mềm độc hại trên máy, hoặc người dùng chung hồ sơ Chrome, có thể đọc được.
+          Hãy dùng key có giới hạn chi tiêu/quyền, hoặc tốt nhất là chạy <b>backend cục bộ</b> và giữ key trong biến môi trường của server.
+        </div>
+        <label class="check"><input id="k-session" type="checkbox" /> Chỉ nhớ API key trong phiên trình duyệt này (xóa khi thoát Chrome)</label>
+        <button id="k-clear" type="button">Xóa mọi API key đã lưu</button>
+      </section>
+
+      <section>
+        <h2>4. Chất lượng dịch</h2>
+        <div class="grid">
+          <label for="ctx">Số câu ngữ cảnh</label><input id="ctx" type="number" min="0" max="8" step="1" />
+          <label for="merge">Gộp mảnh câu ngắn</label><input id="merge" type="checkbox" />
+        </div>
+        <label for="glossary">Thuật ngữ (glossary) — mỗi dòng: <code>English =&gt; Tiếng Việt</code>, hoặc chỉ thuật ngữ để giữ nguyên</label>
+        <textarea id="glossary" rows="12" spellcheck="false"></textarea>
+        <label for="dom-sel">Nâng cao: CSS selector của phụ đề hiển thị trong DOM (mỗi dòng một selector, tùy chọn)</label>
+        <textarea id="dom-sel" rows="2" spellcheck="false" placeholder=".my-player .caption-text"></textarea>
+      </section>
+
+      <section>
+        <h2>5. Giao diện</h2>
+        <label class="check"><input id="panel" type="checkbox" /> Hiện bảng điều khiển nổi trên trang Skool</label>
+      </section>
+
+      <div class="actions">
+        <button id="save" class="primary" type="button">Lưu &amp; cấp quyền</button>
+        <button id="test" type="button">Thử dịch một câu</button>
+        <span id="msg" role="status"></span>
+      </div>
+      <pre id="test-out" class="hidden"></pre>
+    </main>
+    <script type="module" src="./options.ts"></script>
+  </body>
+</html>
