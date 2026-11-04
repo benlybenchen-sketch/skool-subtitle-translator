@@ -73,6 +73,8 @@ export const DEFAULT_SETTINGS: Settings = {
   autoEnableCaptions: false,
   autoEnableCaptionsAsked: false,
   autoInitOnNavigation: true,
+  autoTranslateTextLessons: false,
+  textDisplayMode: 'vi',
   sourceLanguage: 'en',
   targetLanguage: 'vi',
   mergeFragments: true,

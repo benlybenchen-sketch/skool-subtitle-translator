@@ -62,6 +62,23 @@ const context = await chromium.launchPersistentContext(userDataDir, {
   ignoreHTTPSErrors: true,
 });
 
+// Text-only lesson: the realistic fixture + SPA navigation helpers (NOT real Skool markup).
+const TEXT_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>READ ME BEFORE YOU GO ON</title></head><body>
+${readFileSync(join(root, 'tests/fixtures/skool-text-lesson.html'), 'utf8')}
+<script>
+  window.marked = 0;
+  document.querySelector('.styled__LessonActions button').addEventListener('click', () => (window.marked += 1));
+  window.goTextLesson2 = () => {
+    history.pushState({}, '', location.pathname + '?md=textlesson2');
+    document.querySelector('.styled__LessonHeader h1').textContent = 'Lesson 1: Market Awareness';
+    document.getElementById('lesson-body').innerHTML = '<h2>The five stages of awareness</h2><p>Every prospect sits at one stage of <strong>Market Awareness</strong>. Your ad must meet them where they are.</p><ul><li>Unaware</li><li>Problem aware</li><li>Solution aware</li></ul><p>Read the <a href="/acme-academy/classroom/x">bonus guide</a> before the next lesson.</p>';
+  };
+  window.goVideoLesson = () => {
+    history.pushState({}, '', location.pathname + '?md=videolesson');
+    document.querySelector('main').innerHTML = '<h1>Lesson 2</h1><div class="player" style="width:960px;height:540px"><video id="v" muted playsinline crossorigin="anonymous" src="/media/lesson.wav" style="width:100%;height:100%"><track kind="captions" srclang="en" label="English" src="/media/lesson.vtt"></video></div>';
+  };
+</script></body></html>`;
+
 const serve = (body, type) => ({ status: 200, contentType: type, body, headers: { 'Access-Control-Allow-Origin': '*' } });
 // Media needs HTTP Range support, otherwise Chromium cannot seek.
 const serveMedia = (route, body) => {
@@ -83,6 +100,7 @@ await context.route(/^https:\/\/www\.skool\.com\//, (route) => {
   if (u.pathname === '/media/lesson2.vtt') return route.fulfill(serve(VTT2, 'text/vtt'));
   if (u.pathname === '/media/long.wav') return serveMedia(route, LONG_WAV);
   if (u.pathname === '/media/long.vtt') return route.fulfill(serve(LONG_VTT, 'text/vtt'));
+  if (u.search.includes('textlesson')) return route.fulfill(serve(TEXT_PAGE, 'text/html'));
   const page = u.search.includes('jstrack') ? 'skool-jstrack.html' : u.search.includes('trackfile') ? 'skool-trackfile.html' : u.search.includes('continuous') ? 'skool-continuous.html' : u.search.includes('seekreset') ? 'skool-seek.html' : u.search.includes('novideo') ? 'skool-novideo.html' : u.search.includes('loom') ? 'skool-loom.html' : u.search.includes('nocaptions') ? 'skool-nocaptions.html' : 'skool-native.html';
   return route.fulfill(serve(readFileSync(join(pages, page)), 'text/html'));
 });
@@ -374,6 +392,68 @@ await test('AI Study Notes: generated only on click, timestamps seek, saved loca
   await waitFor(async () => (await notesText(p)).includes('Tạo lại'), 5000, 'saved notes after reload');
   const reqAfter = (await setup.evaluate(() => chrome.runtime.sendMessage({ type: 'metrics:get' }))).requests;
   assert(reqAfter === reqBefore, `saved notes must not trigger a request (${reqBefore} → ${reqAfter})`);
+  await p.close();
+});
+
+await test('Text-only lesson: detected, translated on request with formatting kept, EN/VI/EN+VI instant, restore, Skool buttons work, SPA text→text (auto)→video, cache on reload', async () => {
+  const p = await context.newPage();
+  const errors = [];
+  p.on('pageerror', (e) => errors.push(e.message));
+  const clone = () => p.evaluate(() => {
+    const c = document.querySelector('[data-sst-text]');
+    return c ? { h2: c.querySelector('h2')?.textContent, strong: c.querySelector('strong')?.textContent, href: [...c.querySelectorAll('a')].map((a) => a.getAttribute('href')), vi: c.querySelectorAll('[data-sst-vi]').length, pre: c.querySelector('pre')?.textContent, n: document.querySelectorAll('[data-sst-text]').length } : null;
+  });
+  const panelClick = (a) => p.evaluate((a) => {
+    const r = document.querySelector('[data-sst-panel]').shadowRoot;
+    if (!r.querySelector('.card')) r.querySelector('.pill').click();
+    document.querySelector('[data-sst-panel]').shadowRoot.querySelector(`[data-a="${a}"]`).click();
+  }, a);
+  const requests = async () => (await setup.evaluate(() => chrome.runtime.sendMessage({ type: 'metrics:get' }))).requests;
+  await p.goto('https://www.skool.com/test-group/classroom/course30?md=textlesson');
+  await waitFor(() => p.evaluate(() => !!document.querySelector('[data-sst-panel]')?.shadowRoot?.querySelector('.pill')), 5000, 'panel');
+  await p.evaluate(() => document.querySelector('[data-sst-panel]').shadowRoot.querySelector('.pill').click());
+  await waitFor(() => p.evaluate(() => !!document.querySelector('[data-sst-panel]').shadowRoot.querySelector('[data-a="text-translate"]')), 8000, '"Dịch bài này" offered (auto off)');
+  assert(!(await clone()), 'must not translate before the user asks (auto-translate off)');
+  await panelClick('text-translate');
+  const c1 = await waitFor(async () => {
+    const c = await clone();
+    return c?.h2 === '[VI] Welcome to the program' ? c : null;
+  }, 8000, 'Vietnamese article');
+  assert(c1.strong?.includes('Mass Desire'), `bold lost: ${c1.strong}`);
+  assert(c1.href.includes('https://www.skool.com/acme-academy/about'), 'link destination lost');
+  assert(c1.pre === 'const budget = 50; // do not translate this', 'code block changed');
+  assert(await p.evaluate(() => getComputedStyle(document.getElementById('lesson-body')).display === 'none'), 'original not hidden in VI mode');
+  await waitFor(async () => (await p.evaluate(() => document.querySelector('[data-sst-panel]').shadowRoot.textContent)).includes('đã dịch'), 4000, 'progress line');
+  const r0 = await requests();
+  await panelClick('text-bilingual');
+  await waitFor(async () => (await clone())?.vi > 5, 3000, 'bilingual blocks');
+  await panelClick('text-original');
+  await waitFor(async () => !(await clone()), 3000, 'restored original');
+  assert(await p.evaluate(() => getComputedStyle(document.getElementById('lesson-body')).display !== 'none' && !document.getElementById('lesson-body').hasAttribute('data-sst-text-hidden')), 'original not restored');
+  await panelClick('text-vi');
+  await waitFor(async () => (await clone())?.h2 === '[VI] Welcome to the program', 3000, 'VI again');
+  assert((await requests()) === r0, 'mode switching must not call the API');
+  await p.evaluate(() => document.querySelector('.styled__LessonActions button').click());
+  assert((await p.evaluate(() => window.marked)) === 1, 'Skool button broken');
+  // opt in once → next text lesson translates automatically (SPA, no F5)
+  await panelClick('text-auto');
+  await waitFor(() => setup.evaluate(async () => (await chrome.storage.sync.get('settings')).settings.autoTranslateTextLessons === true), 3000, 'setting persisted');
+  await p.evaluate(() => window.goTextLesson2());
+  await waitFor(async () => (await clone())?.h2 === '[VI] The five stages of awareness', 10000, 'lesson 2 auto-translated');
+  assert((await clone()).n === 1, 'duplicate translated views');
+  // → video lesson: text view removed, subtitles work
+  await p.evaluate(() => window.goVideoLesson());
+  await waitFor(async () => !(await clone()), 4000, 'text view removed on video lesson');
+  await p.waitForSelector('video');
+  await p.evaluate(() => document.querySelector('video').play());
+  await seek(p, 2);
+  await waitFor(async () => (await overlayText(p)) === '[VI] Welcome back to the course.', 8000, 'video subtitles after text lesson');
+  // reload the first text lesson: auto + cache → no new requests
+  const r1 = await requests();
+  await p.goto('https://www.skool.com/test-group/classroom/course30?md=textlesson');
+  await waitFor(async () => (await clone())?.h2 === '[VI] Welcome to the program', 10000, 'auto-translated from cache');
+  assert((await requests()) === r1, 'revisit must be served from the cache');
+  assert(!errors.length, errors.join(' | '));
   await p.close();
 });
 

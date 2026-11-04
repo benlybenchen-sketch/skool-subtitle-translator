@@ -32,6 +32,8 @@ export interface TimedUnit extends Unit {
 
 export type DisplayMode = 'vi' | 'bilingual';
 export type ModePreference = 'auto' | 'caption' | 'audio';
+export type TextDisplayMode = 'original' | 'vi' | 'bilingual';
+
 export type TranslationProviderKind = 'gemini' | 'openai' | 'anthropic' | 'local' | 'mock';
 export type SttKind = 'openai' | 'local' | 'mock';
 
@@ -99,6 +101,10 @@ export interface Settings {
   autoEnableCaptionsAsked: boolean;
   /** Re-initialise translation automatically after Skool SPA lesson changes. */
   autoInitOnNavigation: boolean;
+  /** Opt-in: translate text-only Classroom lessons automatically when they open. */
+  autoTranslateTextLessons: boolean;
+  /** Display of translated text lessons (switchable without new API calls). */
+  textDisplayMode: TextDisplayMode;
   /** Source subtitle language (BCP-47 prefix). Only English is supported by the prompt today. */
   sourceLanguage: 'en';
   /** Target language. Only Vietnamese is supported today. */

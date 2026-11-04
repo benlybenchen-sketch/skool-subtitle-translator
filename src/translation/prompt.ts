@@ -30,6 +30,10 @@ export const RESPONSE_SCHEMA = {
   required: ['translations'],
 } as const;
 
+/** Extra rules for written (text-only) lessons; part of the request, so subtitle prompts are unchanged. */
+export const MARKUP_RULES = `These segments are headings, paragraphs and list items of a WRITTEN lesson, not subtitles: translate each one completely and faithfully (the length rule does not apply).
+Segments may contain lightweight markup: <b>…</b>, <i>…</i>, <u>…</u>, <s>…</s>, link tags <a1>…</a1>, <a2>…</a2>…, line breaks <br> and placeholders such as ⟦C0⟧ (code) or ⟦I0⟧ (image). Keep every tag and placeholder exactly as written (same names, same count), wrapped around the corresponding Vietnamese words; never translate, add or remove them.`;
+
 export function buildUserPrompt(req: BatchRequest): string {
   const parts: string[] = [];
   if (req.glossary.length) {
@@ -39,6 +43,7 @@ export function buildUserPrompt(req: BatchRequest): string {
     );
   }
   if (req.context.length) parts.push('Context (previous lines, do not translate):\n' + req.context.map((c) => `> ${c}`).join('\n'));
+  if (req.format === 'markup') parts.push(MARKUP_RULES);
   parts.push(
     'Segments:\n' + JSON.stringify(req.segments.map((s) => ({ subtitle_id: s.id, text: s.text }))),
   );

@@ -8,6 +8,7 @@ import type { LedgerSnapshot } from '../background/usageLedger';
 import { hash53 } from '../shared/hash';
 import { parseSubtitleFile } from '../subtitles/parse';
 import { adapterById } from '../players/adapters';
+import type { TextLessonInfo } from '../text/manager';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -324,6 +325,29 @@ async function init(): Promise<void> {
     void chrome.runtime.openOptionsPage();
   });
   $('diag-btn').addEventListener('click', () => void runDiagnostics());
+  // Text-only lesson controls (talk to the Skool tab's top frame directly).
+  const textCmd = (m: { type: 'text:get' } | { type: 'text:cmd'; cmd: 'translate' | 'mode' | 'retry'; mode?: Settings['textDisplayMode'] }) =>
+    tabId === undefined ? Promise.resolve(null) : (chrome.tabs.sendMessage(tabId, m, { frameId: 0 }) as Promise<TextLessonInfo | null>).catch(() => null);
+  const renderText = (info: TextLessonInfo | null) => {
+    $('text-card').classList.toggle('hidden', !info);
+    if (!info) return;
+    $('text-state').textContent = info.started ? `${info.done}/${info.total} đoạn${info.translating ? '…' : ''}` : 'chưa dịch';
+    $('text-start-row').classList.toggle('hidden', info.started);
+    $('text-mode-row').classList.toggle('hidden', !info.started);
+    document.querySelectorAll<HTMLButtonElement>('[data-text-mode]').forEach((b) => b.classList.toggle('primary', b.dataset.textMode === info.mode));
+    $('text-error').textContent = info.error ?? '';
+    $('text-error').classList.toggle('hidden', !info.error);
+  };
+  $<HTMLInputElement>('autoTranslateTextLessons').checked = settings.autoTranslateTextLessons;
+  $<HTMLInputElement>('autoTranslateTextLessons').addEventListener('change', (e) => {
+    void saveSettings({ autoTranslateTextLessons: (e.target as HTMLInputElement).checked });
+  });
+  $('text-translate').addEventListener('click', () => void textCmd({ type: 'text:cmd', cmd: 'translate' }).then(renderText));
+  document.querySelectorAll<HTMLButtonElement>('[data-text-mode]').forEach((b) =>
+    b.addEventListener('click', () => void textCmd({ type: 'text:cmd', cmd: 'mode', mode: b.dataset.textMode as Settings['textDisplayMode'] }).then(renderText)),
+  );
+  void textCmd({ type: 'text:get' }).then(renderText);
+  setInterval(() => void textCmd({ type: 'text:get' }).then(renderText), 1500);
   document.querySelectorAll<HTMLButtonElement>('[data-learn]').forEach((b) =>
     b.addEventListener('click', () => {
       if (tabId === undefined) return;

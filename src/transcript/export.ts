@@ -57,7 +57,31 @@ export function toVtt(t: Transcript, lang: Exclude<ExportLang, 'bi'> | 'bi'): st
   return `WEBVTT\n\n${body}`;
 }
 
+/** Text lessons: keep headings, lists, quotes and code blocks (Markdown-ish structure). */
+function textLessonDoc(t: Transcript, lang: ExportLang, md: boolean): string {
+  const out: string[] = md ? [`# ${t.title}`, ''] : [];
+  let n = 0;
+  for (const s of t.segments) {
+    const kind = s.block ?? 'p';
+    if (kind !== 'oli') n = 0;
+    if (kind === 'code') {
+      out.push(md ? '```\n' + s.en.replace(/\n+$/, '') + '\n```' : s.en, '');
+      continue;
+    }
+    const en = s.en.trim();
+    const vi = s.vi?.trim();
+    const texts = lang === 'en' ? [en] : lang === 'vi' ? (vi ? [vi] : []) : vi ? [en, vi] : [en];
+    if (!texts.length || !texts[0]) continue;
+    const prefix = /^h[1-6]$/.test(kind) ? (md ? '#'.repeat(Math.min(6, Number(kind[1]) + (md ? 1 : 0))) + ' ' : '') : kind === 'li' ? '- ' : kind === 'oli' ? `${++n}. ` : kind === 'quote' ? '> ' : '';
+    const indent = kind === 'li' || kind === 'oli' ? '   ' : '';
+    out.push(prefix + texts[0], ...texts.slice(1).map((x) => (md && !indent && !prefix ? `> ${x}` : indent + x)));
+    if (!(kind === 'li' || kind === 'oli')) out.push('');
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+}
+
 export function toTxt(t: Transcript, lang: ExportLang): string {
+  if (t.kind === 'text' && t.segments.some((s) => s.block)) return textLessonDoc(t, lang, false);
   const lines: string[] = [];
   for (const s of [...t.segments].sort((a, b) => a.start - b.start)) {
     const text = textFor(s, lang);
@@ -68,6 +92,7 @@ export function toTxt(t: Transcript, lang: ExportLang): string {
 }
 
 export function toMarkdown(t: Transcript, lang: ExportLang = 'bi'): string {
+  if (t.kind === 'text' && t.segments.some((s) => s.block)) return textLessonDoc(t, lang, true);
   const out = [`# ${t.title}`, ''];
   if (t.coverage.state !== 'complete') out.push(`> ⚠️ PARTIAL — chỉ gồm phần nội dung truy cập được (${t.coverage.segments} đoạn).`, '');
   for (const s of [...t.segments].sort((a, b) => a.start - b.start)) {

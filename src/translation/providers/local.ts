@@ -36,6 +36,7 @@ export class LocalHttpProvider implements TranslationProvider {
         segments: req.segments,
         context: req.context,
         glossary: req.glossary,
+        ...(req.format === 'markup' ? { format: 'markup' } : {}),
       }),
     });
     await ensureOk(res, 'Local backend');

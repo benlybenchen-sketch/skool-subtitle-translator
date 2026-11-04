@@ -8,6 +8,13 @@
 export class NavigationWatcher {
   private last: string;
   private readonly cleanups: (() => void)[] = [];
+  private readonly extra = new Set<(url: string, prev: string) => void>();
+
+  /** Additional lesson-change listener (e.g. the text-lesson translator). */
+  onNavigate(cb: (url: string, prev: string) => void): () => void {
+    this.extra.add(cb);
+    return () => this.extra.delete(cb);
+  }
 
   constructor(
     private readonly win: Window,
@@ -44,6 +51,7 @@ export class NavigationWatcher {
     const prev = this.last;
     this.last = k;
     this.onChange(this.win.location.href, prev);
+    for (const cb of this.extra) cb(this.win.location.href, prev);
     return true;
   }
 

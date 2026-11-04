@@ -111,6 +111,7 @@ const server = createServer(async (req, res) => {
         glossary?: GlossaryEntry[];
         source?: string;
         target?: string;
+        format?: string;
       };
       const segments = (body.segments ?? []).filter((s) => s && typeof s.id === 'string' && typeof s.text === 'string').slice(0, 64);
       const usage = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0 };
@@ -127,6 +128,7 @@ const server = createServer(async (req, res) => {
         glossary: (body.glossary ?? []).slice(0, 200),
         sourceLang: body.source ?? 'en',
         targetLang: body.target ?? 'vi',
+        format: body.format === 'markup' ? 'markup' : 'subtitle',
         signal: ac.signal,
       });
       return send(res, 200, { translations: Object.entries(out).map(([id, text]) => ({ subtitle_id: id, translated_text: text })), usage }, origin);

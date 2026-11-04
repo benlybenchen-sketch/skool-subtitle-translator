@@ -11,6 +11,9 @@ import { ControlPanel } from './panel';
 import { LearningPanel, type PanelTab } from './learningPanel';
 import { createVideoSource } from './learningSource';
 import { AiNotesView } from './notesView';
+import { TextLessonManager } from '../text/manager';
+import { lessonTitle } from './learningSource';
+import type { LearningSource } from './learningPanel';
 
 const GUARD = '__sstContentScript__';
 
@@ -60,6 +63,7 @@ async function main(): Promise<void> {
   let panel: ControlPanel | null = null;
   let learning: LearningPanel | null = null;
   let notesView: AiNotesView | null = null;
+  let textLessons: TextLessonManager | null = null;
 
   const lifecycle = createLessonLifecycle(window, controller, detector);
   const nav = lifecycle.nav;
@@ -73,6 +77,12 @@ async function main(): Promise<void> {
       () => void sendToBackground({ type: 'audio:stop' }).catch(() => undefined),
       () => void sendToBackground({ type: 'session:start' }).catch(() => undefined),
       (tab) => learning?.toggle(tab),
+      (a) => {
+        if (!textLessons) return;
+        if (a === 'translate') textLessons.translateNow();
+        else if (a === 'retry') textLessons.retry();
+        else textLessons.setMode(a);
+      },
     );
     if (settings.showPanel) panel.mount();
     controller.onOverlayContainerChange((el) => panel?.follow(el));
@@ -86,12 +96,50 @@ async function main(): Promise<void> {
       model: () => sendToBackground({ type: 'notes:model' }),
     });
     learning = new LearningPanel(document, source, notesView);
+
+    // Text-only lessons (no video): detected after a grace period; translated only when opted in
+    // (setting) or requested ("Dịch bài này").
+    const hasVideo = () => {
+      const r = detector.result;
+      return !!(r.primary || r.embeds.length || r.videos.length || r.anchor || controller.currentVideoKey);
+    };
+    const tl = new TextLessonManager(window, {
+      settings: () => settings,
+      hasVideo,
+      translate: async (videoKey, units, context, priority) => {
+        try {
+          const res = await sendToBackground<TranslateResponse>({ type: 'translate:units', videoKey, units, context, priority, format: 'markup' }, { retries: 3 });
+          return res.results;
+        } catch (e) {
+          orphanCheck();
+          throw e;
+        }
+      },
+      saveMode: (textDisplayMode) => void saveSettings({ textDisplayMode }).catch(orphaned),
+      onChange: (info) => {
+        panel?.setText(info);
+        learning?.setSource(info ? textSource : source);
+      },
+    });
+    textLessons = tl;
+    const textSource: LearningSource = {
+      kind: () => 'text',
+      transcript: () => (tl.lessonId ? tl.translator.transcript(tl.lessonId, lessonTitle(document)) : null),
+    };
+    const recheck = () => tl.check();
+    nav.onNavigate(recheck);
+    detector.onChange((_r, changed) => {
+      if (hasVideo()) tl.stop();
+      else if (changed && !tl.active) recheck();
+    });
+    recheck();
   }
 
   const offSettings = onSettingsChanged((s) => {
     settings = s;
     controller.updateSettings(s);
     panel?.setSettings(s);
+    textLessons?.updateSettings(s);
     if (panel) s.showPanel ? panel.mount() : panel.unmount();
   });
 
@@ -129,6 +177,17 @@ async function main(): Promise<void> {
       case 'learning:open':
         learning?.show(msg.tab as PanelTab);
         break;
+      case 'text:get':
+        sendResponse(textLessons?.info() ?? null);
+        return;
+      case 'text:cmd':
+        if (textLessons) {
+          if (msg.cmd === 'translate') textLessons.translateNow();
+          else if (msg.cmd === 'retry') textLessons.retry();
+          else if (msg.mode) textLessons.setMode(msg.mode);
+        }
+        sendResponse(textLessons?.info() ?? null);
+        return;
       case 'notes:progress':
         notesView?.onProgress(msg.lessonId, msg.done, msg.total);
         break;
@@ -167,6 +226,7 @@ async function main(): Promise<void> {
     safe(() => controller.destroy());
     safe(() => panel?.destroy());
     safe(() => learning?.destroy());
+    safe(() => textLessons?.destroy());
     safe(() => offSettings());
     safe(() => chrome.runtime.onMessage.removeListener(onMessage));
     document.removeEventListener('visibilitychange', orphanCheck);

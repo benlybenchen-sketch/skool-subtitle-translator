@@ -17,6 +17,8 @@ export interface TranscriptSegment {
   source: CaptionSourceKind | 'text';
   /** Cache metadata: translation served from the IndexedDB cache. */
   cached?: boolean;
+  /** Text lessons: block type (h1…h6, p, li, oli, quote, cell, code) for structured export. */
+  block?: string;
 }
 
 /**

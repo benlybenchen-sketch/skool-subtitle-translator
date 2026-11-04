@@ -25,7 +25,7 @@ export type BackgroundRequest =
   | { type: 'frame:hello'; isTop: boolean }
   | { type: 'frame:status'; status: Omit<FrameStatus, 'frameId'> }
   | { type: 'frame:gone' }
-  | { type: 'translate:units'; videoKey: string; units: UnitPayload[]; context: string[]; priority?: number }
+  | { type: 'translate:units'; videoKey: string; units: UnitPayload[]; context: string[]; priority?: number; format?: 'subtitle' | 'markup' }
   | { type: 'translate:cancel'; videoKey: string }
   | { type: 'translate:test' }
   | { type: 'tab:status'; tabId: number }
@@ -81,7 +81,10 @@ export type ContentMessage =
   | { type: 'session:start' }
   | { type: 'learning:op'; op: LearningOp }
   | { type: 'learning:open'; tab: 'transcript' | 'notes' | 'export' }
-  | { type: 'notes:progress'; lessonId: string; done: number; total: number };
+  | { type: 'notes:progress'; lessonId: string; done: number; total: number }
+  // text-only lessons (popup ↔ top frame, chrome.tabs.sendMessage frameId 0)
+  | { type: 'text:get' }
+  | { type: 'text:cmd'; cmd: 'translate' | 'mode' | 'retry'; mode?: import('./types').TextDisplayMode };
 
 /** Operations on the lesson transcript held by the frame that owns the video. */
 export type LearningOp =

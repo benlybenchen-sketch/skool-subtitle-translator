@@ -1,4 +1,5 @@
 import type { Settings, TabStatus } from '../shared/types';
+import type { TextLessonInfo } from '../text/manager';
 import { adapterById } from '../players/adapters';
 import { addFullscreenListener, apiFullscreenElement } from '../overlay/fullscreen';
 
@@ -43,6 +44,7 @@ export class ControlPanel {
     private readonly stopAudio: () => void,
     private readonly startSession: () => void = () => undefined,
     private readonly openLearning: (tab: 'transcript' | 'notes' | 'export') => void = () => undefined,
+    private readonly textAction: (a: 'translate' | 'original' | 'vi' | 'bilingual' | 'retry') => void = () => undefined,
   ) {
     this.settings = settings;
     this.host = doc.createElement('div');
@@ -97,6 +99,32 @@ export class ControlPanel {
     this.render();
   }
 
+  private text: TextLessonInfo | null = null;
+  /** Text-only lesson detected (or gone): switches the card to article controls. */
+  setText(info: TextLessonInfo | null): void {
+    this.text = info;
+    this.render();
+  }
+
+  private renderText(t: TextLessonInfo, esc: (s: string) => string): string {
+    const m = t.mode;
+    const line = !t.started
+      ? 'Bài học dạng văn bản (chưa dịch)'
+      : `Bài viết: đã dịch ${t.done}/${t.total} đoạn${t.translating ? '…' : ''}${t.failed ? ` · ${t.failed} lỗi` : ''}`;
+    return `<div class="muted">${esc(line)}</div>
+      ${t.error ? `<div class="err">${esc(t.error)}</div>` : ''}
+      ${!t.started ? `<div class="row"><button class="b on" data-a="text-translate">Dịch bài này</button></div>` : ''}
+      ${t.auto ? '' : `<div class="row"><span class="muted">Bài viết khác</span><button class="b" data-a="text-auto" title="Bật 'Tự động dịch bài học dạng văn bản' (lưu trong Cài đặt)">Luôn tự dịch</button></div>`}
+      ${t.started ? `<div class="row"><span>Hiển thị</span><span>
+        <button class="b ${m === 'original' ? 'on' : ''}" data-a="text-original" title="Khôi phục bản gốc">EN</button>
+        <button class="b ${m === 'vi' ? 'on' : ''}" data-a="text-vi">VI</button>
+        <button class="b ${m === 'bilingual' ? 'on' : ''}" data-a="text-bilingual">EN+VI</button></span></div>` : ''}
+      ${t.started && m !== 'original' ? `<div class="row"><span class="muted">Bản gốc</span><button class="b" data-a="text-original">Khôi phục bản gốc</button></div>` : ''}
+      ${t.failed && !t.translating ? `<div class="row"><span class="muted">Một số đoạn lỗi</span><button class="b" data-a="text-retry">Thử lại</button></div>` : ''}
+      <div class="row"><button class="b" data-a="notes" title="Ghi chú học tập do AI tạo (chỉ khi bạn bấm Tạo)">🧠 Ghi chú AI</button>
+        <button class="b" data-a="export" title="Tải bản dịch TXT/MD về máy">⬇ Xuất bản dịch</button></div>`;
+  }
+
   private summary(): { line: string; error?: string } {
     const st = this.status;
     if (!st) return { line: 'Đang tìm video…' };
@@ -138,9 +166,9 @@ export class ControlPanel {
           <div class="row"><span class="title">Phụ đề tiếng Việt</span><button class="x" data-a="close" aria-label="Thu gọn">×</button></div>
           ${this.needsCaptionConsent() ? `<div class="consent"><b>Tự bật phụ đề tiếng Anh?</b><div class="muted">Video có phụ đề tiếng Anh nhưng CC đang tắt. Cho phép tiện ích tự chuyển phụ đề tiếng Anh sang chế độ ẩn ở mọi bài học để dịch tự động (không hiện chữ Anh gốc, không bấm nút CC). Chỉ hỏi một lần.</div>
             <div class="row"><button class="b on" data-a="consent-yes">Đồng ý</button><button class="b" data-a="consent-no">Không</button></div></div>` : ''}
-          <div class="muted">${esc(line)}</div>
-          ${error ? `<div class="err">${esc(error)}</div>` : ''}
-          <div class="row"><span>Dịch</span><button class="b ${s.enabled ? 'on' : ''}" data-a="toggle">${s.enabled ? 'BẬT' : 'TẮT'}</button></div>
+          ${this.text ? this.renderText(this.text, esc) : `<div class="muted">${esc(line)}</div>
+          ${error ? `<div class="err">${esc(error)}</div>` : ''}`}
+          ${this.text ? '' : `<div class="row"><span>Dịch</span><button class="b ${s.enabled ? 'on' : ''}" data-a="toggle">${s.enabled ? 'BẬT' : 'TẮT'}</button></div>
           <div class="row"><span>Hiển thị</span><span>
             <button class="b ${s.displayMode === 'vi' ? 'on' : ''}" data-a="vi">VI</button>
             <button class="b ${s.displayMode === 'bilingual' ? 'on' : ''}" data-a="bi">EN+VI</button></span></div>
@@ -152,7 +180,7 @@ export class ControlPanel {
             <button class="b" data-a="export" title="Tải SRT/VTT/TXT/MD về máy">⬇ Xuất</button></div>
           ${rec ? `<div class="row"><span>Audio Mode</span><button class="b" data-a="stop">Dừng ghi</button></div>` : ''}
           ${this.status?.frames.some((f) => f.mode === 'paused') ? `<div class="row"><span>Bài học này</span><button class="b on" data-a="start">Bắt đầu dịch</button></div>` : ''}
-          ${this.status?.frames.some((f) => f.captionsOff) && !s.autoEnableCaptions ? `<div class="row"><span class="muted">CC đang tắt</span><button class="b" data-a="autocc" title="Chuyển track tiếng Anh sang chế độ ẩn để đọc phụ đề (không hiện phụ đề Anh gốc)">Tự bật phụ đề tiếng Anh</button></div>` : ''}
+          ${this.status?.frames.some((f) => f.captionsOff) && !s.autoEnableCaptions ? `<div class="row"><span class="muted">CC đang tắt</span><button class="b" data-a="autocc" title="Chuyển track tiếng Anh sang chế độ ẩn để đọc phụ đề (không hiện phụ đề Anh gốc)">Tự bật phụ đề tiếng Anh</button></div>` : ''}`}
         </div>`
     }</div>`;
     this.shadow.querySelectorAll<HTMLElement>('[data-a]').forEach((el) =>
@@ -197,6 +225,16 @@ export class ControlPanel {
       case 'notes':
       case 'export':
         this.openLearning(a);
+        break;
+      case 'text-translate':
+      case 'text-original':
+      case 'text-vi':
+      case 'text-bilingual':
+      case 'text-retry':
+        this.textAction(a.slice(5) as 'translate' | 'original' | 'vi' | 'bilingual' | 'retry');
+        break;
+      case 'text-auto':
+        this.update({ autoTranslateTextLessons: true }); // explicit opt-in, persisted
         break;
       case 'autocc':
       case 'consent-yes':

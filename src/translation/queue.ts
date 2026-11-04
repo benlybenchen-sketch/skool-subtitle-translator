@@ -21,6 +21,7 @@ export interface QueueContext {
   priority?: number;
   /** Accounting labels attached to every event of this request (provider, model, lesson). */
   meta?: Record<string, string>;
+  format?: 'subtitle' | 'markup';
 }
 
 export type QueueEvent =
@@ -290,6 +291,7 @@ export class TranslationQueue {
         sourceLang: ctx.sourceLang ?? 'en',
         targetLang: ctx.targetLang ?? 'vi',
         signal: combined,
+        format: ctx.format,
         onUsage: (usage) => {
           reported = true;
           this.opts.onEvent?.({ type: 'usage', usage }, ctx.meta);

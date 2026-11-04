@@ -34,6 +34,8 @@ export interface BatchRequest {
   signal: AbortSignal;
   /** Providers report token usage here when the API returns it. */
   onUsage?: (u: TokenUsage) => void;
+  /** 'markup' = written lesson blocks carrying lightweight tags that must be preserved. */
+  format?: 'subtitle' | 'markup';
 }
 
 /** Returns a map id → translation. Missing IDs are treated as failures. */

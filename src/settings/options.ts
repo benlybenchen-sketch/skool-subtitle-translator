@@ -214,6 +214,7 @@ function fill(s: Settings, sttKey?: string): void {
   $('auto-start').checked = s.autoStart;
   $('auto-nav').checked = s.autoInitOnNavigation;
   $('auto-cc').checked = s.autoEnableCaptions;
+  $('auto-text').checked = s.autoTranslateTextLessons;
   $<HTMLTextAreaElement>('dom-sel').value = s.customCaptionSelectors;
   $('panel').checked = s.showPanel;
 }
@@ -236,6 +237,7 @@ function read(): Settings {
     autoStart: $('auto-start').checked,
     autoInitOnNavigation: $('auto-nav').checked,
     autoEnableCaptions: $('auto-cc').checked,
+    autoTranslateTextLessons: $('auto-text').checked,
     autoEnableCaptionsAsked: current.autoEnableCaptionsAsked || $('auto-cc').checked !== current.autoEnableCaptions || $('auto-cc').checked,
     sourceLanguage: 'en',
     targetLanguage: 'vi',

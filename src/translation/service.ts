@@ -136,7 +136,7 @@ export class TranslationService {
     }
   }
 
-  async translateUnits(videoKey: string, units: UnitPayload[], context: string[], priority = 2): Promise<UnitResult[]> {
+  async translateUnits(videoKey: string, units: UnitPayload[], context: string[], priority = 2, format: 'subtitle' | 'markup' = 'subtitle'): Promise<UnitResult[]> {
     const raw = await this.deps.getSettings();
     // Effective configuration: glossary store + per-mode model override (user-configured only).
     const glossary = this.deps.getGlossaryText ? await this.deps.getGlossaryText(raw).catch(() => raw.glossary) : raw.glossary;
@@ -187,6 +187,7 @@ export class TranslationService {
           group: videoKey,
           priority,
           meta,
+          format,
         },
       );
       const toCache: { key: string; videoKey: string; vi: string }[] = [];
