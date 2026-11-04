@@ -35,6 +35,26 @@ function visibleArea(el: Element): number {
   return w * h;
 }
 
+/** All OPEN shadow roots in the document (nested ones included), bounded. */
+export function openShadowRoots(doc: Document): ShadowRoot[] {
+  const out: ShadowRoot[] = [];
+  const stack: (Document | ShadowRoot)[] = [doc];
+  let visited = 0;
+  while (stack.length) {
+    const r = stack.pop()!;
+    const walker = (r instanceof Document ? r : r.ownerDocument!).createTreeWalker(r, NodeFilter.SHOW_ELEMENT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (++visited > MAX_NODES) return out;
+      const sr = (n as Element).shadowRoot;
+      if (sr) {
+        out.push(sr);
+        stack.push(sr);
+      }
+    }
+  }
+  return out;
+}
+
 /** querySelectorAll that also descends into OPEN shadow roots (closed ones are not accessible, by design). */
 export function deepQueryAll<T extends Element>(root: Document | ShadowRoot, selector: string): T[] {
   const out: T[] = [...root.querySelectorAll<T>(selector)];
@@ -131,7 +151,11 @@ export function detect(doc: Document, frameAdapter: PlayerAdapter): DetectionRes
  */
 export class VideoDetector {
   private observer: MutationObserver | null = null;
+  /** Open shadow roots we also observe: mutations and non-composed media events inside a shadow
+   *  root never reach document-level observers/listeners (real Skool page has 7 such roots). */
+  private shadowRoots = new Set<ShadowRoot>();
   private scheduled = false;
+  lastScanAt = 0;
   private last: DetectionResult = { primary: null, videos: [], audios: [], embeds: [], anchor: null };
   private readonly listeners = new Set<(r: DetectionResult, changed: boolean) => void>();
 
@@ -162,6 +186,7 @@ export class VideoDetector {
       }
     });
     this.observer.observe(this.doc.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] });
+    this.watchShadowRoots();
     // Media becoming playable/visible after metadata loads (also catches <audio> starting to play).
     this.doc.addEventListener('loadedmetadata', this.onMedia, true);
     this.doc.addEventListener('play', this.onMedia, true);
@@ -173,6 +198,28 @@ export class VideoDetector {
     this.observer = null;
     this.doc.removeEventListener('loadedmetadata', this.onMedia, true);
     this.doc.removeEventListener('play', this.onMedia, true);
+    for (const sr of this.shadowRoots) {
+      sr.removeEventListener('loadedmetadata', this.onMedia, true);
+      sr.removeEventListener('play', this.onMedia, true);
+    }
+    this.shadowRoots.clear();
+  }
+
+  get observedShadowRoots(): number {
+    return this.shadowRoots.size;
+  }
+
+  /** Observe newly found open shadow roots (bounded); forget ones that left the document. */
+  private watchShadowRoots(): void {
+    if (!this.observer) return;
+    for (const sr of this.shadowRoots) if (!sr.host.isConnected) this.shadowRoots.delete(sr);
+    for (const sr of openShadowRoots(this.doc)) {
+      if (this.shadowRoots.has(sr) || this.shadowRoots.size >= 100) continue;
+      this.shadowRoots.add(sr);
+      this.observer.observe(sr, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] });
+      sr.addEventListener('loadedmetadata', this.onMedia, true);
+      sr.addEventListener('play', this.onMedia, true);
+    }
   }
 
   private onMedia = () => this.requestScan();
@@ -198,8 +245,11 @@ export class VideoDetector {
 
   scan(): DetectionResult {
     const next = detect(this.doc, this.adapter);
+    this.lastScanAt = Date.now();
+    this.watchShadowRoots();
     const changed =
       next.primary?.el !== this.last.primary?.el ||
+      (!!this.last.primary && !this.last.primary.el.isConnected) ||
       next.embeds.length !== this.last.embeds.length ||
       next.anchor !== this.last.anchor ||
       next.audios.length !== this.last.audios.length;

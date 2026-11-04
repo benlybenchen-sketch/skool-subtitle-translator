@@ -12,10 +12,15 @@ import { NavigationWatcher } from '../skool/navigation';
  *   tabs.onUpdated URL change (`nav:check`). No polling.
  */
 export function createLessonLifecycle(win: Window, controller: SubtitleController, detector: VideoDetector) {
+  let late: ReturnType<typeof setTimeout>[] = [];
   const nav = new NavigationWatcher(win, () => {
     controller.reset();
     const r = detector.scan();
     controller.setTarget(r.primary, r.anchor, true);
+    // The next lesson's player may mount a little later (possibly inside a shadow root that did
+    // not exist yet): two bounded follow-up scans, no polling.
+    late.forEach(clearTimeout);
+    late = [1000, 3000].map((ms) => setTimeout(() => detector.requestScan(), ms));
   });
   const offDetector = detector.onChange((r: DetectionResult, changed: boolean) => {
     nav.check();
@@ -32,6 +37,7 @@ export function createLessonLifecycle(win: Window, controller: SubtitleControlle
       nav.start();
     },
     stop(): void {
+      late.forEach(clearTimeout);
       offDetector();
       detector.stop();
       nav.stop();

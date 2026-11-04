@@ -264,3 +264,37 @@ describe('priority tiers (speed-first pretranslation)', () => {
     expect(s.timeToFirstMs).toBe(350);
   });
 });
+
+describe('quota protection', () => {
+  it('background (P4) pretranslation pauses after a 429 while P1–P3 continue', async () => {
+    let now = 0;
+    const tl = new Timeline(units(60, 5));
+    const sent: { p?: number; first: string }[] = [];
+    let fail = true;
+    const b: TranslateBridge = {
+      async translate(_k, us, _c, priority) {
+        sent.push({ p: priority, first: us[0].text });
+        if (fail && priority === 4) {
+          fail = false;
+          return us.map((u) => ({ id: u.id, error: 'Gemini HTTP 429 (rate limited): quota' }));
+        }
+        return us.map((u) => ({ id: u.id, vi: 'x' }));
+      },
+      cancel() {},
+    };
+    const s = new TranslationScheduler(tl, 'v', b, () => undefined, () => undefined, { now: () => now, lookAhead: 30 });
+    s.setPlayhead(0);
+    for (let i = 0; i < 10; i++) await flush();
+    const p4After = sent.filter((x) => x.p === 4).length;
+    expect(p4After).toBe(1); // the failing one; no more background work for 2 minutes
+    expect(s.rateLimited).toBe(true);
+    now += 60_000;
+    s.setPlayhead(100); // playback moves on: urgent/window work still flows
+    for (let i = 0; i < 10; i++) await flush();
+    expect(sent.some((x) => x.p !== 4 && x.first === 'line 19')).toBe(true);
+    now += 61_000;
+    s.setPlayhead(100);
+    for (let i = 0; i < 10; i++) await flush();
+    expect(sent.filter((x) => x.p === 4).length).toBeGreaterThan(p4After); // resumes after the pause
+  });
+});

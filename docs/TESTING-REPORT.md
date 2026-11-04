@@ -4,9 +4,16 @@ Run on 2026-11-03, Node 22, Chromium (Playwright 1.63 build), Linux.
 
 ```
 npm run typecheck   → 0 errors
-npm test            → 15 files, 192 tests passed
+npm test            → 15 files, 198 tests passed
 npm run test:e2e    → 23/23 passed (built extension loaded in Chromium, mock pages)
 ```
+
+**First real-Skool evidence (user diagnostic, v3.1.1, 2026-11-04):** Skool Native `<video>` lives in an
+**open shadow root**; it exposes an English `subtitles` TextTrack ("English CC", `en`) that starts
+`disabled`; switching it to `hidden` (opt-in) made the player load cues continuously (105 cues up to
+2673 s of a 2916 s lesson, all translated), with one player mode reset re-applied. Translation pauses
+were caused by **Gemini HTTP 429 quota errors**, addressed in v3.2.0. This is one lesson / one user —
+not a full verification.
 
 **Important:** every automated test uses mocks or mock pages. They prove the extension's own logic and
 its behaviour inside a real Chromium, **not** compatibility with the real Skool, Loom, Vimeo, YouTube
@@ -51,6 +58,8 @@ with a logged-in Skool account.
 | 25 | **CC off, only 32 cues loaded** (real-Skool diagnostic: "32/32 — CC của trình phát đang tắt") | `cc-off.test` — 20-min Skool Native mock, CC disabled, user never presses CC, 32 cues initially, batches load only while the track is not disabled, player resets the track per batch → all ~430 cues loaded and translated to the end, health `completed`, no duplicate calls, seek + fullscreen from cache, next lesson without F5; CC turned off mid-lesson without opt-in → one-time question offered; player re-disabling every activation → bounded (≤ 4), exact reason + Audio Mode, nothing invented | ✓ CC off, no opt-in, `<track src>`: whole 12-min caption file read, every sampled cue translated, track mode stays `disabled`, URL absent from diagnostics; consent card tested on a JS-created track |
 
 | 26 | **Extension reloaded while a Skool tab is open** (real report: `Uncaught TypeError: Cannot read properties of undefined (reading 'onChanged')` in content.js) | `runtime.test` — unsubscribing with `chrome.storage` gone (fails on the pre-fix code with exactly that TypeError) | ✓ orphaned script removes its panel/overlay without errors (note: this headless harness cannot bring an extension back after `chrome.runtime.reload()`, so it does not reproduce the missing `chrome.storage`; the unit test does) |
+
+| 27 | **Player inside an open shadow root; Gemini 429 quota** (real diagnostics) | `players.test` (video added / replaced / removed inside a shadow root, non-composed `play` inside a shadow root, shadow roots created later — all 3 fail on the old detector); `translation.test` (Gemini `retryDelay` parsed from the body, one 429 pauses all batches via a shared cooldown); `scheduler.test` (background pretranslation paused 2 min after a 429 while urgent work continues) | — |
 
 Additional: VAD chunker (pauses, forced cuts, noise/clicks, flush), WAV encoding/resampling, live
 segment assembly (fragment merge, overlap removal, hallucination filter), STT ordering under

@@ -38,13 +38,17 @@ export function parseRetryAfter(value: string | null): number | undefined {
 
 export async function ensureOk(res: Response, label: string): Promise<Response> {
   if (res.ok) return res;
-  let detail = '';
+  let body = '';
   try {
-    detail = (await res.text()).slice(0, 300);
+    body = await res.text();
   } catch {
     /* ignore */
   }
-  const retryAfter = parseRetryAfter(res.headers.get('retry-after'));
+  const detail = body.slice(0, 300);
+  // Gemini puts the wait time in the JSON body (google.rpc.RetryInfo: "retryDelay": "36s"),
+  // not in a Retry-After header.
+  const bodyDelay = body.match(/"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/);
+  const retryAfter = parseRetryAfter(res.headers.get('retry-after')) ?? (bodyDelay ? Math.round(Number(bodyDelay[1]) * 1000) : undefined);
   const hint =
     res.status === 401 || res.status === 403
       ? ' (check the API key / permissions)'

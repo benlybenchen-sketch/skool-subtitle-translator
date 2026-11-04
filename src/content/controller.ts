@@ -843,6 +843,9 @@ export class SubtitleController {
 
   status(): Omit<FrameStatus, 'frameId'> {
     const counts = this.timeline?.counts() ?? { total: 0, done: 0, failed: 0 };
+    const quotaError = this.scheduler?.rateLimited
+      ? 'Gemini báo vượt hạn mức (HTTP 429 – quota/rate limit). Tiện ích đang chờ rồi tự dịch tiếp; nếu lặp lại thường xuyên: bật thanh toán / nâng gói Gemini, tắt "Dịch trước liên tục", hoặc dùng backend khác.'
+      : undefined;
     return {
       isTop: this.env.isTop,
       host: this.env.doc.location.hostname,
@@ -861,7 +864,7 @@ export class SubtitleController {
       unitsTotal: counts.total,
       unitsTranslated: counts.done,
       unitsFailed: counts.failed,
-      error: this.error,
+      error: this.error ?? quotaError,
       notice: this.notice,
       captionsOff: this.captionsOff || undefined,
       perf: this.scheduler

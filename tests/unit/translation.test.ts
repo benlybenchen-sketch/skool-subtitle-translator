@@ -349,3 +349,35 @@ describe('queue priorities', () => {
     expect(order).toEqual(['busy', 'urgent', 'background']);
   });
 });
+
+describe('Gemini quota / rate limits (real Skool diagnostic: 13× "Gemini HTTP 429 … exceeded your current quota")', () => {
+  it('reads Gemini retryDelay from the JSON body', async () => {
+    const { ensureOk } = await import('../../src/translation/errors');
+    const body = JSON.stringify({ error: { code: 429, message: 'You exceeded your current quota', details: [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '36s' }] } }, null, 2);
+    const err = await ensureOk(new Response(body, { status: 429 }), 'Gemini').catch((e) => e);
+    expect(err.retryAfterMs).toBe(36_000);
+  });
+
+  it('one 429 pauses ALL batches (shared cooldown) instead of each batch hammering the API', async () => {
+    let now = 0;
+    const sleeps: number[] = [];
+    const calls: { t: number; text: string }[] = [];
+    let first = true;
+    const p: TranslationProvider = {
+      id: 'quota',
+      async translateBatch(r) {
+        calls.push({ t: now, text: r.segments[0].text });
+        if (first) {
+          first = false;
+          throw new HttpError(429, 'quota', 30_000);
+        }
+        return echo(r.segments.map((s) => s.text));
+      },
+    };
+    const q = new TranslationQueue({ concurrency: 1, maxBatchItems: 1, now: () => now, sleep: async (ms) => { sleeps.push(ms); now += ms; } });
+    const res = await q.translate([{ key: 'a', text: 'A' }, { key: 'b', text: 'B' }, { key: 'c', text: 'C' }], ctx(p));
+    expect([...res.values()].every((r) => r.vi)).toBe(true);
+    expect(calls).toHaveLength(4); // 1 rejected + 3 successful — no extra retries during the cooldown
+    expect(calls.slice(1).every((c) => c.t >= 30_000)).toBe(true); // nothing sent before the cooldown ended
+  });
+});

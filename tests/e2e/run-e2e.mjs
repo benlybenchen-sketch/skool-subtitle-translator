@@ -100,8 +100,19 @@ const extId = new URL(sw.url()).host;
 console.log(`Extension loaded: ${extId}`);
 
 // Use the offline mock translator (no network, no permissions) for E2E.
+// On first install the extension opens its Settings page itself (onInstalled): let that settle
+// first, then use our own tab (avoids "navigation interrupted" races).
+await new Promise((r) => setTimeout(r, 1000));
 const setup = await context.newPage();
-await setup.goto(`chrome-extension://${extId}/settings/options.html`);
+for (let i = 0; i < 3; i++) {
+  try {
+    await setup.goto(`chrome-extension://${extId}/settings/options.html`);
+    break;
+  } catch (e) {
+    if (i === 2) throw e;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
 await setup.evaluate(async () => {
   const { settings = {} } = await chrome.storage.sync.get('settings');
   // autoEnableCaptions: the mock players expose non-default (disabled) English tracks; the user
@@ -452,8 +463,18 @@ await test('Seek regression: player disables CC on seek → Vietnamese subtitles
   await p.keyboard.press('f');
   await p.waitForFunction(() => !!document.fullscreenElement);
   await expectAt(245, 'fullscreen');
-  const inFs = await p.evaluate(() => document.getElementById('player').contains(document.querySelector('[data-sst-overlay]')));
-  assert(inFs, 'overlay left the fullscreen player');
+  const fsState = () =>
+    p.evaluate(() => ({
+      fs: document.fullscreenElement?.id ?? null,
+      inPlayer: document.getElementById('player').contains(document.querySelector('[data-sst-overlay]')),
+    }));
+  const st = await waitFor(async () => {
+    const s = await fsState();
+    return s.inPlayer && s;
+  }, 2000, 'overlay inside the fullscreen player').catch(async (e) => {
+    throw new Error(`${e.message} — state ${JSON.stringify(await fsState())}`);
+  });
+  assert(st.inPlayer, 'overlay left the fullscreen player');
   await p.keyboard.press('f');
   const n = await p.evaluate(() => document.querySelectorAll('[data-sst-overlay]').length);
   assert(n === 1, `overlays=${n}`);

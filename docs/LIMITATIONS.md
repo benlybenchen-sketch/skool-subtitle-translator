@@ -20,6 +20,13 @@ boundaries. In that situation:
   fullscreen the overlay only shows if the fullscreen element is in the accessible DOM.
 - Use popup → **"Chạy chẩn đoán"** and share the result when reporting issues.
 
+## Gemini quota (v3.2.0)
+Free/low Gemini tiers return HTTP 429 ("You exceeded your current quota…"). The extension now waits
+for Gemini's `retryDelay` with one shared cooldown, pauses background pretranslation for 2 minutes,
+uses larger background batches (fewer requests) and shows the reason in the popup. It cannot create
+quota: if 429s persist, enable billing / a higher tier, turn off "Dịch trước liên tục", or use another
+backend (local server, Ollama, OpenAI-compatible).
+
 ## CC off (v3.1.0)
 Order of strategies, most reliable first:
 1. **Caption file:** if the English track comes from a `<track src>` element, the whole WebVTT/SRT

@@ -100,6 +100,7 @@ async function main(): Promise<void> {
         sendResponse({
           ...collectDiagnostics(document, detector.result, controller.status()),
           subtitles: controller.debugState(),
+          detector: { observedShadowRoots: detector.observedShadowRoots, lastScanAgoMs: Date.now() - detector.lastScanAt },
           trackLog: controller.trackLog(),
         });
         return;

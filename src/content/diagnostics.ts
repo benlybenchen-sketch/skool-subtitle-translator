@@ -31,7 +31,9 @@ export interface FrameDiagnostics {
   openShadowRoots: number;
   customElementsWithoutOpenShadow: { tag: string; size: string }[];
   pageAnchor: string | null;
-  detection: { primaryKind: string | null; provider: string | null };
+  detection: { primaryKind: string | null; provider: string | null; primaryConnected: boolean | null; primaryInShadow: boolean | null };
+  /** URL has a lesson id (?md=…) — the value itself is not reported. */
+  lessonParam: boolean;
   status: Pick<FrameStatus, 'mode' | 'captionState' | 'captionSource' | 'targetKind'>;
 }
 
@@ -99,7 +101,13 @@ export function collectDiagnostics(doc: Document, det: DetectionResult, status: 
     openShadowRoots,
     customElementsWithoutOpenShadow: customNoShadow,
     pageAnchor: describe(det.anchor),
-    detection: { primaryKind: det.primary?.kind ?? null, provider: det.primary?.provider ?? null },
+    detection: {
+      primaryKind: det.primary?.kind ?? null,
+      provider: det.primary?.provider ?? null,
+      primaryConnected: det.primary ? det.primary.el.isConnected : null,
+      primaryInShadow: det.primary ? det.primary.el.getRootNode() instanceof ShadowRoot : null,
+    },
+    lessonParam: new URL(doc.location.href).searchParams.has('md'),
     status: { mode: status.mode, captionState: status.captionState, captionSource: status.captionSource, targetKind: status.targetKind },
   };
 }

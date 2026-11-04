@@ -13,6 +13,8 @@ export interface SchedulerOptions {
   firstBatchSize: number;
   /** Normal batch size (8–12 cues recommended). */
   batchSize: number;
+  /** P3/P4 batches (not urgent): larger → fewer requests per minute (free-tier quotas). */
+  backgroundBatchSize: number;
   batchChars: number;
   contextSize: number;
   /** Seconds behind the playhead still worth translating (just-missed lines). */
@@ -45,7 +47,8 @@ export const DEFAULT_SCHEDULER: SchedulerOptions = {
   maxInFlight: 2,
   firstBatchSize: 4,
   batchSize: 10,
-  batchChars: 1400,
+  backgroundBatchSize: 20,
+  batchChars: 2400,
   contextSize: 3,
   lookBehind: 3,
   nowWindow: 4,
@@ -93,6 +96,16 @@ export class TranslationScheduler {
   private batchSeq = 0;
   lastSuccessAt: number | null = null;
   lastError: string | null = null;
+  lastErrorAt: number | null = null;
+  /** Background (P4) pretranslation pauses after a rate-limit/quota error to save quota. */
+  private bgPausedUntil = 0;
+  static readonly BG_PAUSE_AFTER_429_MS = 120_000;
+
+  private lastOutcomeRateLimited = false;
+  /** The most recent request outcome was a rate-limit / quota error (cleared by the next success). */
+  get rateLimited(): boolean {
+    return this.lastOutcomeRateLimited;
+  }
   errorCount = 0;
 
   constructor(
@@ -274,7 +287,7 @@ export class TranslationScheduler {
     }
     let priority: Priority = 3;
     if (first >= 0) priority = Math.min(3, this.priorityOf(units[first])) as Priority;
-    else if (this.o.pretranslateAll && this.bgInFlight < this.o.maxBackgroundInFlight) {
+    else if (this.o.pretranslateAll && this.bgInFlight < this.o.maxBackgroundInFlight && now >= this.bgPausedUntil) {
       // P4: rest of the transcript — ahead of the window first, then what lies behind.
       const order = [...Array(units.length).keys()].filter((i) => units[i].start > horizon || i < from);
       for (const i of order) {
@@ -290,7 +303,7 @@ export class TranslationScheduler {
       if (Number.isFinite(earliestRetry)) this.armRetry(earliestRetry - now);
       return null;
     }
-    const size = priority <= 2 && this.coldStart() ? this.o.firstBatchSize : this.o.batchSize;
+    const size = priority <= 2 && this.coldStart() ? this.o.firstBatchSize : priority >= 3 ? Math.max(this.o.batchSize, this.o.backgroundBatchSize) : this.o.batchSize;
     const batch: TimedUnit[] = [];
     let chars = 0;
     for (let i = first; i < units.length && batch.length < size; i++) {
@@ -352,6 +365,7 @@ export class TranslationScheduler {
         this.retryAt.delete(u.id);
         if (this.firstResultAt === null) this.firstResultAt = this.o.now();
         this.lastSuccessAt = this.o.now();
+        this.lastOutcomeRateLimited = false;
         this.fatalBackoff = this.o.fatalBackoffMs;
         changed.push(u);
         continue;
@@ -359,7 +373,12 @@ export class TranslationScheduler {
       u.attempts++;
       if (r?.error || transportError) {
         this.lastError = r?.error ?? transportError;
+        this.lastErrorAt = this.o.now();
         this.errorCount++;
+        if (/429|rate.?limit|quota/i.test(this.lastError ?? '')) {
+          this.bgPausedUntil = this.o.now() + TranslationScheduler.BG_PAUSE_AFTER_429_MS;
+          this.lastOutcomeRateLimited = true;
+        }
       }
       if (r?.fatal) {
         u.status = 'pending';

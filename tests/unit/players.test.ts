@@ -116,3 +116,64 @@ describe('detector', () => {
     det.stop();
   });
 });
+
+describe('player inside an open shadow root (real Skool page has 7 open shadow roots)', () => {
+  it('notices a <video> added, replaced and removed INSIDE a shadow root (no stale detection)', async () => {
+    document.body.innerHTML = '';
+    const host = document.createElement('skool-player');
+    document.body.append(host);
+    const root = host.attachShadow({ mode: 'open' });
+    const det = new VideoDetector(document, skoolNativeAdapter, (cb) => setTimeout(cb, 0));
+    const seen: (Element | null)[] = [];
+    det.onChange((r, changed) => changed && seen.push(r.primary?.el ?? null));
+    det.start();
+    expect(det.observedShadowRoots).toBe(1);
+    const v1 = makeVideo(document);
+    root.append(v1); // mutation inside the shadow root
+    await new Promise((r) => setTimeout(r, 20));
+    expect(det.result.primary?.el).toBe(v1);
+    const v2 = makeVideo(document, { src: 'https://video.skool.com/lesson-2.mp4' });
+    root.replaceChildren(v2); // next lesson: player swapped inside the shadow root
+    await new Promise((r) => setTimeout(r, 20));
+    expect(det.result.primary?.el).toBe(v2);
+    root.replaceChildren(); // player unmounted
+    await new Promise((r) => setTimeout(r, 20));
+    expect(det.result.primary).toBeNull();
+    expect(seen).toEqual([v1, v2, null]);
+    det.stop();
+  });
+
+  it('a "play" event inside a shadow root (not composed) still triggers a scan', async () => {
+    document.body.innerHTML = '';
+    const host = document.createElement('x-player');
+    document.body.append(host);
+    const root = host.attachShadow({ mode: 'open' });
+    const det = new VideoDetector(document, skoolNativeAdapter, (cb) => setTimeout(cb, 0));
+    det.start();
+    const scan = vi.spyOn(det, 'scan');
+    const v = makeVideo(document);
+    root.append(v);
+    await new Promise((r) => setTimeout(r, 20));
+    scan.mockClear();
+    v.dispatchEvent(new Event('play')); // non-composed: never reaches document listeners
+    await new Promise((r) => setTimeout(r, 20));
+    expect(scan).toHaveBeenCalled();
+    det.stop();
+  });
+
+  it('shadow roots created later (lesson mounted after start) are observed after the next scan', async () => {
+    document.body.innerHTML = '';
+    const det = new VideoDetector(document, skoolNativeAdapter, (cb) => setTimeout(cb, 0));
+    det.start();
+    const host = document.createElement('x-lesson');
+    const root = host.attachShadow({ mode: 'open' });
+    document.body.append(host);
+    det.requestScan(); // what the lifecycle's follow-up scans do after navigation
+    await new Promise((r) => setTimeout(r, 20));
+    const v = makeVideo(document);
+    root.append(v);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(det.result.primary?.el).toBe(v);
+    det.stop();
+  });
+});

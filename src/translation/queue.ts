@@ -40,13 +40,14 @@ export interface QueueOptions {
   timeoutMs: number;
   sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
   random: () => number;
+  now: () => number;
   onEvent?: (e: QueueEvent) => void;
 }
 
 export const DEFAULT_QUEUE_OPTIONS: QueueOptions = {
   concurrency: 2,
-  maxBatchItems: 16,
-  maxBatchChars: 1800,
+  maxBatchItems: 24,
+  maxBatchChars: 2600,
   minBatchChars: 200,
   maxRetries: 4,
   baseDelayMs: 800,
@@ -54,6 +55,7 @@ export const DEFAULT_QUEUE_OPTIONS: QueueOptions = {
   timeoutMs: 45_000,
   sleep: defaultSleep,
   random: Math.random,
+  now: () => Date.now(),
 };
 
 export interface ItemResult {
@@ -76,6 +78,12 @@ export class TranslationQueue {
   private active = 0;
   private readonly waiters: { priority: number; seq: number; wake: () => void }[] = [];
   private waiterSeq = 0;
+  /** After an HTTP 429, NO request is sent until this time (shared by all batches/tabs). */
+  private cooldownUntil = 0;
+
+  get rateLimitedForMs(): number {
+    return Math.max(0, this.cooldownUntil - this.opts.now());
+  }
   private budget: number;
 
   constructor(opts: Partial<QueueOptions> = {}) {
@@ -175,6 +183,10 @@ export class TranslationQueue {
   }
 
   private async acquire(signal: AbortSignal, priority: number): Promise<void> {
+    // Global rate-limit cooldown: waiting here (instead of each batch retrying on its own
+    // schedule) stops a 429 storm from burning more quota.
+    const wait = this.rateLimitedForMs;
+    if (wait > 0) await this.opts.sleep(wait, signal); // single bounded wait (no spin)
     while (this.active >= this.opts.concurrency) {
       await new Promise<void>((wake) => this.waiters.push({ priority, seq: this.waiterSeq++, wake }));
       if (signal.aborted) throw abortError();
@@ -278,11 +290,13 @@ export class TranslationQueue {
     let delay = Math.min(this.opts.maxDelayMs, this.opts.baseDelayMs * 2 ** attempt) * (0.75 + this.opts.random() * 0.5);
     if (err instanceof HttpError && err.status === 429) {
       if (err.retryAfterMs !== undefined) delay = Math.min(this.opts.maxDelayMs * 3, err.retryAfterMs);
+      this.cooldownUntil = Math.max(this.cooldownUntil, this.opts.now() + delay);
       this.opts.onEvent?.({ type: 'rate-limited', delayMs: delay });
     }
     delay = Math.round(delay);
     this.opts.onEvent?.({ type: 'retry', attempt: attempt + 1, delayMs: delay, reason: err.message });
-    await this.opts.sleep(delay, signal);
+    // 429: the shared cooldown (in acquire) is the wait — for this and every other batch.
+    if (!(err instanceof HttpError && err.status === 429)) await this.opts.sleep(delay, signal);
     // Split large batches that failed to parse into halves.
     if ((err instanceof ParseError || err.name === 'TimeoutError') && batch.length > 1) {
       const mid = Math.ceil(batch.length / 2);
