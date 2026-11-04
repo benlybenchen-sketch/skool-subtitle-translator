@@ -42,6 +42,7 @@ class SimSink implements DubSink {
   overlaps = 0;
   stops = 0;
   prepares = 0;
+  preparedIds = new Set<string>();
   pendingPrepares: { at: number; resolve: (r: { key: string; durationSec: number }) => void; reject: (e: Error) => void; id: string; text: string }[] = [];
   sched!: DubbingScheduler;
   failPrepare = false;
@@ -56,6 +57,7 @@ class SimSink implements DubSink {
       this.prepare = (u) =>
         new Promise((resolve, reject) => {
           this.prepares++;
+          this.preparedIds.add(u.id);
           this.pendingPrepares.push({ at: sim.wall + this.latencyMs, resolve, reject, id: u.id, text: u.text });
         });
   }
@@ -283,6 +285,46 @@ describe('dubbing scheduler', () => {
   });
 });
 
+describe('measured dubbing performance (simulated 20-minute lesson)', () => {
+  // A sentence every 4 s (300 units), Vietnamese ≈ 11 words (≈ 2.9 s of speech at 1×).
+  // Wall clock and media clock are simulated; TTS latency is the simulated synthesis time.
+  const rows: Record<string, unknown>[] = [];
+  const scenarios: [string, 'cloud' | 'chrome', number, number][] = [
+    ['cloud 1× · TTS 0.4 s', 'cloud', 1, 400],
+    ['cloud 1× · TTS 1.5 s', 'cloud', 1, 1500],
+    ['cloud 1.5× · TTS 0.4 s', 'cloud', 1.5, 400],
+    ['cloud 2× · TTS 0.4 s', 'cloud', 2, 400],
+    ['chrome.tts 1×', 'chrome', 1, 0],
+    ['chrome.tts 2×', 'chrome', 2, 0],
+  ];
+  for (const [name, kind, rate, lat] of scenarios) {
+    it(name, async () => {
+      const sim = new Sim(kind, lesson(300), {}, lat);
+      sim.rate = rate;
+      sim.play();
+      await sim.run(1205 / rate);
+      const st = sim.sched.snapshot();
+      expect(sim.sink.overlaps).toBe(0);
+      const ids = sim.sink.spoken.map((x) => x.id);
+      expect(new Set(ids).size).toBe(ids.length);
+      rows.push({
+        scenario: name,
+        firstSpeechMs: st.firstSpeechMs,
+        medianDelayMs: st.medianDelayMs,
+        p95DelayMs: st.p95DelayMs,
+        spoken: st.spoken,
+        missed: st.skipped,
+        late: st.late,
+        lateSpeechSec: Math.round(st.lateSpeechSec * 10) / 10,
+        speedAdjusted: st.rateAdjusted,
+        ttsRequests: kind === 'cloud' ? sim.sink.prepares : '—',
+        unnecessaryRequests: kind === 'cloud' ? sim.sink.prepares - sim.sink.preparedIds.size : '—',
+      });
+      if (rows.length === scenarios.length) console.table(rows);
+    }, 60_000);
+  }
+});
+
 describe('original audio', () => {
   const media = () => {
     const v = document.createElement('video');
@@ -376,6 +418,18 @@ describe('dubbing session', () => {
     s.onEvent('old-token', 'd:u0+1', 'error', 'boom');
     expect(s.status().lastError).toBeUndefined();
   });
+  it('sustained failure restores the original audio; recovery when speech works again', async () => {
+    const { s, v } = mk([{ id: 'Linh', label: 'Linh', lang: 'vi-VN', gender: 'female' }]);
+    await s.start();
+    expect(v.muted).toBe(true);
+    (s as any).onFatal('TTS HTTP 503');
+    expect(v.muted).toBe(false); // never trapped in silence
+    expect(s.status()).toMatchObject({ state: 'error', lastError: 'TTS HTTP 503' });
+    s.onEvent(s.token, 'any', 'start');
+    expect(v.muted).toBe(true);
+    expect(s.status().state).not.toBe('error');
+  });
+
   it('captions unavailable → nothing spoken and original audio kept', async () => {
     const { s, v } = mk([{ id: 'Linh', label: 'Linh', lang: 'vi-VN', gender: 'female' }]);
     await s.start();

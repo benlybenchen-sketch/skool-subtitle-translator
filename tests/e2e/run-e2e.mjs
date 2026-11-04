@@ -36,6 +36,14 @@ const LONG_VTT = 'WEBVTT\n\n' + Array.from({ length: 24 }, (_, i) => {
   const ts = (s) => new Date(s * 1000).toISOString().slice(11, 23);
   return `${ts(i * 30)} --> ${ts(i * 30 + 20)}\nLesson cue number ${i}.\n`;
 }).join('\n');
+// 20-minute dubbing lesson: a sentence every 4 s (300 cues)
+const DUB_WAV = wav(1200, 4000);
+const dubVtt = (tag) => 'WEBVTT\n\n' + Array.from({ length: 300 }, (_, i) => {
+  const ts = (s) => new Date(s * 1000).toISOString().slice(11, 23);
+  return `${ts(i * 4 + 0.5)} --> ${ts(i * 4 + 3.8)}\n${tag} sentence ${i} about the funnel.\n`;
+}).join('\n');
+const DUB_VTT = dubVtt('Dub lesson one');
+const DUB_VTT_B = dubVtt('Second lesson');
 const VTT2 = 'WEBVTT\n\n00:00:00.500 --> 00:00:04.000\nThis is the second lesson.\n';
 
 const results = [];
@@ -99,6 +107,10 @@ await context.route(/^https:\/\/www\.skool\.com\//, (route) => {
   if (u.pathname === '/media/lesson.vtt') return route.fulfill(serve(readFileSync(join(fixtures, 'lesson.vtt')), 'text/vtt'));
   if (u.pathname === '/media/lesson2.vtt') return route.fulfill(serve(VTT2, 'text/vtt'));
   if (u.pathname === '/media/long.wav') return serveMedia(route, LONG_WAV);
+  if (u.pathname === '/media/dub20.wav' || u.pathname === '/media/dub20b.wav') return serveMedia(route, DUB_WAV);
+  if (u.pathname === '/media/dub20.vtt') return route.fulfill(serve(DUB_VTT, 'text/vtt'));
+  if (u.pathname === '/media/dub20b.vtt') return route.fulfill(serve(DUB_VTT_B, 'text/vtt'));
+  if (u.search.includes('dublesson')) return route.fulfill(serve(readFileSync(join(pages, 'skool-dub.html')), 'text/html'));
   if (u.pathname === '/media/long.vtt') return route.fulfill(serve(LONG_VTT, 'text/vtt'));
   if (u.search.includes('textlesson')) return route.fulfill(serve(TEXT_PAGE, 'text/html'));
   if (u.search.includes('ccmenu')) return route.fulfill(serve(readFileSync(join(pages, 'skool-ccmenu.html')), 'text/html'));
@@ -491,6 +503,131 @@ await test('Skool Native CC auto-activation: player creates its English track on
   assert((await p.evaluate(() => window.ccClicks)) === 2, 'one CC click per lesson');
   assert(!errors.length, errors.join(' | '));
   await p.close();
+});
+
+await test('AI dubbing: Chrome TTS without a Vietnamese voice → clear error, original audio NOT muted', async () => {
+  await setup.evaluate(async () => {
+    const { settings } = await chrome.storage.sync.get('settings');
+    await chrome.storage.sync.set({ settings: { ...settings, dubbing: { ...(settings.dubbing ?? {}), enabled: true, provider: 'chrome', listenMode: 'vi' } } });
+  });
+  const p = await context.newPage();
+  await p.goto('https://www.skool.com/test-group/classroom/course50?md=dublesson');
+  await p.waitForSelector('video');
+  await p.evaluate(() => document.querySelector('video').play());
+  const voices = await setup.evaluate(() => chrome.runtime.sendMessage({ type: 'dub:voices', provider: 'chrome' }));
+  if (voices.voices.length) {
+    console.log('    (this Chromium has Vietnamese voices — no-voice path not reproducible here)');
+  } else {
+    await waitFor(async () => {
+      const d = await setup.evaluate(async () => {
+        const [t] = await chrome.tabs.query({ url: '*://www.skool.com/*course50*' });
+        return chrome.runtime.sendMessage({ type: 'diag:run', tabId: t.id });
+      });
+      return d.frames.some((f) => f.report?.subtitles?.dubbing?.state === 'no-voice');
+    }, 8000, 'no-voice state');
+    assert(!(await p.evaluate(() => document.querySelector('video').muted)), 'must not mute without a Vietnamese voice');
+  }
+  await p.close();
+});
+
+await test('AI dubbing (mock TTS via offscreen): 20-min lesson — muted original, Vietnamese speech in sync, seek/rapid seek/pause/1.5×/2×/fullscreen/lesson switch, cache, restore', async () => {
+  await setup.evaluate(async () => {
+    const { settings } = await chrome.storage.sync.get('settings');
+    await chrome.storage.sync.set({ settings: { ...settings, dubbing: { ...(settings.dubbing ?? {}), enabled: true, provider: 'mock', voice: '', listenMode: 'vi', lookaheadSec: 45 } } });
+    await chrome.runtime.sendMessage({ type: 'dub:usage:reset' });
+  });
+  const p = await context.newPage();
+  try {
+    const errors = [];
+    p.on('pageerror', (e) => errors.push(e.message));
+    await p.goto('https://www.skool.com/test-group/classroom/course51?md=dublesson');
+    await p.waitForSelector('video');
+    const diag = async () => {
+      const d = await setup.evaluate(async () => {
+        const [t] = await chrome.tabs.query({ url: '*://www.skool.com/*course51*' });
+        return chrome.runtime.sendMessage({ type: 'diag:run', tabId: t.id });
+      });
+      return d.frames.find((f) => f.report?.subtitles?.dubbing)?.report.subtitles.dubbing ?? null;
+    };
+    const playFor = (ms) => p.waitForTimeout(ms);
+    const tabMuted = () => setup.evaluate(async () => (await chrome.tabs.query({ url: '*://www.skool.com/*course51*' }))[0]?.mutedInfo?.muted);
+    await waitFor(() => p.evaluate(() => document.querySelector('video').textTracks[0]?.cues?.length > 100), 8000, 'captions');
+    await p.evaluate(() => document.querySelector('video').play());
+    await waitFor(async () => (await diag())?.spoken > 0, 15000, 'first Vietnamese speech');
+    assert(await p.evaluate(() => document.querySelector('video').muted), 'original video audio must be muted');
+    assert(!(await p.evaluate(() => document.querySelector('video').paused)), 'video must keep playing');
+    assert((await tabMuted()) === false, 'the tab itself must NOT be muted (element strategy)');
+    await playFor(20000);
+    const d1 = await diag();
+    // seek forward / backward / rapid seeks
+    await p.evaluate(() => (document.querySelector('video').currentTime = 600));
+    await playFor(9000);
+    await p.evaluate(() => (document.querySelector('video').currentTime = 5));
+    await playFor(7000);
+    for (let i = 0; i < 10; i++) {
+      await p.evaluate((t) => (document.querySelector('video').currentTime = t), 200 + i * 47);
+      await playFor(250);
+    }
+    await playFor(7000);
+    // pause / resume
+    await p.evaluate(() => document.querySelector('video').pause());
+    await playFor(1500);
+    const paused = await diag();
+    assert(paused.state === 'paused', `state while paused: ${paused.state}`);
+    await p.evaluate(() => document.querySelector('video').play());
+    await playFor(5000);
+    // playback speed
+    await p.evaluate(() => (document.querySelector('video').playbackRate = 1.5));
+    await playFor(8000);
+    await p.evaluate(() => (document.querySelector('video').playbackRate = 2));
+    await playFor(8000);
+    await p.evaluate(() => (document.querySelector('video').playbackRate = 1));
+    // fullscreen
+    await p.evaluate(() => document.getElementById('player').requestFullscreen());
+    await playFor(4000);
+    await p.evaluate(() => document.exitFullscreen());
+    await playFor(3000);
+    const d2 = await diag();
+    assert(d2.spoken > d1.spoken + 5, `speech stopped (${d1.spoken} → ${d2.spoken})`);
+    assert(['speaking', 'idle', 'buffering'].includes(d2.state), `state after fullscreen: ${d2.state}`);
+    const usage = await setup.evaluate(() => chrome.runtime.sendMessage({ type: 'dub:usage' }));
+    // lesson switch without F5
+    const firstVideoGone = await p.evaluate(() => {
+      window.__oldVideo = document.querySelector('video');
+      window.goNextDubLesson();
+      return true;
+    });
+    await p.waitForFunction(() => location.search.includes('dub2'));
+    await waitFor(() => p.evaluate(() => document.querySelector('video').textTracks[0]?.cues?.length > 100), 8000, 'lesson 2 captions');
+    await p.evaluate(() => document.querySelector('video').play());
+    await waitFor(async () => (await diag())?.spoken > 0 && (await diag()).segmentsTotal > 0 && (await p.evaluate(() => document.querySelector('video').muted)), 15000, 'lesson 2 dubbing');
+    const oldRestored = await p.evaluate(() => window.__oldVideo.muted === false && !window.__oldVideo.hasAttribute('data-sst-dub-prev'));
+    assert(firstVideoGone && oldRestored, 'old lesson audio state not restored');
+    await playFor(6000);
+    const d3 = await diag();
+    // disable → restore
+    await setup.evaluate(async () => {
+      const { settings } = await chrome.storage.sync.get('settings');
+      await chrome.storage.sync.set({ settings: { ...settings, dubbing: { ...settings.dubbing, enabled: false } } });
+    });
+    await waitFor(() => p.evaluate(() => document.querySelector('video').muted === false), 4000, 'audio restored after disabling');
+    assert((await tabMuted()) === false, 'tab mute state unchanged');
+    const report = {
+      firstSpeechMs: d1.firstSpeechMs, medianDelayMs: d2.medianDelayMs, p95DelayMs: d2.p95DelayMs,
+      spoken: d2.spoken, skipped: d2.skipped, late: d2.late, rateAdjusted: d2.rateAdjusted, lateSpeechSec: d2.stats?.lateSpeechSec,
+      prepareRequests: d2.stats?.prepareRequests, ttsRequests: usage.usage.session.requests, ttsCacheHits: usage.usage.session.cacheHits,
+      ttsMedianLatencyMs: usage.usage.sessionMedianLatencyMs, lesson2Spoken: d3.spoken,
+    };
+    console.log('    DUB-REPORT ' + JSON.stringify(report));
+    assert(report.ttsRequests <= report.prepareRequests, 'more synthesis requests than prepared units');
+    assert(!errors.length, errors.join(' | '));
+  } finally {
+    await p.close().catch(() => undefined);
+    await setup.evaluate(async () => {
+      const { settings } = await chrome.storage.sync.get('settings');
+      await chrome.storage.sync.set({ settings: { ...settings, dubbing: { ...settings.dubbing, enabled: false } } });
+    });
+  }
 });
 
 await test('Transcript panel in the top frame reads captions from a player iframe (relay)', async () => {

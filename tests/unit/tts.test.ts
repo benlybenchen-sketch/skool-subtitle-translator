@@ -211,3 +211,26 @@ it('speech duration estimate is plausible for Vietnamese', () => {
   expect(estimateSpeechSec(t)).toBeLessThan(5);
   expect(estimateSpeechSec(t, 1.5)).toBeLessThan(estimateSpeechSec(t));
 });
+
+describe('offscreen player eviction', () => {
+  it('a clip evicted by the player is reloaded from the cache and played (once)', async () => {
+    const mock = new MockTts();
+    const { s, offscreen } = svc({ cloud: mock });
+    const r = await s.prepare({ lesson: 'L', text: 'Một hai ba', provider: 'mock', voice: 'v', rate: 1 });
+    let first = true;
+    (s as any).d.sendOffscreen = async (m: any) => {
+      offscreen.push(m);
+      if (m.type === 'dub-play' && first) {
+        first = false;
+        return { ok: false, error: 'clip not loaded' };
+      }
+      return m.type === 'dub-load' ? { durationSec: 1 } : { ok: true };
+    };
+    await s.play(7, 0, { token: 't', segId: 's', key: r.key, rate: 1, volume: 1, offsetSec: 0 });
+    const types = offscreen.map((m) => m.type);
+    expect(types.slice(-3)).toEqual(['dub-play', 'dub-load', 'dub-play']);
+    expect(mock.calls).toBe(1); // reloaded from the cache, not re-synthesized
+    const play = offscreen.at(-1);
+    expect(play).toMatchObject({ target: 'offscreen', type: 'dub-play', key: r.key, token: 't', segId: 's' });
+  });
+});
