@@ -32,6 +32,16 @@
   - The original audio is changed only on the lesson's media element. The tab is muted only as
     a fallback, and its previous state is restored.
   - Synthesized audio is cached locally in IndexedDB (bounded, prunable from the dashboard).
+- **Phase 5 (v5.0.0):**
+  - Lesson transcripts, translations and offline packs are stored in the extension's local
+    IndexedDB and can be deleted in the offline reader. ZIP packs are local downloads; nothing
+    is uploaded anywhere.
+  - Full-transcript retrieval uses only public caption playlists, with the user's permission.
+    It never uses playback tokens or signed URLs.
+  - Video download uses the optional `downloads` permission, only for files the page itself
+    offers, started by the user.
+  - Gemini TTS sends Vietnamese sentence text to Google with the user's own Gemini key, after
+    the remote-TTS consent. No key is bundled, and keys never appear in exports.
 - **Local data:** translations are cached in IndexedDB (auto-pruned after 45 days of non-use, capped
   at 60 000 entries; "Xóa cache" clears everything). Tab status is kept in `storage.session` and is
   removed when the tab closes.

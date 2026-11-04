@@ -20,6 +20,23 @@ boundaries. In that situation:
   fullscreen the overlay only shows if the fullscreen element is in the accessible DOM.
 - Use popup → **"Chạy chẩn đoán"** and share the result when reporting issues.
 
+## Phase 5 (v5.0.0) — not yet verified on real Skool
+- **Full transcript before playback:**
+  - Possible when the page exposes a complete caption file, or a *public* HLS subtitle playlist
+    (opt-in). The latter can be checked only once the player has delivered ≥ 3 cues, because
+    timing must be verified first.
+  - Signed/tokenised players (likely for paid courses) stay progressive, and the panel says so.
+  - Whether Skool exposes a public playlist is unknown.
+- **Offline:**
+  - Text, translations and notes only.
+  - Videos only when the page itself offers a file. Skool-hosted lesson video is normally
+    streamed, so it is **not** downloadable through the extension.
+  - Downloaded files stay in the user's Downloads folder; the extension stores only metadata.
+- **Gemini TTS:**
+  - The schema could not be verified live from the development environment (see DUBBING.md).
+  - Model access, rate limits and cost depend on the user's Gemini project.
+  - Each user must use their own key.
+
 ## AI Vietnamese dubbing (v4.0.0) — not yet verified on real Skool
 See [DUBBING.md](DUBBING.md#limitations). In short:
 - Requires accessible English captions.

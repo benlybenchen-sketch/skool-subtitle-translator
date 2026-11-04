@@ -1,11 +1,11 @@
 # Testing report
 
-Run on 2026-11-04 (v4.0.0), Node 22, Chromium (Playwright 1.63 build), Linux.
+Run on 2026-11-04 (v5.0.0), Node 22, Chromium (Playwright 1.63 build), Linux.
 
 ```
 npm run typecheck   → 0 errors
-npm test            → 24 files, 361 tests passed
-npm run test:e2e    → 33/33 passed (built extension loaded in Chromium, mock pages)
+npm test            → 28 files, 396 passed + 1 opt-in real-API test skipped
+npm run test:e2e    → 35/35 passed (built extension loaded in Chromium, mock pages)
 ```
 
 Dubbing performance (simulated and E2E): see [DUBBING.md](DUBBING.md#measured-results).
@@ -73,6 +73,11 @@ with a logged-in Skool account.
 
 | 33 | **Phase 4: AI Vietnamese dubbing** | `tts.test`: vi voice detection and order, **no Vietnamese voice → error, nothing spoken in another language**, speak options and token-tagged events, Google request format and own key, consent and permission required, cost by tier, dedupe and persistent cache reuse, retry transient / not permanent, cache key coverage, LRU, tab-mute record and restore, crash recovery, evicted clip reloaded. `dubbing.test`: deterministic speech units (nothing spoken before translation); every sentence once, in order, no overlap; speech longer than its slot → speed-up ≤ 1.35× then bounded skip; seek forward/back with cached audio reused; rapid seeks; pause/resume (exact for cloud, restart for chrome.tts); 1.5× and 2×; untranslated sentence skipped; sustained failure → onFatal; lost end events → bounded timeout; dispose → no orphaned audio; element muting with exact restore and mix share, user override, tab fallback, attribute recovery; session: no voice → not muted, token isolation, failure restore/recovery, no captions; controller: enable/disable, original mode, lesson switch, Audio Mode exclusivity, subtitles toggle; simulated 20-min performance table | ✓ no-voice path (headless Chromium has no vi voice): original not muted. ✓ Mock 20-min lesson through the real offscreen player: video muted, **tab not muted**, speech starts 0.6 s after Play; seek/rapid seek/pause/1.5×/2×/fullscreen keep speaking; lesson switch without F5 restores the old video and dubs the new one; disabling restores the audio; measurements printed |
 
+| 34 | **Phase 5A: instant full transcript** | `instant-transcript.test`: HLS master/media/WebVTT parsing with X-TIMESTAMP-MAP; **45-min lesson, 900 cues read at once**, boundary duplicates collapsed, complete only with ENDLIST and no failed segment; public vs signed playback (signed never fetched); timing verified against player cues (≥ 3 matches, consistent offset corrected); store merge never downgrades or drops translations, persists across instances. Acceptance: **A** complete public playlist → full transcript without playback, first cues translated first, every block sent once, saved complete; **B** 40 cues only → partial, never 100 %; **B2** signed → no request, limitation stated; not permitted → no request; **C** cached reopen → complete EN+VI immediately, zero translation requests | ✓ revisiting a lesson makes no new translation requests; transcript saved locally |
+| 35 | **Phase 5B: offline study** | `offline.test`: CRC-32 reference value, ZIP read back by an independent reader (Python zipfile), pack contents (SRT/VTT only for video, notes, lesson glossary, README completeness), PARTIAL label, no secrets | ✓ save from the panel, ZIP download, offline reader with the browser **offline**: listed, Vietnamese shown, search, "video not available offline", delete |
+| 36 | **Phase 5C: authorized video download** | `video-download.test`: MSE/HLS → stream, nodownload, plain file + controls → offered, no controls → not offered, owner links in content (nav/http ignored), iframe player → explained, safe names | ✓ streaming Skool lesson → button disabled with reason; plain file → download card opened on the extension page (the permission prompt and real download need a human) |
+| 37 | **Phase 5D: Gemini TTS** | `gemini-tts.test`: reuses the Gemini translation key; Interactions schema; Flash-Lite default / Flash quality; style in speech_metadata with 400 fallback; WAV / L16 PCM / malformed decoding; response shapes; missing key / consent / permission; 429 retry and quota exhaustion; cache reuse vs model/style/voice changes; tokens + cost separate from translation; estimated tokens labelled; session voice, playback rate, mute/restore. Opt-in real API test (skipped by default) | Gemini TTS not exercised in E2E (no key / network). The mock-TTS dubbing E2E covers the shared scheduler, offscreen player, mute/restore and lesson switching |
+
 ### Measured scheduling performance (simulated)
 `tests/unit/api-speed.test.ts` — 10-minute lesson, cues every 2.5 s, only ~90 s exposed initially, the
 rest in 90 s chunks; API latency on the same simulated clock as playback. These are **simulation**
@@ -121,6 +126,21 @@ See also the Vietnamese checklist in [HUONG-DAN-CAI-DAT.md](HUONG-DAN-CAI-DAT.md
 
 Record failures with the popup status text, the provider, and the service-worker console
 (`chrome://extensions` → "service worker" → Inspect).
+
+### Phase 5 checklist (real Skool, 20–45 min lesson)
+
+| Check | Result |
+|---|---|
+| Open a long lesson → VI → 📄 Bản ghi: whatever is known appears at once; the coverage line shows the real time covered (never 100 % for the first minutes) | ☐ |
+| Settings → 5 "Tự tải toàn bộ phụ đề…" on (or the button): full English transcript without playing, or an exact reason (signed playback / no public playlist) | ☐ |
+| Vietnamese translation starts at the playhead and continues in the background; "Dịch toàn bộ ngay" completes it; dashboard shows the requests | ☐ |
+| Close Chrome, reopen the lesson: transcript + translations appear immediately, no new translation requests | ☐ |
+| 💾 Lưu để học offline → 📚 Thư viện offline with Wi-Fi off: lesson readable, searchable, notes visible | ☐ |
+| ⬇ Gói ZIP opens; SRT plays in VLC with the video | ☐ |
+| 🎬 Tải video: disabled with a reason on Skool-hosted streaming video; enabled only where the course offers a file | ☐ |
+| Dubbing with **Gemini TTS** (no Vietnamese Windows voice needed): ▶ Nghe thử, then Play — English muted, Vietnamese in sync for 20–45 min; seek / pause / 2× / fullscreen / next lesson | ☐ |
+| Gemini key missing / quota exceeded → exact error, "Bật lại âm thanh gốc" / "Chỉ phụ đề" work | ☐ |
+| Dashboard TTS section: Gemini TTS tokens separate from translation tokens | ☐ |
 
 ### AI dubbing checklist (v4.0.0, real Skool)
 

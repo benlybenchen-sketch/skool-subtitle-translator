@@ -1,5 +1,68 @@
 # Changelog
 
+## 5.0.0 — Phase 5: instant full transcript, offline learning, Gemini TTS
+
+### 5A — Instant full transcript
+- **Local lesson store** (IndexedDB, extension origin). Each lesson keeps:
+  - cues, completeness, source, coverage, translated units, provider/model, hash and errors.
+  - A merge never downgrades a complete transcript and never drops a translation.
+  - Pruned automatically; quota-safe.
+- **Reopening a lesson** restores its transcript and translations instantly, with zero
+  translation requests.
+- **Source priority:**
+  1. saved transcript;
+  2. complete `<track src>` caption file;
+  3. opt-in: the player's **public** HLS subtitle rendition (RFC 8216, e.g. Mux Player public
+     playback), read at once and used only after its timing matches cues the player delivered.
+     Signed / tokenised playback is never used.
+  4. progressive collection.
+- **Transcript panel:**
+  - English complete/partial by real timestamp coverage vs the video duration;
+  - Vietnamese complete/in progress;
+  - source and access-limitation notes;
+  - "Tải toàn bộ phụ đề từ trình phát" and "Dịch toàn bộ ngay" buttons. The default stays
+    playback-first, then background.
+
+### 5B — Offline study
+- "💾 Lưu để học offline" saves the lesson locally.
+- "⬇ Gói ZIP" downloads:
+  - README stating completeness;
+  - EN/VI TXT and bilingual MD;
+  - SRT/VTT for timestamped video lessons only;
+  - AI notes and the lesson's glossary terms.
+- **"📚 Thư viện học offline"** works without network:
+  - search, VI/bilingual/EN views, notes, status;
+  - delete, storage usage;
+  - plays an authorized local video file with Vietnamese subtitles.
+
+### 5C — Authorized video download only
+- Offered only for:
+  - owner-provided video links in the lesson content;
+  - a plain https file in `<video controls>` without `controlsList=nodownload`.
+- Never offered for streams, DRM, tokens, private APIs or embedded third-party players. The
+  button is disabled with the reason, and a request text for the course owner is offered.
+- Downloads start only on click:
+  - the optional `downloads` permission is requested at that moment;
+  - Chrome's save dialog lets the user choose the location;
+  - progress is shown and interrupted downloads can be resumed.
+
+### 5D — Gemini TTS
+- New dubbing provider using the **existing Gemini key**, through the Interactions API.
+  Models: 3.8 Flash-Lite TTS (default) and 3.8 Flash TTS.
+- Voices with an explicit "Nghe thử" preview.
+- Teaching-tone style is sent as structured `speech_metadata`; a 400 falls back to the plain
+  form.
+- Audio decoding: WAV, and L16 PCM wrapped into WAV.
+- Reuses the cache, scheduler, offscreen player, retries and consent.
+- TTS tokens and cost are tracked separately from translation.
+- When Chrome has no Vietnamese voice, the popup shows "Chrome TTS Vietnamese voice unavailable"
+  with a one-click switch to Gemini TTS.
+- Recovery buttons in the VI panel.
+
+### Permissions
+- New optional permission: `downloads` (requested only when downloading a video).
+- No new host permissions.
+
 ## 4.0.0 — Phase 4: AI Vietnamese Dubbing (Lồng tiếng Việt)
 Off until the user enables it. Full details, measurements and costs: `docs/DUBBING.md`.
 

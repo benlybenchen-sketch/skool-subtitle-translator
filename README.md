@@ -14,6 +14,7 @@ Chrome extension (Manifest V3) that translates English lesson videos inside **Sk
   exports, user-triggered grounded **AI Study Notes**, and translation of **text-only lessons** with
   formatting preserved (Original / Vietnamese / Bilingual). See [CHANGELOG.md](CHANGELOG.md).
 
+- **v5.0.0:** instant full transcript (saved lessons, public caption playlists with timing verification), offline study packs + offline reader, authorized-only video download, **Gemini TTS** dubbing with the existing Gemini key.
 - **AI Vietnamese Dubbing (v4.0.0, opt-in):** speaks the Vietnamese translation with Chrome TTS or Google Cloud TTS in sync with the video and mutes the English instructor (media element, not the tab). See [docs/DUBBING.md](docs/DUBBING.md).
 
 > 🇻🇳 Hướng dẫn cài đặt tiếng Việt: **[docs/HUONG-DAN-CAI-DAT.md](docs/HUONG-DAN-CAI-DAT.md)**
@@ -37,7 +38,7 @@ npm install
 npm run package
 ```
 
-This builds `dist/` (the installable, unpacked extension) and `release/skool-vi-subtitles-v4.0.0.zip`.
+This builds `dist/` (the installable, unpacked extension) and `release/skool-vi-subtitles-v5.0.0.zip`.
 A prebuilt ZIP is committed under `release/`.
 
 Load it: `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select `dist/`

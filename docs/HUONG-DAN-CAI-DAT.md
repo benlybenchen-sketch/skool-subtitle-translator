@@ -6,7 +6,7 @@ Tiện ích Chrome này dịch video bài học tiếng Anh trên **Skool** sang
 
 **Cách A — dùng tệp ZIP có sẵn**
 
-1. Tải tệp `release/skool-vi-subtitles-v4.0.0.zip` từ repository GitHub.
+1. Tải tệp `release/skool-vi-subtitles-v5.0.0.zip` từ repository GitHub.
 2. Giải nén vào một thư mục cố định (ví dụ `Documents/skool-vi-subtitles`). Đừng xóa thư mục này sau khi cài.
 3. Mở Chrome, gõ `chrome://extensions` vào thanh địa chỉ.
 4. Bật **Developer mode / Chế độ dành cho nhà phát triển** (góc trên bên phải).
@@ -118,6 +118,37 @@ Mục **4. Chất lượng dịch** có sẵn danh sách thuật ngữ marketing
    - bấm CC → English một lần, tiện ích sẽ dịch ngay;
    - sau đó vào popup → **"Chạy chẩn đoán"** → **"Sao chép chẩn đoán"** và gửi lại. Mục
      `captionBootstrap` cho biết trình phát đã thay đổi gì, không chứa nội dung bài học.
+
+## 3d. Bản ghi đầy đủ ngay, học offline, Gemini TTS (v5.0.0)
+
+**Bản ghi đầy đủ ngay khi mở bài**
+- Bấm VI → **📄 Bản ghi**: phần đã có hiện ngay. Bài đã mở trước đây sẽ hiện **ngay lập tức** cả tiếng Anh lẫn tiếng Việt từ máy, không gọi API.
+- Muốn có toàn bộ phụ đề mà không cần xem hết video: bấm **"Tải toàn bộ phụ đề từ trình phát"**, hoặc bật Cài đặt → mục 5 **"Tự tải toàn bộ phụ đề tiếng Anh khi mở bài"**.
+  - Chỉ hoạt động khi trình phát dùng playlist phụ đề **công khai**.
+  - Video dùng liên kết phát có chữ ký (thường gặp ở khóa học trả phí): tiện ích báo rõ và thu phụ đề dần khi phát. Tiện ích không vượt quyền truy cập.
+- Dòng trạng thái luôn tách hai phần:
+  - **Tiếng Anh:** đầy đủ, hoặc MỘT PHẦN — có đến mm:ss / tổng thời lượng;
+  - **Tiếng Việt:** hoàn tất, hoặc đang dịch x/y.
+- Tiện ích mặc định dịch phần sắp phát trước rồi dịch phần còn lại ở nền. Nút **"Dịch toàn bộ ngay"** dịch hết bản ghi hiện có ngay lập tức.
+
+**Học offline**
+- VI → **⬇ Xuất** → **💾 Lưu để học offline**: lưu bản ghi Anh/Việt, ghi chú AI, thuật ngữ trên máy.
+- **⬇ Gói ZIP**: tải một tệp ZIP gồm TXT, Markdown, SRT/VTT (chỉ với video), ghi chú AI và thuật ngữ.
+- Popup → **📚 Thư viện học offline**: đọc khi không có mạng, tìm kiếm, xem tiếng Việt / song ngữ, xem ghi chú, xóa bài, xem dung lượng.
+
+**Tải video (chỉ khi được phép)**
+- Nút **🎬 Tải video để xem offline** chỉ bật khi bài học hoặc trình phát thật sự cung cấp tệp video để tải (link tệp do khóa học đính kèm, hoặc tệp video mà trình duyệt cho phép tải).
+- Video Skool phát dạng luồng thì nút bị tắt, kèm lý do. Khi đó có thể bấm **"Sao chép lời xin chủ khóa học bản tải về"**.
+- Khi tải: Chrome hỏi quyền "quản lý tải xuống" (chỉ lần đầu) và cho bạn chọn nơi lưu. Xem trong Thư viện: chọn tệp đã tải, video sẽ phát kèm phụ đề tiếng Việt.
+
+**Gemini TTS — lồng tiếng không cần giọng Việt của Windows**
+1. Popup → 🔊 Lồng tiếng Việt → Giọng đọc: **Gemini TTS (dùng key Gemini)**.
+   - Dùng chính API key Gemini đã nhập ở Cài đặt → mục 1, không cần key Cloud TTS.
+   - Chrome sẽ hỏi quyền truy cập generativelanguage.googleapis.com nếu chưa có.
+2. Chọn model **Nhanh (3.8 Flash-Lite TTS)** hoặc **Chất lượng (3.8 Flash TTS)**, chọn giọng (ví dụ Kore, Puck, Charon…), bấm **▶ Nghe thử**.
+3. Cài đặt → mục 7: tích **"Cho phép gửi văn bản tiếng Việt tới dịch vụ TTS đám mây"**.
+4. Chi phí ước tính: khoảng **0,14 USD cho bài 20 phút với Flash-Lite TTS** (~0,20 USD với Flash TTS). Gói miễn phí của Gemini có giới hạn. Mỗi câu chỉ tạo giọng một lần (có cache).
+5. Nếu lỗi (thiếu key, hết hạn mức 429…), nút VI hiện lý do kèm 2 nút **Bật lại âm thanh gốc** và **Chỉ phụ đề**.
 
 ## 3c. Lồng tiếng Việt bằng AI (v4.0.0)
 

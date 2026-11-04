@@ -74,6 +74,7 @@ English cues (TextTrack) → translation (existing pipeline + cache) → speech 
 |---|---|---|---|---|
 | **Chrome TTS** (default) | Vietnamese voices installed on the computer (`lang` vi / vi-VN). Windows: "Microsoft An", or HoaiMy / NamMinh via the Vietnamese speech pack. macOS: "Linh". Chrome's own Google voices do not include Vietnamese. | nothing leaves the computer | free | No audio bytes, so no prefetch and no exact duration (estimated ≈ 4.2 words/s). Pause restarts the sentence. If no vi voice exists, the extension says so and never uses another language. |
 | **Google Cloud Text-to-Speech** | vi-VN Standard A/B, WaveNet A–D, Neural2 A (female) / D (male), Chirp 3 HD (e.g. Aoede, Charon); any other voice name can be typed | Vietnamese text of the sentences (after the remote-TTS consent) | see below | REST `text:synthesize`, MP3, API key in the `X-Goog-Api-Key` header. Needs **its own Cloud TTS key**: a Gemini key does not authorise Cloud TTS. |
+| **Gemini TTS** (v5.0.0) | 30 prebuilt Gemini voices (Kore default). Gender is not assumed: use "▶ Nghe thử". | Vietnamese text of the sentences (after the remote-TTS consent) | by tokens: 3.8 Flash-Lite TTS ≈ $0.50 / 1 M text-input + $6 / 1 M audio-output tokens; 3.8 Flash TTS ≈ $0.50 / $9 (launch-day figures; limited free tier) | Interactions API `POST /v1beta/interactions` (`input`, `response_format: {type: "audio"}`, `generation_config.speech_config.voice`). Uses the **same Gemini Developer API key as translation**. The returned WAV / L16 PCM is decoded and its duration measured. The user's rate is applied at playback, so the audio cache does not depend on it. |
 | Mock | silent WAV | nothing | free | tests / demo |
 
 New providers implement `CloudTts` (`src/tts/providers.ts`).
@@ -157,6 +158,19 @@ Before the short post-seek window, the same seek pattern caused 144 synthesis re
 
 The 82–83 requests against 20 spoken sentences are speculative prefetch around 13 seek
 positions. In normal linear viewing (simulation) there are 0 unnecessary requests.
+
+### Gemini TTS: what was and was not verified
+- Request shape and model names follow Google's current speech-generation docs as found by web
+  search: the Interactions endpoint, `Api-Revision` header, `input`,
+  `response_format.type = "audio"` and `generation_config.speech_config.voice`.
+- The development environment could not reach ai.google.dev or call the API with a real key. So:
+  - the response is parsed tolerantly (Interactions `outputs[]` or legacy
+    `candidates[].content.parts[].inlineData`);
+  - the optional `speech_metadata` style hint falls back to the plain form on HTTP 400.
+- An opt-in real test exists: `RUN_REAL_GEMINI_TTS=1 GEMINI_API_KEY=… npx vitest run gemini-tts`.
+- Cost estimate for a 20-minute lesson (≈ 15 min of Vietnamese speech ≈ 22,500 audio tokens):
+  about **$0.14 with Flash-Lite TTS** and **$0.20 with Flash TTS**, plus a little input. These
+  are estimates; the free tier is limited.
 
 ## Limitations
 - **Real-Skool behaviour has not been verified.** This includes the player re-applying its own
