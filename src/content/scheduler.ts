@@ -29,6 +29,13 @@ export interface SchedulerOptions {
   maxBackgroundInFlight: number;
   maxAttempts: number;
   retryBaseMs: number;
+  /** A unit that exhausted its attempts becomes eligible again after this cooldown (transient outages). */
+  errorCooldownMs: number;
+  /** After a fatal (configuration-classified) error, probe again after this, doubling up to fatalMaxBackoffMs. */
+  fatalBackoffMs: number;
+  fatalMaxBackoffMs: number;
+  /** A request without an answer for this long is treated as stalled; its units are re-queued. */
+  stallMs: number;
   now: () => number;
   setTimer: (cb: () => void, ms: number) => unknown;
   clearTimer: (h: unknown) => void;
@@ -48,6 +55,10 @@ export const DEFAULT_SCHEDULER: SchedulerOptions = {
   maxBackgroundInFlight: 1,
   maxAttempts: 4,
   retryBaseMs: 1500,
+  errorCooldownMs: 30_000,
+  fatalBackoffMs: 30_000,
+  fatalMaxBackoffMs: 5 * 60_000,
+  stallMs: 90_000,
   now: () => Date.now(),
   setTimer: (cb, ms) => setTimeout(cb, ms),
   clearTimer: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
@@ -75,6 +86,14 @@ export class TranslationScheduler {
   private readonly startedAt: number;
   private firstResultAt: number | null = null;
   readonly sentPriorities: Priority[] = [];
+  private errorAt = new Map<string, number>();
+  private fatalTimer: unknown = null;
+  private fatalBackoff: number;
+  private inflightBatches = new Map<number, { sentAt: number; ids: string[]; priority: Priority }>();
+  private batchSeq = 0;
+  lastSuccessAt: number | null = null;
+  lastError: string | null = null;
+  errorCount = 0;
 
   constructor(
     private timeline: Timeline,
@@ -86,6 +105,7 @@ export class TranslationScheduler {
   ) {
     this.o = { ...DEFAULT_SCHEDULER, ...opts };
     this.startedAt = this.o.now();
+    this.fatalBackoff = this.o.fatalBackoffMs;
   }
 
   get fatalError(): string | null {
@@ -146,6 +166,7 @@ export class TranslationScheduler {
     if (this.disposed) return;
     this.disposed = true;
     if (this.retryTimer) this.o.clearTimer(this.retryTimer);
+    if (this.fatalTimer) this.o.clearTimer(this.fatalTimer);
     this.bridge.cancel(this.videoKey);
   }
 
@@ -158,7 +179,57 @@ export class TranslationScheduler {
   }
 
   private eligible(u: TimedUnit, now: number): boolean {
+    if (u.status === 'error') {
+      // Exhausted attempts are not permanent: after a cooldown the unit is retried (rate-limit
+      // bursts, short outages). Fatal configuration errors are handled separately.
+      if (now - (this.errorAt.get(u.id) ?? 0) < this.o.errorCooldownMs) return false;
+      u.status = 'pending';
+      u.attempts = 0;
+    }
     return u.status === 'pending' && (this.retryAt.get(u.id) ?? 0) <= now;
+  }
+
+  /**
+   * Watchdog (called on media timeupdate, cheap): release requests that never answered,
+   * then refill free slots. Never cancels work that may still complete.
+   */
+  heal(): void {
+    if (this.disposed) return;
+    const now = this.o.now();
+    for (const [seq, b] of this.inflightBatches) {
+      if (now - b.sentAt < this.o.stallMs) continue;
+      this.inflightBatches.delete(seq);
+      this.inFlight--;
+      if (b.priority === 4) this.bgInFlight--;
+      for (const id of b.ids) {
+        const u = this.timeline.get(id);
+        if (u && u.status === 'inflight') u.status = 'pending';
+      }
+      this.lastError = 'Yêu cầu dịch không phản hồi — đã gửi lại';
+    }
+    this.pump();
+  }
+
+  /** Scheduler snapshot for diagnostics (no caption text). */
+  debug() {
+    const t = this.playhead;
+    const end = t + this.o.lookAhead * Math.max(1, this.rate);
+    let queued = 0;
+    let latestTranslatedEnd = 0;
+    for (const u of this.timeline.units) {
+      if (u.status === 'done' && u.end > latestTranslatedEnd) latestTranslatedEnd = u.end;
+      if ((u.status === 'pending' || u.status === 'error') && u.start <= end && u.end > t) queued++;
+    }
+    return {
+      state: this.disposed ? 'disposed' : this.fatal ? 'fatal-backoff' : !this.enabled ? 'paused' : this.inFlight ? 'translating' : queued ? 'waiting-retry' : 'idle',
+      queuedInWindow: queued,
+      inFlight: this.inFlight,
+      latestTranslatedEnd,
+      lastSuccessAt: this.lastSuccessAt,
+      lastError: this.lastError,
+      errorCount: this.errorCount,
+      fatal: this.fatal,
+    };
   }
 
   priorityOf(u: TimedUnit): Priority {
@@ -245,6 +316,8 @@ export class TranslationScheduler {
   private async send(batch: TimedUnit[], context: string[], priority: Priority): Promise<void> {
     this.inFlight++;
     if (priority === 4) this.bgInFlight++;
+    const seq = ++this.batchSeq;
+    this.inflightBatches.set(seq, { sentAt: this.o.now(), ids: batch.map((u) => u.id), priority });
     this.sentPriorities.push(priority);
     for (const u of batch) u.status = 'inflight';
     let results: UnitResult[] | null = null;
@@ -259,8 +332,11 @@ export class TranslationScheduler {
     } catch (e) {
       transportError = e instanceof Error ? e.message : String(e);
     } finally {
-      this.inFlight--;
-      if (priority === 4) this.bgInFlight--;
+      // If the watchdog already released this batch as stalled, its counters were adjusted.
+      if (this.inflightBatches.delete(seq)) {
+        this.inFlight--;
+        if (priority === 4) this.bgInFlight--;
+      }
     }
     if (this.disposed) return;
     const byId = new Map((results ?? []).map((r) => [r.id, r]));
@@ -275,10 +351,16 @@ export class TranslationScheduler {
         u.status = 'done';
         this.retryAt.delete(u.id);
         if (this.firstResultAt === null) this.firstResultAt = this.o.now();
+        this.lastSuccessAt = this.o.now();
+        this.fatalBackoff = this.o.fatalBackoffMs;
         changed.push(u);
         continue;
       }
       u.attempts++;
+      if (r?.error || transportError) {
+        this.lastError = r?.error ?? transportError;
+        this.errorCount++;
+      }
       if (r?.fatal) {
         u.status = 'pending';
         u.attempts = 0;
@@ -287,6 +369,7 @@ export class TranslationScheduler {
       }
       if (u.attempts >= this.o.maxAttempts) {
         u.status = 'error';
+        this.errorAt.set(u.id, this.o.now());
         changed.push(u);
       } else {
         u.status = 'pending';
@@ -296,6 +379,17 @@ export class TranslationScheduler {
     if (changed.length) this.onUpdate(changed);
     if (this.fatal) {
       this.onFatal(this.fatal);
+      // Auto-probe later (bounded, doubling backoff) instead of stopping for the whole lesson:
+      // the "fatal" class also covers HTTP 400/404 that can be transient on real APIs.
+      if (!this.fatalTimer) {
+        const wait = this.fatalBackoff;
+        this.fatalBackoff = Math.min(this.o.fatalMaxBackoffMs, this.fatalBackoff * 2);
+        this.fatalTimer = this.o.setTimer(() => {
+          this.fatalTimer = null;
+          this.fatal = null;
+          this.pump();
+        }, wait);
+      }
       return;
     }
     if (transportError && batch.every((u) => u.status !== 'done')) {

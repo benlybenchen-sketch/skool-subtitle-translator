@@ -83,7 +83,7 @@ await context.route(/^https:\/\/www\.skool\.com\//, (route) => {
   if (u.pathname === '/media/lesson2.vtt') return route.fulfill(serve(VTT2, 'text/vtt'));
   if (u.pathname === '/media/long.wav') return serveMedia(route, LONG_WAV);
   if (u.pathname === '/media/long.vtt') return route.fulfill(serve(LONG_VTT, 'text/vtt'));
-  const page = u.search.includes('seekreset') ? 'skool-seek.html' : u.search.includes('novideo') ? 'skool-novideo.html' : u.search.includes('loom') ? 'skool-loom.html' : u.search.includes('nocaptions') ? 'skool-nocaptions.html' : 'skool-native.html';
+  const page = u.search.includes('continuous') ? 'skool-continuous.html' : u.search.includes('seekreset') ? 'skool-seek.html' : u.search.includes('novideo') ? 'skool-novideo.html' : u.search.includes('loom') ? 'skool-loom.html' : u.search.includes('nocaptions') ? 'skool-nocaptions.html' : 'skool-native.html';
   return route.fulfill(serve(readFileSync(join(pages, page)), 'text/html'));
 });
 await context.route(/^https:\/\/js\.stripe\.com\//, (route) => route.fulfill(serve('<!doctype html><title>stripe mock</title>', 'text/html')));
@@ -484,6 +484,34 @@ await test('CC off + auto-enable not opted in: nothing changed; one click on "T�
   assert(mode === 'hidden', `expected hidden (no duplicate English rendering), got ${mode}`);
   const persisted = await setup.evaluate(async () => (await chrome.storage.sync.get('settings')).settings.autoEnableCaptions);
   assert(persisted === true, 'opt-in not persisted');
+  await p.close();
+});
+
+await test('Continuous: 12-min lesson, cues delivered in chunks via new tracks — translation never stops (16× playback)', async () => {
+  const p = await context.newPage();
+  await p.goto('https://www.skool.com/test-group/classroom/course10?md=continuous');
+  await p.waitForSelector('video');
+  await p.evaluate(() => { const v = document.querySelector('video'); v.playbackRate = 16; v.play(); });
+  const seen = new Set();
+  const untranslated = new Set();
+  const t0 = Date.now();
+  while (Date.now() - t0 < 60_000) {
+    const s = await p.evaluate(() => {
+      const v = document.querySelector('video');
+      const el = document.querySelector('[data-sst-overlay]')?.shadowRoot?.querySelector('.vi');
+      return { t: v.currentTime, ended: v.ended, text: el && !el.classList.contains('hidden') ? el.textContent : '', pending: el?.classList.contains('pending') };
+    });
+    if (s.text && s.t > 125) (s.pending ? untranslated : seen).add(s.text.replace('[VI] ', ''));
+    if (s.ended || s.t > 700) break;
+    await new Promise((r) => setTimeout(r, 120));
+  }
+  const tabId = await setup.evaluate(async () => (await chrome.tabs.query({ url: '*://www.skool.com/*md=continuous*' }))[0]?.id);
+  const diag = await setup.evaluate((id) => chrome.runtime.sendMessage({ type: 'diag:run', tabId: id }), tabId);
+  const d = diag.frames.find((f) => f.frameId === 0).report.subtitles;
+  assert(d.availableCues === 72, `availableCues=${d.availableCues}`);
+  assert(d.latestTranslatedEndSec >= 700, `translated only until ${d.latestTranslatedEndSec}s`);
+  assert(seen.size >= 30, `only ${seen.size} translated lines observed after 2 min (untranslated: ${untranslated.size})`);
+  assert(!JSON.stringify(diag).includes('Chunked line'), 'diagnostics must not contain caption text');
   await p.close();
 });
 

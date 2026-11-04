@@ -30,6 +30,18 @@ boundaries. In that situation:
   immediately reverts it, the extension re-applies it at most twice, then leaves it.
 - Not verified on real Skool yet.
 
+## Continuous caption ingestion
+- Cues are read from every TextTrack carrying the same English caption stream (same language +
+  label), so players that add a new track per chunk are followed. A *different* English track
+  (other label, e.g. auto-generated) is never mixed in.
+- Self-healing runs on media `timeupdate` (≤ every 2 s): stalled requests are re-queued, failed
+  segments are retried after 30 s, fatal-classified API errors are re-probed with backoff
+  (30 s → 5 min). If playback runs > 30 s past the last available cue, the popup reports that the
+  player stopped providing captions and offers Audio Mode. Long silent passages can trigger this
+  notice temporarily; it clears as soon as new cues arrive.
+- "Transcript complete" is only reported when cue coverage reaches the media duration.
+- Fixed against mock players; not yet re-verified on real Skool.
+
 ## Lesson switching
 - Lesson identity = route + `md` query parameter. After a change the session is rebuilt; if the same
   `<video>` element is reused, the extension waits (max 2 s) for its source to change so cues of the

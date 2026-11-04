@@ -146,6 +146,68 @@ export class TextTrackSource implements TimedSource {
     this.refresh();
   }
 
+  /**
+   * Tracks that carry the SAME caption stream as the chosen one (players such as hls.js may add a
+   * new TextTrack per chunk/level and keep the old one with stale cues). Matched by language +
+   * normalised label, so a different English track (e.g. "English (auto)") is never mixed in.
+   */
+  private peers(): TextTrack[] {
+    const list = this.video.textTracks;
+    const out: TextTrack[] = [];
+    if (!list) return out;
+    const key = (t: TextTrack) => `${(t.language || '').toLowerCase()}|${(t.label || '').trim().toLowerCase()}`;
+    const want = key(this.track);
+    for (let i = 0; i < list.length; i++) {
+      const t = list[i];
+      if ((t.kind === 'subtitles' || t.kind === 'captions') && t.label !== NativeTrackFallback.LABEL && key(t) === want) out.push(t);
+    }
+    return out;
+  }
+
+  private peerSet: TextTrack[] = [];
+
+  private bindPeers(): void {
+    const peers = this.peers();
+    if (peers.length === this.peerSet.length && peers.every((p, i) => p === this.peerSet[i])) return;
+    for (const p of this.peerSet) if (p !== this.bound) p.removeEventListener('cuechange', this.refresh);
+    for (const p of peers) if (p !== this.bound) p.addEventListener('cuechange', this.refresh);
+    if (peers.length > 1 || this.peerSet.length > 1) this.note(`same-caption tracks: ${peers.length} (modes ${peers.map((p) => p.mode).join(',')})`);
+    this.peerSet = peers;
+  }
+
+  /** Newest same-caption track that is not disabled (where a player puts new cues). */
+  private activePeer(): TextTrack | null {
+    for (let i = this.peerSet.length - 1; i >= 0; i--) if (this.peerSet[i].mode !== 'disabled') return this.peerSet[i];
+    return null;
+  }
+
+  /** Last time new cues were discovered (ms clock) and the latest known cue end (s). */
+  lastDiscoveryAt = 0;
+  get latestCueEnd(): number {
+    let m = 0;
+    for (const c of this.store.values()) if (c.end > m) m = c.end;
+    return m;
+  }
+  get storedCues(): number {
+    return this.store.size;
+  }
+  /** Peers' state for diagnostics (no caption text). */
+  trackInfo(): { label: string; mode: string; cues: number | null }[] {
+    return this.peerSet.map((t) => ({ label: t.label, mode: t.mode, cues: t.cues ? t.cues.length : null }));
+  }
+
+  /** Watchdog hook: playback ran past the known cues — re-evaluate tracks from scratch. */
+  rediscover(reason: string, mayReenable = false): void {
+    this.note(`rediscover (${reason})`);
+    this.sig = '';
+    for (const p of this.peerSet) if (p !== this.bound) p.removeEventListener('cuechange', this.refresh);
+    this.peerSet = [];
+    // Opt-in only (autoEnableCaptions) and bounded by the caller: a track the player disabled
+    // while playback ran past the known cues is switched back to "hidden" (never "showing").
+    if (mayReenable && this.allowEnable && this.track.mode === 'disabled' && this.inList(this.track)) this.activate('watchdog');
+    this.refresh();
+  }
+
   private bind(track: TextTrack): void {
     this.unbind();
     this.bound = track;
@@ -160,6 +222,8 @@ export class TextTrackSource implements TimedSource {
 
   private unbind(): void {
     this.bound?.removeEventListener('cuechange', this.refresh);
+    for (const p of this.peerSet) p.removeEventListener('cuechange', this.refresh);
+    this.peerSet = [];
     for (const el of this.trackEls) el.removeEventListener('load', this.refresh);
     this.trackEls = [];
     this.bound = null;
@@ -201,6 +265,16 @@ export class TextTrackSource implements TimedSource {
         return;
       }
     }
+    // 1b. Same caption stream split over several TextTracks: follow the newest active one.
+    this.bindPeers();
+    const active = this.activePeer();
+    if (active && active !== this.track) {
+      this.note(`follow newer same-caption track (mode=${active.mode}, cues=${active.cues?.length ?? 'null'})`);
+      this.track = active;
+      this.changedMode = false;
+      this.bind(active);
+      this.bindPeers();
+    }
     // 2. Disabled by the player right after a seek → re-enable once (hidden: no native rendering).
     if (this.track.mode === 'disabled') {
       const justSeeked = this.now() - this.lastSeekAt < TextTrackSource.SEEK_GRACE_MS;
@@ -220,15 +294,24 @@ export class TextTrackSource implements TimedSource {
       }
     }
     this.setState('ok');
-    // 3. Cheap signature check; merge new cues into the cumulative store.
-    const list = this.track.cues;
-    const n = list?.length ?? 0;
-    const sig = n ? `${n}|${list![0].startTime}|${list![n - 1].endTime}` : '0';
+    // 3. Cheap signature over all same-caption tracks; merge new cues into the cumulative store
+    //    (dedupe by cue identity = start/end/text, so overlapping tracks never duplicate).
+    const sources = this.peerSet.length ? this.peerSet : [this.track];
+    const sig = sources
+      .map((t) => {
+        const l = t.cues;
+        const n = l?.length ?? 0;
+        return n ? `${n}|${l![0].startTime}|${l![n - 1].endTime}` : '0';
+      })
+      .join(';');
     if (sig === this.sig) return;
     this.sig = sig;
     const before = this.store.size;
-    for (const c of readTrackCues(this.track)) this.store.set(c.id, c);
-    if (this.store.size !== before) this.onCues([...this.store.values()]);
+    for (const t of sources) for (const c of readTrackCues(t)) this.store.set(c.id, c);
+    if (this.store.size !== before) {
+      this.lastDiscoveryAt = this.now();
+      this.onCues([...this.store.values()]);
+    }
   };
 
   stop(): void {

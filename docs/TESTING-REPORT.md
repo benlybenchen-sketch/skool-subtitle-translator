@@ -4,8 +4,8 @@ Run on 2026-11-03, Node 22, Chromium (Playwright 1.63 build), Linux.
 
 ```
 npm run typecheck   → 0 errors
-npm test            → 12 files, 174 tests passed
-npm run test:e2e    → 20/20 passed (built extension loaded in Chromium, mock pages)
+npm test            → 13 files, 184 tests passed
+npm run test:e2e    → 21/21 passed (built extension loaded in Chromium, mock pages)
 ```
 
 **Important:** every automated test uses mocks or mock pages. They prove the extension's own logic and
@@ -43,6 +43,8 @@ with a logged-in Skool account.
 | 21 | **Seek recovery** (real-Skool report: subtitles vanished after seeking until CC was toggled) | `seek.test` (track disabled during seek, streaming track flushing cues, cues added without `cuechange`, TextTrack object replaced, at most one re-enable per seek, delayed responses after seek, rapid seeks paused at 2×, fullscreen + seek, captions genuinely removed → reported; 8/9 failed before the fix) | ✓ 12-min mock lesson whose player disables CC on every seek: +10 s, +5 min, −30 s, −10 min, rapid seeks, 2×, paused, fullscreen — correct Vietnamese line each time, one overlay, each cue translated at most once (fails on the pre-fix build) |
 
 | 22 | **Automatic captions & lesson switching** (real-Skool reports: CC had to be clicked; F5 needed after changing lesson) | `lifecycle.test` (disabled track untouched without opt-in + reported; auto-start when the user turns CC on; opt-in → `hidden`, translated before playback; player reverting the activation re-applied max 2×; async cues; auto-start off; A→B with the same `<video>` reused; late source swap never mixes lessons; switch with request in flight; rapid A→B→C→D; return to cached lesson with 0 provider calls; Back/Forward; element replaced; old element ignored; settings untouched; seek + fullscreen after switching; auto-init off). 8 navigation tests fail with the pre-fix wiring | ✓ same-element lesson switch with delayed source swap auto-translates without F5; opt-out leaves the track `disabled`, one click on the panel opt-in → `hidden` + translation, setting persisted |
+
+| 23 | **Continuous translation for whole lessons** (real-Skool report: Vietnamese stopped after 1–2 min, resumed after toggling CC) | `continuous.test` — 20-min lesson, only 36 cues (~90 s) exposed initially, rest delivered in chunks: appended silently / with `cuechange` / **new TextTrack per chunk keeping the old one** / player disabling the track; 2×; rate-limit burst; one fatal-classified error; slow responses; seek + fullscreen in a long session; player that stops providing cues → reported, nothing invented. Before the fix the new-track and fatal-error cases failed (stuck at 36 cues / stopped permanently) | ✓ 12-min lesson at 16×, new track per 90 s chunk with stale old track: all 72 cues discovered, translated to the end, diagnostics contain no caption text |
 
 Additional: VAD chunker (pauses, forced cuts, noise/clicks, flush), WAV encoding/resampling, live
 segment assembly (fragment merge, overlap removal, hallucination filter), STT ordering under

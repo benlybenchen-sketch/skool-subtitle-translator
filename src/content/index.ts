@@ -92,7 +92,11 @@ async function main(): Promise<void> {
         panel?.setStatus(msg.status);
         break;
       case 'diag:collect':
-        sendResponse({ ...collectDiagnostics(document, detector.result, controller.status()), trackLog: controller.trackLog() });
+        sendResponse({
+          ...collectDiagnostics(document, detector.result, controller.status()),
+          subtitles: controller.debugState(),
+          trackLog: controller.trackLog(),
+        });
         return;
       case 'nav:check':
         nav.check(); // URL change reported by the background (tabs.onUpdated)

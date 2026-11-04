@@ -412,8 +412,11 @@ export class SubtitleController {
       this.render();
     });
     on('timeupdate', () => {
-      if (this.rafHandle === null) this.render();
+      // Always render from the playback clock too (diff-based, cheap): rendering must not depend
+      // on requestAnimationFrame alone (throttled/suspended frames would freeze subtitles).
+      this.render();
       this.pushPlayhead();
+      this.watchdog(video);
     });
     on('ratechange', () => this.scheduler?.setPlayhead(video.currentTime, video.playbackRate));
     on('emptied', () => {
@@ -451,6 +454,90 @@ export class SubtitleController {
   }
 
   private trackListUnsub: (() => void) | null = null;
+  private lastWatchdog = 0;
+  private stallSince: number | null = null;
+  private stallRediscoveries = 0;
+  private stallReenables = 0;
+  private static readonly STALL_NOTICE_PREFIX = 'Trình phát ngừng cung cấp phụ đề mới';
+
+  /**
+   * Low-overhead self-healing (runs on timeupdate, at most every 2 s; no timers):
+   * - heals the translation scheduler (stalled requests, free slots)
+   * - if playback ran >10 s past the last known English cue, re-evaluates the caption tracks
+   *   (bounded) and, only with the auto-enable opt-in, re-enables a player-disabled track once
+   *   per stall; after 30 s without new cues it reports the condition (Audio Mode fallback).
+   */
+  private watchdog(video: HTMLMediaElement): void {
+    const now = Date.now();
+    if (now - this.lastWatchdog < 2000) return;
+    this.lastWatchdog = now;
+    this.scheduler?.heal();
+    const src = this.timed instanceof TextTrackSource ? this.timed : null;
+    if (!src || video.paused || !this.settings.enabled) return;
+    const end = src.latestCueEnd;
+    const t = video.currentTime;
+    const nearEnd = Number.isFinite(video.duration) && video.duration > 0 && t > video.duration - 5;
+    if (end > 0 && t > end + 10 && !nearEnd) {
+      if (this.stallSince === null) {
+        this.stallSince = now;
+        this.stallRediscoveries = 0;
+      }
+      if (this.stallRediscoveries < 6 && now - this.stallSince >= this.stallRediscoveries * 5000) {
+        const reenable = this.stallRediscoveries === 0 && this.stallReenables < 5;
+        if (reenable && src.track.mode === 'disabled') this.stallReenables++;
+        this.stallRediscoveries++;
+        src.rediscover(`playback ${Math.round(t)}s > last cue ${Math.round(end)}s`, reenable);
+      }
+      if (now - this.stallSince > 30_000 && !this.notice?.startsWith(SubtitleController.STALL_NOTICE_PREFIX)) {
+        const mm = `${Math.floor(end / 60)}:${String(Math.floor(end % 60)).padStart(2, '0')}`;
+        this.notice = `${SubtitleController.STALL_NOTICE_PREFIX} sau ${mm}. Thử bật lại CC, hoặc dùng Audio Mode.`;
+        this.queueStatus();
+      }
+    } else if (this.stallSince !== null) {
+      this.stallSince = null;
+      if (this.notice?.startsWith(SubtitleController.STALL_NOTICE_PREFIX)) {
+        this.notice = undefined;
+        this.queueStatus();
+      }
+    }
+  }
+
+  /** Diagnostics snapshot — timings and counts only, never caption text, keys or URLs. */
+  debugState() {
+    const media = this.target && this.target.kind !== 'iframe' ? this.target.el : null;
+    const src = this.timed instanceof TextTrackSource ? this.timed : null;
+    const sch = this.scheduler?.debug();
+    const now = Date.now();
+    const latestCueEnd = src ? src.latestCueEnd : this.timeline?.units.at(-1)?.end ?? 0;
+    const duration = media && Number.isFinite(media.duration) ? media.duration : null;
+    const r1 = (x: number) => Math.round(x * 10) / 10;
+    return {
+      currentTimeSec: media ? r1(media.currentTime) : null,
+      durationSec: duration !== null ? r1(duration) : null,
+      paused: media?.paused ?? null,
+      playbackRate: media?.playbackRate ?? null,
+      captionSource: this.captionSource,
+      englishTracks: src ? src.trackInfo() : [],
+      availableCues: src ? src.storedCues : this.lastCues.length,
+      translationUnits: this.timeline?.size ?? 0,
+      latestCueEndSec: r1(latestCueEnd),
+      latestTranslatedEndSec: r1(sch?.latestTranslatedEnd ?? 0),
+      /** Source coverage reaching the media duration is required before calling the transcript complete. */
+      transcriptComplete: duration !== null && latestCueEnd >= duration - 15,
+      lastCueDiscoveryAgoSec: src && src.lastDiscoveryAt ? Math.round((now - src.lastDiscoveryAt) / 1000) : null,
+      scheduler: sch
+        ? {
+            state: sch.state,
+            queuedInWindow: sch.queuedInWindow,
+            pendingRequests: sch.inFlight,
+            lastSuccessAgoSec: sch.lastSuccessAt ? Math.round((now - sch.lastSuccessAt) / 1000) : null,
+            errors: sch.errorCount,
+            lastError: sch.lastError ? sch.lastError.slice(0, 160) : null,
+          }
+        : null,
+      stalledForSec: this.stallSince ? Math.round((now - this.stallSince) / 1000) : 0,
+    };
+  }
 
   private pushPlayhead(): void {
     const v = this.target && this.target.kind !== 'iframe' ? this.target.el : null;
@@ -690,6 +777,8 @@ export class SubtitleController {
     this.liveHistory = [];
     this.missed = new Set();
     this.captionsOff = false;
+    this.stallSince = null;
+    this.stallReenables = 0;
   }
 
   private queueStatus(): void {
