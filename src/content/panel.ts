@@ -99,6 +99,13 @@ export class ControlPanel {
     this.render();
   }
 
+  private dubLine(): string {
+    const d = this.status?.frames.find((f) => f.dub)?.dub;
+    if (!d) return '';
+    const map: Record<string, string> = { speaking: 'Đang đọc tiếng Việt', idle: 'Sẵn sàng', buffering: 'Đang tạo giọng…', paused: 'Tạm dừng', error: 'Lỗi giọng đọc', 'no-voice': 'Không có giọng tiếng Việt trên máy — chọn Google Cloud TTS trong popup', 'no-captions': 'Không có phụ đề để lồng tiếng', waiting: 'Đang chuẩn bị…', off: '' };
+    return `${map[d.state] ?? d.state}${d.lastError && d.state === 'error' ? `: ${d.lastError}` : ''}`;
+  }
+
   private text: TextLessonInfo | null = null;
   /** Text-only lesson detected (or gone): switches the card to article controls. */
   setText(info: TextLessonInfo | null): void {
@@ -172,6 +179,8 @@ export class ControlPanel {
           <div class="row"><span>Hiển thị</span><span>
             <button class="b ${s.displayMode === 'vi' ? 'on' : ''}" data-a="vi">VI</button>
             <button class="b ${s.displayMode === 'bilingual' ? 'on' : ''}" data-a="bi">EN+VI</button></span></div>
+          <div class="row"><span>🔊 Lồng tiếng Việt</span><button class="b ${s.dubbing.enabled ? 'on' : ''}" data-a="dub" title="Đọc bản dịch bằng giọng AI và tắt tiếng gốc">${s.dubbing.enabled ? 'BẬT' : 'TẮT'}</button></div>
+          ${s.dubbing.enabled && this.dubLine() ? `<div class="muted">${esc(this.dubLine())}</div>` : ''}
           <div class="row"><span>Cỡ chữ</span><span>
             <button class="b" data-a="smaller" aria-label="Nhỏ hơn">A−</button>
             <button class="b" data-a="bigger" aria-label="Lớn hơn">A+</button></span></div>
@@ -232,6 +241,9 @@ export class ControlPanel {
       case 'text-bilingual':
       case 'text-retry':
         this.textAction(a.slice(5) as 'translate' | 'original' | 'vi' | 'bilingual' | 'retry');
+        break;
+      case 'dub':
+        this.update({ dubbing: { ...s.dubbing, enabled: !s.dubbing.enabled, listenMode: s.dubbing.listenMode === 'original' ? 'vi' : s.dubbing.listenMode } });
         break;
       case 'text-auto':
         this.update({ autoTranslateTextLessons: true }); // explicit opt-in, persisted

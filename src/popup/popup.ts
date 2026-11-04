@@ -24,6 +24,86 @@ const MODE_LABEL: Record<string, string> = {
   'waiting-audio': 'Chưa có phụ đề — có thể dùng Audio Mode',
 };
 
+const MUTED_LABEL = { element: 'Đã tắt tiếng video gốc', tab: 'Đã tắt tiếng tab (dự phòng)', none: 'Không thay đổi' } as const;
+const DUB_STATE: Record<string, string> = {
+  off: 'Tắt', waiting: 'Đang chuẩn bị…', buffering: 'Đang tạo giọng…', speaking: 'Đang đọc', idle: 'Sẵn sàng', paused: 'Tạm dừng',
+  error: 'Lỗi', 'no-voice': 'Không có giọng tiếng Việt', 'no-captions': 'Không có phụ đề để lồng tiếng',
+};
+
+async function fillVoices(s: Settings): Promise<void> {
+  const sel = $<HTMLSelectElement>('dub-voice');
+  sel.replaceChildren(new Option('(tự chọn theo giới tính)', ''));
+  try {
+    const r = await sendToBackground<{ voices: { id: string; label: string; gender: string }[]; error?: string }>({ type: 'dub:voices', provider: s.dubbing.provider });
+    for (const v of r.voices.filter((v) => v.gender === s.dubbing.gender || v.gender === 'unknown')) sel.add(new Option(v.label, v.id));
+    $('dub-conn').textContent = r.voices.length ? `${r.voices.length} giọng tiếng Việt` : '✗ ' + (r.error ?? 'Không có giọng');
+  } catch (e) {
+    $('dub-conn').textContent = '✗ ' + (e as Error).message;
+  }
+  sel.value = s.dubbing.voice;
+}
+
+function bindDubbing(): void {
+  const d = () => settings.dubbing;
+  const save = (patch: Partial<Settings['dubbing']>) => {
+    settings = { ...settings, dubbing: { ...settings.dubbing, ...patch } };
+    void saveSettings({ dubbing: settings.dubbing });
+  };
+  const fill = () => {
+    const s = d();
+    $<HTMLInputElement>('dub-enabled').checked = s.enabled;
+    $<HTMLSelectElement>('dub-listen').value = s.listenMode;
+    $<HTMLSelectElement>('dub-provider').value = s.provider;
+    $<HTMLSelectElement>('dub-gender').value = s.gender;
+    $<HTMLInputElement>('dub-rate').value = String(s.rate);
+    $('dub-rate-out').textContent = `${s.rate.toFixed(2)}×`;
+    $<HTMLInputElement>('dub-volume').value = String(s.volume);
+    $('dub-volume-out').textContent = `${Math.round(s.volume * 100)}%`;
+    $<HTMLInputElement>('dub-orig').value = String(s.originalVolume);
+    $('dub-orig-out').textContent = `${Math.round(s.originalVolume * 100)}%`;
+    $<HTMLInputElement>('dub-subs').checked = s.showSubtitles;
+  };
+  fill();
+  void fillVoices(settings);
+  $<HTMLInputElement>('dub-enabled').addEventListener('change', (e) => save({ enabled: (e.target as HTMLInputElement).checked, ...(d().listenMode === 'original' ? { listenMode: 'vi' } : {}) }));
+  $<HTMLSelectElement>('dub-listen').addEventListener('change', (e) => save({ listenMode: (e.target as HTMLSelectElement).value as Settings['dubbing']['listenMode'] }));
+  $<HTMLSelectElement>('dub-provider').addEventListener('change', async (e) => {
+    const provider = (e.target as HTMLSelectElement).value as Settings['dubbing']['provider'];
+    if (provider === 'google') {
+      const origin = originPattern(d().googleEndpoint);
+      if (origin) await chrome.permissions.request({ origins: [origin] }).catch(() => false);
+    }
+    save({ provider, voice: '' });
+    void fillVoices(settings);
+  });
+  $<HTMLSelectElement>('dub-gender').addEventListener('change', (e) => {
+    save({ gender: (e.target as HTMLSelectElement).value as 'female' | 'male', voice: '' });
+    void fillVoices(settings);
+  });
+  $<HTMLSelectElement>('dub-voice').addEventListener('change', (e) => save({ voice: (e.target as HTMLSelectElement).value }));
+  const range = (id: string, key: 'rate' | 'volume' | 'originalVolume') =>
+    $<HTMLInputElement>(id).addEventListener('change', (e) => {
+      save({ [key]: Number((e.target as HTMLInputElement).value) });
+      fill();
+    });
+  range('dub-rate', 'rate');
+  range('dub-volume', 'volume');
+  range('dub-orig', 'originalVolume');
+  $<HTMLInputElement>('dub-subs').addEventListener('change', (e) => save({ showSubtitles: (e.target as HTMLInputElement).checked }));
+}
+
+function renderDub(frames: FrameStatus[]): void {
+  const f = frames.find((x) => x.dub);
+  const s = f?.dub;
+  $('dub-state').textContent = s ? DUB_STATE[s.state] ?? s.state : settings.dubbing.enabled ? 'Chờ video/phụ đề' : 'Tắt';
+  $('dub-buffer').textContent = s ? `${s.bufferedAheadSec} s` : '–';
+  $('dub-counts').textContent = s ? `${s.spoken} / ${s.skipped} / ${s.late}` : '–';
+  $('dub-delay').textContent = s && s.medianDelayMs !== null ? `${s.medianDelayMs} / ${s.p95DelayMs} ms` : '–';
+  $('dub-muted').textContent = s ? MUTED_LABEL[s.muted] : '–';
+  $('dub-error').textContent = s?.lastError ?? '';
+  $('dub-error').classList.toggle('hidden', !s?.lastError);
+}
+
 function bindSettings(): void {
   const enabled = $<HTMLInputElement>('enabled');
   const displayMode = $<HTMLSelectElement>('displayMode');
@@ -112,6 +192,7 @@ const healthBad = (h?: Health) => !!h && h.state !== 'ready' && h.state !== 'con
 function renderStatus(res: StatusResponse): void {
   const st: TabStatus = res.status;
   const frames = st.frames;
+  renderDub(frames);
   const primary = frames.find((f) => f.frameId === st.primaryFrameId);
   const captioned = frames.find((f) => f.captionSource && f.captionSource !== 'live' && f.captionState === 'available');
   const best = captioned ?? primary;
@@ -307,6 +388,7 @@ async function init(): Promise<void> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   tabId = tab?.id;
   bindSettings();
+  bindDubbing();
   $('audio-btn').addEventListener('click', () => void toggleAudio());
   $('cache-clear').addEventListener('click', async () => {
     await sendToBackground({ type: 'cache:clear' });

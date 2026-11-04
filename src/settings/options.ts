@@ -215,6 +215,13 @@ function fill(s: Settings, sttKey?: string): void {
   $('auto-nav').checked = s.autoInitOnNavigation;
   $('auto-cc').checked = s.autoEnableCaptions;
   $('auto-text').checked = s.autoTranslateTextLessons;
+  $('d-endpoint').value = s.dubbing.googleEndpoint;
+  $('d-lookahead').value = String(s.dubbing.lookaheadSec);
+  $('d-speedup').value = String(s.dubbing.maxSpeedup);
+  $('d-delay').value = String(s.dubbing.maxDelaySec);
+  $<HTMLSelectElement>('d-late').value = s.dubbing.latePolicy;
+  $('d-consent').checked = !!s.consent.remoteTts;
+  $('d-restore').checked = s.dubbing.restoreOnFailure;
   $<HTMLTextAreaElement>('dom-sel').value = s.customCaptionSelectors;
   $('panel').checked = s.showPanel;
 }
@@ -229,7 +236,16 @@ function read(): Settings {
       endpoint: $('s-endpoint').value.trim(),
       model: $('s-model').value.trim(),
     },
-    consent: { remoteTranslation: $('c-text').checked, remoteAudio: $('c-audio').checked },
+    consent: { remoteTranslation: $('c-text').checked, remoteAudio: $('c-audio').checked, remoteTts: $('d-consent').checked },
+    dubbing: {
+      ...current.dubbing,
+      googleEndpoint: $('d-endpoint').value.trim() || 'https://texttospeech.googleapis.com/v1',
+      lookaheadSec: Math.min(90, Math.max(30, Number($('d-lookahead').value) || 60)),
+      maxSpeedup: Math.min(1.6, Math.max(1, Number($('d-speedup').value) || 1.35)),
+      maxDelaySec: Math.min(6, Math.max(1, Number($('d-delay').value) || 2.5)),
+      latePolicy: $<HTMLSelectElement>('d-late').value as 'skip' | 'delay',
+      restoreOnFailure: $('d-restore').checked,
+    },
     translationMode: $<HTMLSelectElement>('mode').value as Settings['translationMode'],
     modeModels: readModeModels(),
     mergeFragments: $('merge').checked,
@@ -255,7 +271,11 @@ function msg(text: string, isError = false): void {
 async function save(): Promise<void> {
   const next = read();
   // Request host permission for the configured endpoints (needs this click gesture).
-  const origins = [next.provider.kind !== 'mock' ? next.provider.endpoint : '', next.stt.kind !== 'mock' ? next.stt.endpoint : '']
+  const origins = [
+    next.provider.kind !== 'mock' ? next.provider.endpoint : '',
+    next.stt.kind !== 'mock' ? next.stt.endpoint : '',
+    next.dubbing.provider === 'google' || $('d-key').value.trim() ? next.dubbing.googleEndpoint : '',
+  ]
     .map((e) => (e ? originPattern(e) : null))
     .filter((o): o is string => !!o);
   if (origins.length) {
@@ -268,7 +288,7 @@ async function save(): Promise<void> {
   await saveGlossaryStore(glossary);
   keys[shownKind] = $('p-key').value.trim() || undefined;
   const translationApiKeys = Object.fromEntries(Object.entries(keys).filter(([, v]) => !!v));
-  await saveSecrets({ translationApiKeys, sttApiKey: $('s-key').value.trim() || undefined }, $('k-session').checked);
+  await saveSecrets({ translationApiKeys, sttApiKey: $('s-key').value.trim() || undefined, ttsApiKey: $('d-key').value.trim() || undefined }, $('k-session').checked);
   const warnings: string[] = [];
   if (translationIsRemote(current) && !current.consent.remoteTranslation) warnings.push('Dịch từ xa chưa được cho phép (mục 3).');
   if (sttIsRemote(current) && !current.consent.remoteAudio) warnings.push('Audio Mode từ xa chưa được cho phép (mục 3).');
@@ -304,6 +324,7 @@ async function init(): Promise<void> {
     if (key) keys[k] = key;
   }
   fill(current, secrets.sttApiKey);
+  $('d-key').value = secrets.ttsApiKey ?? '';
   // Switching keeps what was typed for the previous provider (in memory until "Lưu").
   $<HTMLSelectElement>('p-kind').addEventListener('change', () => {
     profiles[shownKind] = formProfile();

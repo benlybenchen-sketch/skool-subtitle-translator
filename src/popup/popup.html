@@ -68,6 +68,29 @@
       </div>
     </section>
 
+    <section class="card" id="dub-card">
+      <div class="row"><b>🔊 Lồng tiếng Việt (AI Dubbing)</b><label class="switch" title="Bật/tắt lồng tiếng"><input id="dub-enabled" type="checkbox" /><span></span></label></div>
+      <div class="row"><label for="dub-listen">Nghe</label>
+        <select id="dub-listen"><option value="vi">Chỉ giọng Việt</option><option value="mix">Giọng Việt + âm gốc nhỏ</option><option value="original">Âm thanh gốc</option></select></div>
+      <div class="row"><label for="dub-provider">Giọng đọc (TTS)</label>
+        <select id="dub-provider"><option value="chrome">Chrome TTS (trên máy, miễn phí)</option><option value="google">Google Cloud TTS (trả phí)</option><option value="mock">Mock (thử nghiệm)</option></select></div>
+      <div class="row"><label for="dub-gender">Giọng</label>
+        <select id="dub-gender"><option value="female">Nữ</option><option value="male">Nam</option></select>
+        <select id="dub-voice" title="Giọng tiếng Việt có sẵn"></select></div>
+      <div class="row"><label for="dub-rate">Tốc độ <output id="dub-rate-out"></output></label><input id="dub-rate" type="range" min="0.8" max="1.5" step="0.05" /></div>
+      <div class="row"><label for="dub-volume">Âm lượng giọng Việt <output id="dub-volume-out"></output></label><input id="dub-volume" type="range" min="0" max="1" step="0.05" /></div>
+      <div class="row"><label for="dub-orig">Âm gốc (chế độ trộn) <output id="dub-orig-out"></output></label><input id="dub-orig" type="range" min="0" max="1" step="0.05" /></div>
+      <div class="row checks"><label><input id="dub-subs" type="checkbox" /> Vẫn hiện phụ đề Việt</label></div>
+      <div class="kv small"><span>Trạng thái giọng đọc</span><b id="dub-state">–</b></div>
+      <div class="kv small"><span>Đã sẵn sàng phía trước</span><b id="dub-buffer">–</b></div>
+      <div class="kv small"><span>Đã đọc / bỏ qua / trễ</span><b id="dub-counts">–</b></div>
+      <div class="kv small"><span>Độ trễ giọng trung vị / p95</span><b id="dub-delay">–</b></div>
+      <div class="kv small"><span>Âm thanh gốc</span><b id="dub-muted">–</b></div>
+      <div class="kv small"><span>Kết nối TTS</span><b id="dub-conn">–</b></div>
+      <div id="dub-error" class="error hidden"></div>
+      <p class="hint">Chỉ bật khi bạn chọn. Cần phụ đề tiếng Anh của bài (dùng bản dịch hiện có). Google Cloud TTS cần API key riêng (Cài đặt → mục 7).</p>
+    </section>
+
     <section class="card hidden" id="text-card">
       <div class="row"><b>Bài học dạng văn bản</b><span id="text-state" class="small">…</span></div>
       <div class="row" id="text-start-row"><button id="text-translate" class="primary">Dịch bài này</button></div>

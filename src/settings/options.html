@@ -127,6 +127,24 @@
         <label class="check"><input id="panel" type="checkbox" /> Hiện bảng điều khiển nổi trên trang Skool</label>
       </section>
 
+      <section>
+        <h2>7. Lồng tiếng Việt (AI Dubbing)</h2>
+        <p class="hint">Đọc bản dịch tiếng Việt bằng giọng AI, đồng bộ với video, tắt tiếng giáo viên tiếng Anh. Bật/tắt và chọn giọng trong popup.
+          <b>Chrome TTS</b> dùng giọng tiếng Việt của máy (miễn phí, không gửi dữ liệu đi; cần giọng vi-VN của hệ điều hành).
+          <b>Google Cloud TTS</b> cho giọng tự nhiên hơn (Neural2 / WaveNet / Chirp 3 HD), tính phí theo số ký tự và cần <b>API key Cloud Text-to-Speech riêng</b> — key Gemini không dùng được.</p>
+        <div class="grid">
+          <label for="d-key">API key Google Cloud TTS</label><input id="d-key" type="password" autocomplete="off" spellcheck="false" placeholder="AIza… (chỉ khi dùng Google Cloud TTS)" />
+          <label for="d-endpoint">Endpoint</label><input id="d-endpoint" type="url" spellcheck="false" />
+          <label for="d-lookahead">Tạo giọng trước (giây)</label><input id="d-lookahead" type="number" min="30" max="90" step="5" />
+          <label for="d-speedup">Tăng tốc tối đa để kịp câu</label><input id="d-speedup" type="number" min="1" max="1.6" step="0.05" />
+          <label for="d-delay">Trễ tối đa (giây)</label><input id="d-delay" type="number" min="1" max="6" step="0.5" />
+          <label for="d-late">Câu đến muộn</label>
+          <select id="d-late"><option value="skip">Bỏ qua câu quá muộn (đồng bộ tốt nhất)</option><option value="delay">Đọc muộn (tối đa gấp đôi thời gian trễ)</option></select>
+        </div>
+        <label class="check"><input id="d-consent" type="checkbox" /> Cho phép gửi <b>văn bản tiếng Việt</b> đã dịch tới Google Cloud TTS (chỉ khi chọn Google Cloud TTS)</label>
+        <label class="check"><input id="d-restore" type="checkbox" /> Lỗi giọng đọc kéo dài → tự bật lại âm thanh gốc</label>
+      </section>
+
       <div class="actions">
         <button id="save" class="primary" type="button">Lưu &amp; cấp quyền</button>
         <button id="test" type="button">Thử dịch một câu</button>
