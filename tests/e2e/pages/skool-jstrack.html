@@ -1,0 +1,16 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Mock Skool lesson — JS-created English track, CC off</title></head>
+<body style="margin:0">
+  <!-- English track created by script (no caption file URL), CC off (mode "disabled").
+       Cues are only readable once the track is not disabled. NOT real Skool markup. -->
+  <div id="player" style="width:960px;height:540px;background:#000">
+    <video id="v" muted playsinline style="width:100%;height:100%" src="/media/lesson.wav"></video>
+  </div>
+  <script>
+    const v = document.getElementById('v');
+    const t = v.addTextTrack('captions', 'English CC', 'en');
+    t.addCue(new VTTCue(1, 3, 'Welcome back to the course.'));
+    t.addCue(new VTTCue(4.6, 6.8, 'Set up the campaign.'));
+    t.mode = 'disabled';
+  </script>
+</body></html>

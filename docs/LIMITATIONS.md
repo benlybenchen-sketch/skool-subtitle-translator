@@ -20,6 +20,19 @@ boundaries. In that situation:
   fullscreen the overlay only shows if the fullscreen element is in the accessible DOM.
 - Use popup → **"Chạy chẩn đoán"** and share the result when reporting issues.
 
+## CC off (v3.1.0)
+Order of strategies, most reliable first:
+1. **Caption file:** if the English track comes from a `<track src>` element, the whole WebVTT/SRT
+   file is read once (same request the player would make, same-origin/CORS rules). Full transcript,
+   CC state untouched, no consent prompt needed. Not possible when the player creates its tracks in
+   JavaScript or streams captions inside HLS — then strategy 2 applies.
+2. **TextTrack `hidden` (opt-in):** a disabled English track is set to `hidden` and re-applied when
+   the player resets it (≥ 5 s apart, ≤ 150 times per lesson).
+3. **Enforced by the player:** if the player re-disables the track immediately 4× in a row, the
+   extension stops and says so ("Trình phát Skool tự tắt lại phụ đề…") and offers Audio Mode.
+Which one applies on real Skool is unknown until tested: diagnostics show `captionFileRead`,
+`textTracks[].mode` and `trackLog`.
+
 ## Automatic caption activation (v3.0.0)
 - The one-time question appears automatically in the VI panel the first time a disabled English
   track blocks translation; the answer is persisted (Settings → 5 can change it later).

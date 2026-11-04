@@ -1,6 +1,7 @@
 import type { Cue } from '../shared/types';
 import { cueId } from './normalize';
 import { NativeTrackFallback } from '../overlay/nativeTrack';
+import { parseSubtitleFile } from './parse';
 
 /** Our own tracks (native fullscreen fallback) must never be read as a source. */
 export const ownTracks = new WeakSet<TextTrack>();
@@ -57,11 +58,12 @@ export function readTrackCues(track: TextTrack): Cue[] {
 export interface TimedSource {
   readonly kind: 'texttrack' | 'manual';
   readonly label: string;
-  start(onCues: (cues: Cue[]) => void, onState?: (s: 'ok' | 'disabled' | 'lost') => void): void;
+  start(onCues: (cues: Cue[]) => void, onState?: (s: TrackState) => void): void;
   stop(): void;
 }
 
-export type TrackState = 'ok' | 'disabled' | 'lost';
+/** ok · disabled (left as is) · enforced (player re-disables every activation) · lost (no track) */
+export type TrackState = 'ok' | 'disabled' | 'enforced' | 'lost';
 
 /**
  * Reads cues from an HTML5 TextTrack, robust to player lifecycle changes around seeking:
@@ -89,15 +91,27 @@ export class TextTrackSource implements TimedSource {
   private rehidUsedForSeek = true;
   private bound: TextTrack | null = null;
   private activatedAt = -Infinity;
-  private activationRetries = 0;
+  private quickReverts = 0;
+  private reapplies = 0;
+  private lastReapplyAt = -Infinity;
+  private enforced = false;
+  /** Full caption file read from the <track src> (verified complete transcript). */
+  fullTranscript = false;
+  private filesTried = new Set<string>();
   private readonly startedAt: number;
   /** Small ring log of track lifecycle events (shown in diagnostics; no caption text). */
   readonly log: string[] = [];
 
   static readonly SEEK_GRACE_MS = 2500;
   /** After we switch a track to "hidden", a player reverting it within this window is re-applied. */
-  static readonly ACTIVATION_GRACE_MS = 3000;
-  static readonly MAX_ACTIVATION_RETRIES = 2;
+  /** A revert faster than this after our activation counts as the player "fighting back". */
+  static readonly QUICK_REVERT_MS = 1500;
+  /** That many consecutive quick reverts → the player enforces "disabled"; stop and report. */
+  static readonly MAX_QUICK_REVERTS = 4;
+  /** Occasional resets (per chunk / per seek) are re-applied at most this often … */
+  static readonly REAPPLY_MIN_INTERVAL_MS = 5000;
+  /** … and at most this many times per lesson (no infinite retries). */
+  static readonly MAX_REAPPLIES = 150;
 
   constructor(
     private readonly video: HTMLMediaElement,
@@ -105,6 +119,8 @@ export class TextTrackSource implements TimedSource {
     private readonly now: () => number = () => Date.now(),
     /** May we switch a disabled track to "hidden"? (user opt-in: autoEnableCaptions) */
     private readonly allowEnable = true,
+    private readonly fetchImpl: ((url: string, init?: RequestInit) => Promise<Response>) | null =
+      typeof fetch === 'function' ? (u, i) => fetch(u, i) : null,
   ) {
     this.startedAt = now();
   }
@@ -112,6 +128,36 @@ export class TextTrackSource implements TimedSource {
   private note(e: string): void {
     this.log.push(`+${this.now() - this.startedAt}ms ${e}`);
     if (this.log.length > 30) this.log.shift();
+  }
+
+  /**
+   * If the English track comes from a <track src="…"> element, read the WHOLE caption file the page
+   * references (same request the player makes; same-origin/CORS rules apply). This gives the full
+   * transcript at once, independent of CC/mode — no player state is changed. Falls back silently
+   * to TextTrack cues when not readable. The URL is never logged.
+   */
+  private async loadTrackFile(track: TextTrack): Promise<void> {
+    if (!this.fetchImpl) return;
+    let el: HTMLTrackElement | null = null;
+    for (const t of this.video.querySelectorAll('track')) if ((t as HTMLTrackElement).track === track) el = t as HTMLTrackElement;
+    const src = el?.src;
+    if (!el || !src || this.filesTried.has(src) || !/^https?:/.test(src)) return;
+    this.filesTried.add(src);
+    try {
+      const res = await this.fetchImpl(src, { credentials: (this.video as HTMLMediaElement).crossOrigin === 'use-credentials' ? 'include' : 'same-origin' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const cues = parseSubtitleFile(await res.text());
+      if (!cues.length) throw new Error('no cues in file');
+      if (!this.onCues) return;
+      for (const c of cues) this.store.set(c.id, c);
+      this.fullTranscript = true;
+      this.lastDiscoveryAt = this.now();
+      this.note(`caption file read: ${cues.length} cues (full transcript)`);
+      this.setState('ok');
+      this.onCues([...this.store.values()]);
+    } catch (e) {
+      this.note(`caption file not readable (${(e as Error).message}) → TextTrack cues only`);
+    }
   }
 
   private activate(reason: string): void {
@@ -135,6 +181,7 @@ export class TextTrackSource implements TimedSource {
     this.note(`attach "${this.track.label}" lang=${this.track.language} mode=${this.track.mode} cues=${this.track.cues?.length ?? 'null'}`);
     if (this.track.mode === 'disabled' && this.allowEnable) this.activate('auto-enable');
     this.bind(this.track);
+    void this.loadTrackFile(this.track);
     this.video.addEventListener('seeking', this.onSeeking);
     this.video.addEventListener('seeked', this.refresh);
     this.video.addEventListener('timeupdate', this.refresh);
@@ -204,7 +251,7 @@ export class TextTrackSource implements TimedSource {
     this.peerSet = [];
     // Opt-in only (autoEnableCaptions) and bounded by the caller: a track the player disabled
     // while playback ran past the known cues is switched back to "hidden" (never "showing").
-    if (mayReenable && this.allowEnable && this.track.mode === 'disabled' && this.inList(this.track)) this.activate('watchdog');
+    if (mayReenable && this.allowEnable && !this.enforced && this.track.mode === 'disabled' && this.inList(this.track)) this.activate('watchdog');
     this.refresh();
   }
 
@@ -258,6 +305,7 @@ export class TextTrackSource implements TimedSource {
         this.changedMode = false;
         if (this.track.mode === 'disabled' && this.allowEnable) this.activate('replacement');
         this.bind(this.track);
+        void this.loadTrackFile(this.track);
         this.sig = '';
       } else {
         if (this.state !== 'lost') this.note('track removed, no replacement');
@@ -276,20 +324,38 @@ export class TextTrackSource implements TimedSource {
       this.bindPeers();
     }
     // 2. Disabled by the player right after a seek → re-enable once (hidden: no native rendering).
+    if (this.track.mode === 'disabled' && this.fullTranscript) {
+      this.setState('ok'); // whole caption file already read: nothing more to load from the track
+      return;
+    }
     if (this.track.mode === 'disabled') {
-      const justSeeked = this.now() - this.lastSeekAt < TextTrackSource.SEEK_GRACE_MS;
-      const justActivated = this.now() - this.activatedAt < TextTrackSource.ACTIVATION_GRACE_MS;
+      const now = this.now();
+      const justSeeked = now - this.lastSeekAt < TextTrackSource.SEEK_GRACE_MS;
       if (justSeeked && !this.rehidUsedForSeek) {
         this.rehidUsedForSeek = true;
         this.note('player disabled track after seek → re-enable once');
         this.track.mode = 'hidden';
-      } else if (this.allowEnable && justActivated && this.activationRetries < TextTrackSource.MAX_ACTIVATION_RETRIES) {
-        // Player reverted our activation immediately (initialisation race): re-apply, bounded.
-        this.activationRetries++;
-        this.activate(`player reverted, retry ${this.activationRetries}`);
+      } else if (this.allowEnable && !this.enforced && this.reapplies < TextTrackSource.MAX_REAPPLIES) {
+        // Opt-in: keep the English track readable when the player resets it (per chunk, per
+        // lesson, …) — but detect a player that re-disables EVERY activation immediately and stop.
+        const quick = now - this.activatedAt < TextTrackSource.QUICK_REVERT_MS;
+        this.quickReverts = quick ? this.quickReverts + 1 : 0;
+        if (this.quickReverts >= TextTrackSource.MAX_QUICK_REVERTS) {
+          this.enforced = true;
+          this.note(`player re-disabled the track ${this.quickReverts}× right after activation → enforced, stop`);
+          this.setState('enforced');
+          return;
+        }
+        if (!quick && now - this.lastReapplyAt < TextTrackSource.REAPPLY_MIN_INTERVAL_MS) {
+          this.setState('disabled');
+          return; // rate-limited; the next timeupdate re-checks
+        }
+        this.reapplies++;
+        this.lastReapplyAt = now;
+        this.activate(quick ? `player reverted (${this.quickReverts})` : 'player reset mode');
       } else {
-        if (this.state !== 'disabled') this.note('mode=disabled (left as is)');
-        this.setState('disabled');
+        if (this.state !== 'disabled' && this.state !== 'enforced') this.note('mode=disabled (left as is)');
+        this.setState(this.enforced ? 'enforced' : 'disabled');
         return; // keep using the cues already read; never toggle CC repeatedly
       }
     }

@@ -92,7 +92,7 @@ describe('automatic English caption initialisation', () => {
     expect(t.mode).toBe('disabled');
     expect(br.providerCalls).toHaveLength(0);
     expect(c.status()).toMatchObject({ captionsOff: true });
-    expect(c.status().notice).toMatch(/CC đang tắt/);
+    expect(c.status().notice).toMatch(/CC của trình phát đang tắt/);
   });
 
   it('opt-in OFF: translation starts by itself as soon as the user turns CC on (no reload)', async () => {
@@ -117,17 +117,19 @@ describe('automatic English caption initialisation', () => {
     expect(vi(c)).toBe('VI(A line 2.)');
   });
 
-  it('opt-in ON: player immediately reverting to "disabled" is re-applied (bounded), then left alone', async () => {
+  it('opt-in ON: a player re-disabling EVERY activation is detected as "enforced", retries stop, reason reported', async () => {
     const t = lessonTrack('A');
     let mode: TextTrackMode = 'disabled';
     const sets: string[] = [];
     Object.defineProperty(t, 'mode', { get: () => mode, set: (m) => { sets.push(m); mode = m; } });
-    const { video } = mount({ autoEnableCaptions: true }, t);
-    for (let i = 0; i < 6; i++) {
+    const { c, video } = mount({ autoEnableCaptions: true }, t);
+    for (let i = 0; i < 12; i++) {
       mode = 'disabled'; // player fights back every time
       video.dispatchEvent(new Event('timeupdate'));
     }
-    expect(sets.filter((m) => m === 'hidden').length).toBe(3); // initial + 2 retries, never more
+    expect(sets.filter((m) => m === 'hidden').length).toBe(4); // initial + 3 re-applies, then stop
+    await tick();
+    expect(c.status().notice).toMatch(/tự tắt lại phụ đề tiếng Anh ngay mỗi khi tiện ích bật/);
   });
 
   it('English cues that load asynchronously are picked up', async () => {

@@ -497,6 +497,7 @@ export class SubtitleController {
         this.logRecovery('untranslated-active-cue', `status=${active.status}, rescheduled`);
       }
     } else this.untranslatedSince = null;
+    if (src.trackState === 'enforced' || src.fullTranscript) return; // cause known / nothing more to load
     const nearEnd = Number.isFinite(video.duration) && video.duration > 0 && t > video.duration - 5;
     if (end > 0 && t > end + 10 && !nearEnd) {
       if (this.stallSince === null) {
@@ -541,7 +542,7 @@ export class SubtitleController {
       allTracks.push({ kind: t.kind, language: t.language, mode: t.mode, cues: t.cues ? t.cues.length : null });
     }
     const counts = this.timeline?.counts();
-    const complete = duration !== null && latestCueEnd >= duration - 15;
+    const complete = !!src?.fullTranscript || (duration !== null && latestCueEnd >= duration - 15);
     const health = !sch
       ? 'no-captions'
       : sch.fatal
@@ -573,7 +574,8 @@ export class SubtitleController {
       latestCueEndSec: r1(latestCueEnd),
       latestTranslatedEndSec: r1(sch?.latestTranslatedEnd ?? 0),
       /** Source coverage reaching the media duration is required before calling the transcript complete. */
-      transcriptComplete: duration !== null && latestCueEnd >= duration - 15,
+      transcriptComplete: !!src?.fullTranscript || (duration !== null && latestCueEnd >= duration - 15),
+      captionFileRead: !!src?.fullTranscript,
       lastCueDiscoveryAgoSec: src && src.lastDiscoveryAt ? Math.round((now - src.lastDiscoveryAt) / 1000) : null,
       scheduler: sch
         ? {
@@ -630,16 +632,9 @@ export class SubtitleController {
     }
     const choice = findEnglishTrack(video, this.settings.sourceLanguage);
     this.captionsOff = false;
-    if (choice && choice.track.mode === 'disabled' && !this.settings.autoEnableCaptions) {
-      // Accessible English track, but CC is off and the user has not opted in to auto-enable:
-      // do not touch the player's caption state. Attach as soon as CC is turned on (change event).
-      this.captionsOff = true;
-      this.captionState = 'unavailable';
-      this.notice = 'Có phụ đề tiếng Anh nhưng CC đang tắt. Bật CC, hoặc bật "Tự bật phụ đề tiếng Anh" (một lần) để dịch tự động.';
-      this.applyVisibility();
-      this.queueStatus();
-      return;
-    }
+    // Accessible English track: always attach. Without the opt-in the source is passive — it
+    // never changes the track mode, but it can still read the full <track src> caption file and
+    // picks cues up as soon as CC is turned on. The one-time question appears via onState.
     if (choice) {
       const src = new TextTrackSource(video, choice.track, undefined, this.settings.autoEnableCaptions);
       this.useTimedSource(src, 'texttrack');
@@ -676,12 +671,19 @@ export class SubtitleController {
     src.start(
       (cues) => this.rebuildTimeline(cues, false),
       (state) => {
+        // CC turned off mid-lesson without opt-in → show the one-time question too (v3.0 only
+        // asked when CC was already off at lesson start).
+        this.captionsOff = state === 'disabled' && !this.settings.autoEnableCaptions;
         this.notice =
           state === 'lost'
             ? 'Phụ đề tiếng Anh của trình phát không còn truy cập được — chỉ hiển thị các đoạn đã đọc trước đó.'
-            : state === 'disabled'
-              ? 'CC của trình phát đang tắt — dùng phụ đề đã tải; bật CC để tải tiếp phần mới.'
-              : undefined;
+            : state === 'enforced'
+              ? 'Trình phát Skool tự tắt lại phụ đề tiếng Anh ngay mỗi khi tiện ích bật (đã thử 4 lần), nên không thể tự tải phụ đề mới khi CC tắt. Hãy bật CC trên trình phát, hoặc dùng Audio Mode.'
+              : state === 'disabled'
+                ? this.settings.autoEnableCaptions
+                  ? 'CC của trình phát đang tắt — đang chờ để bật lại phụ đề tiếng Anh (ẩn).'
+                  : 'CC của trình phát đang tắt — dùng phụ đề đã tải. Cho phép "Tự bật phụ đề tiếng Anh" để tiếp tục tự động.'
+                : undefined;
         this.render();
         this.queueStatus();
       },

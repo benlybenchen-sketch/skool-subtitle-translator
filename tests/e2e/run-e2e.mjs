@@ -83,7 +83,7 @@ await context.route(/^https:\/\/www\.skool\.com\//, (route) => {
   if (u.pathname === '/media/lesson2.vtt') return route.fulfill(serve(VTT2, 'text/vtt'));
   if (u.pathname === '/media/long.wav') return serveMedia(route, LONG_WAV);
   if (u.pathname === '/media/long.vtt') return route.fulfill(serve(LONG_VTT, 'text/vtt'));
-  const page = u.search.includes('continuous') ? 'skool-continuous.html' : u.search.includes('seekreset') ? 'skool-seek.html' : u.search.includes('novideo') ? 'skool-novideo.html' : u.search.includes('loom') ? 'skool-loom.html' : u.search.includes('nocaptions') ? 'skool-nocaptions.html' : 'skool-native.html';
+  const page = u.search.includes('jstrack') ? 'skool-jstrack.html' : u.search.includes('trackfile') ? 'skool-trackfile.html' : u.search.includes('continuous') ? 'skool-continuous.html' : u.search.includes('seekreset') ? 'skool-seek.html' : u.search.includes('novideo') ? 'skool-novideo.html' : u.search.includes('loom') ? 'skool-loom.html' : u.search.includes('nocaptions') ? 'skool-nocaptions.html' : 'skool-native.html';
   return route.fulfill(serve(readFileSync(join(pages, page)), 'text/html'));
 });
 await context.route(/^https:\/\/js\.stripe\.com\//, (route) => route.fulfill(serve('<!doctype html><title>stripe mock</title>', 'text/html')));
@@ -469,7 +469,7 @@ await test('CC off, not opted in: VI panel asks ONCE (auto-expanded); "Äá»“ng Ã
     await chrome.storage.sync.set({ settings: { ...settings, autoEnableCaptions: false, autoEnableCaptionsAsked: false } });
   });
   const p = await context.newPage();
-  await p.goto('https://www.skool.com/test-group/classroom/course6?md=optin');
+  await p.goto('https://www.skool.com/test-group/classroom/course6?md=optin-jstrack');
   await p.waitForSelector('video');
   await p.waitForTimeout(800);
   const before = await p.evaluate(() => ({ mode: document.querySelector('video').textTracks[0].mode, overlay: document.querySelector('[data-sst-overlay]')?.shadowRoot?.querySelector('.vi')?.textContent ?? '' }));
@@ -487,7 +487,7 @@ await test('CC off, not opted in: VI panel asks ONCE (auto-expanded); "Äá»“ng Ã
   await p.close();
   // next lesson in a fresh tab: CC off again, but no question and no CC click needed
   const p2 = await context.newPage();
-  await p2.goto('https://www.skool.com/test-group/classroom/course6?md=optin-next');
+  await p2.goto('https://www.skool.com/test-group/classroom/course6?md=optin-next-jstrack');
   await p2.waitForSelector('video');
   await p2.evaluate(() => { const v = document.querySelector('video'); v.currentTime = 2; });
   await waitFor(async () => (await overlayText(p2)) === '[VI] Welcome back to the course.', 8000, 'auto translation on next lesson');
@@ -521,6 +521,34 @@ await test('Continuous: 12-min lesson, cues delivered in chunks via new tracks â
   assert(d.latestTranslatedEndSec >= 700, `translated only until ${d.latestTranslatedEndSec}s`);
   assert(seen.size >= 30, `only ${seen.size} translated lines observed after 2 min (untranslated: ${untranslated.size})`);
   assert(!JSON.stringify(diag).includes('Chunked line'), 'diagnostics must not contain caption text');
+  await p.close();
+});
+
+await test('CC OFF, no opt-in, <track src> caption file: whole 12-min transcript translated, CC state untouched', async () => {
+  await setup.evaluate(async () => {
+    const { settings } = await chrome.storage.sync.get('settings');
+    await chrome.storage.sync.set({ settings: { ...settings, autoEnableCaptions: false, autoEnableCaptionsAsked: true } });
+  });
+  const p = await context.newPage();
+  await p.goto('https://www.skool.com/test-group/classroom/course11?md=trackfile');
+  await p.waitForSelector('video');
+  await p.evaluate(() => document.querySelector('video').play());
+  for (const t of [5, 215, 455, 695]) { // inside cues (cue n spans 30n â€¦ 30n+20 s)
+    await p.evaluate((t) => (document.querySelector('video').currentTime = t), t);
+    const want = `[VI] Lesson cue number ${Math.floor(t / 30)}.`;
+    await waitFor(async () => (await overlayText(p)) === want, 8000, `cue at ${t}s`);
+  }
+  const mode = await p.evaluate(() => document.querySelector('video').textTracks[0].mode);
+  assert(mode === 'disabled', `CC state must stay untouched without opt-in, got ${mode}`);
+  const tabId = await setup.evaluate(async () => (await chrome.tabs.query({ url: '*://www.skool.com/*md=trackfile*' }))[0]?.id);
+  const diag = await setup.evaluate((id) => chrome.runtime.sendMessage({ type: 'diag:run', tabId: id }), tabId);
+  const d = diag.frames.find((f) => f.frameId === 0).report;
+  assert(d.subtitles.captionFileRead && d.subtitles.transcriptComplete && d.subtitles.availableCues === 24, JSON.stringify(d.subtitles));
+  assert(!JSON.stringify(diag).includes('long.vtt'), 'caption file URL must not appear in diagnostics');
+  await setup.evaluate(async () => {
+    const { settings } = await chrome.storage.sync.get('settings');
+    await chrome.storage.sync.set({ settings: { ...settings, autoEnableCaptions: true } });
+  });
   await p.close();
 });
 
