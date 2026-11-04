@@ -51,6 +51,18 @@ export type BackgroundRequest =
   | { type: 'audio:stop'; tabId?: number }
   | { type: 'manual:cues'; tabId: number; cues: Cue[]; label: string }
   // from the offscreen document
+  // AI Vietnamese dubbing (Phase 4)
+  | { type: 'dub:voices'; provider: import('./types').TtsProviderKind }
+  | { type: 'dub:speak'; token: string; segId: string; text: string; voice: string; rate: number; volume: number }
+  | { type: 'dub:prepare'; lesson: string; text: string; provider: 'google' | 'mock'; voice: string; rate: number }
+  | { type: 'dub:play'; token: string; segId: string; key: string; rate: number; volume: number; offsetSec: number }
+  | { type: 'dub:control'; action: 'stop' | 'pause' | 'resume'; token?: string }
+  | { type: 'dub:tabmute'; mute: boolean }
+  | { type: 'dub:recover' }
+  | { type: 'dub:usage' }
+  | { type: 'dub:usage:reset' }
+  | { type: 'dub:cache:clear' }
+  | { type: 'offscreen:dub'; event: 'started' | 'ended' | 'error'; token: string; segId: string; error?: string }
   | { type: 'offscreen:ready' }
   | { type: 'offscreen:started'; sessionId: string }
   | {
@@ -80,6 +92,7 @@ export type ContentMessage =
   | { type: 'nav:check' }
   | { type: 'session:start' }
   | { type: 'learning:op'; op: LearningOp }
+  | { type: 'dub:event'; token: string; segId: string; kind: 'start' | 'end' | 'error' | 'interrupted'; error?: string }
   | { type: 'learning:open'; tab: 'transcript' | 'notes' | 'export' }
   | { type: 'notes:progress'; lessonId: string; done: number; total: number }
   // text-only lessons (popup ↔ top frame, chrome.tabs.sendMessage frameId 0)
@@ -95,7 +108,10 @@ export type LearningOp =
 /** Messages sent from the background to the offscreen document. */
 export type OffscreenMessage =
   | { target: 'offscreen'; type: 'start'; streamId: string; sessionId: string }
-  | { target: 'offscreen'; type: 'stop'; sessionId?: string };
+  | { target: 'offscreen'; type: 'stop'; sessionId?: string }
+  | { target: 'offscreen'; type: 'dub-load'; key: string; audioBase64: string; mime: string }
+  | { target: 'offscreen'; type: 'dub-play'; key: string; token: string; segId: string; rate: number; volume: number; offsetSec: number }
+  | { target: 'offscreen'; type: 'dub-stop' | 'dub-pause' | 'dub-resume' };
 
 export interface StatusResponse {
   status: TabStatus;

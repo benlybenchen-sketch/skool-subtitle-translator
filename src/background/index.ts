@@ -11,6 +11,8 @@ import { loadEffectiveGlossary } from '../shared/glossaryStore';
 import { UsageLedger } from './usageLedger';
 import { DEFAULT_PRICES, loadPricing, savePricing } from '../translation/pricing';
 import { NotesManager } from './notesManager';
+import { DubbingService } from './dubbing';
+import { TtsLedger } from '../tts/ttsLedger';
 
 /*
  * MV3 service worker. All listeners are registered synchronously at the top
@@ -44,6 +46,21 @@ const service = new TranslationService({
   hasEndpointPermission,
 });
 
+let dubbingActive = false;
+const ttsLedger = new TtsLedger(chrome.storage.local, chrome.storage.session);
+const dubbing = new DubbingService({
+  getSettings: loadSettings,
+  getSecrets: loadSecrets,
+  hasEndpointPermission,
+  ensureOffscreen,
+  sendOffscreen: (m) => chrome.runtime.sendMessage(m),
+  sendToFrame: (tabId, frameId, m) => sendToFrame(tabId, frameId, m),
+  ledger: ttsLedger,
+  tts: chrome.tts,
+  tabs: chrome.tabs,
+  session: chrome.storage.session,
+});
+
 const notes = new NotesManager({
   storage: chrome.storage.local,
   complete: (req, o) => service.complete(req, o),
@@ -70,8 +87,8 @@ async function ensureOffscreen(): Promise<void> {
     offscreenCreating = chrome.offscreen
       .createDocument({
         url: OFFSCREEN_URL,
-        reasons: [chrome.offscreen.Reason.USER_MEDIA],
-        justification: 'Process user-approved tab audio for live speech-to-text subtitles.',
+        reasons: [chrome.offscreen.Reason.USER_MEDIA, chrome.offscreen.Reason.AUDIO_PLAYBACK],
+        justification: 'Process user-approved tab audio for live speech-to-text subtitles, and play Vietnamese dubbing audio separately from the tab.',
       })
       .then(() => new Promise<void>((r) => setTimeout(r, 50)))
       .finally(() => (offscreenCreating = null));
@@ -80,6 +97,7 @@ async function ensureOffscreen(): Promise<void> {
 }
 
 async function closeOffscreen(): Promise<void> {
+  if (dubbingActive) return; // the dubbing player lives in the same document
   const contexts = await chrome.runtime.getContexts({ contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT] });
   if (contexts.length) await chrome.offscreen.closeDocument();
 }
@@ -267,6 +285,41 @@ async function handle(msg: BackgroundRequest, sender: chrome.runtime.MessageSend
     case 'learning:open':
       await sendToFrame(msg.tabId, 0, { type: 'learning:open', tab: msg.tab });
       return { ok: true };
+    case 'dub:voices':
+      return dubbing.voices(msg.provider);
+    case 'dub:speak':
+      if (tabId === undefined) return { ok: false };
+      dubbingActive = true;
+      return dubbing.speakChrome(tabId, frameId, msg);
+    case 'dub:prepare':
+      dubbingActive = true;
+      return dubbing.prepare(msg);
+    case 'dub:play':
+      if (tabId === undefined) return { ok: false };
+      dubbingActive = true;
+      await dubbing.play(tabId, frameId, msg);
+      return { ok: true };
+    case 'dub:control':
+      await dubbing.control(msg.action, msg.token);
+      if (msg.action === 'stop') dubbingActive = false;
+      return { ok: true };
+    case 'dub:tabmute':
+      if (tabId === undefined) return { ok: false };
+      return dubbing.tabMute(tabId, msg.mute);
+    case 'dub:recover':
+      if (tabId !== undefined && frameId === 0) await dubbing.recover(tabId);
+      return { ok: true };
+    case 'dub:usage':
+      return { usage: await ttsLedger.snapshot(), cache: await dubbing.cache.stats().catch(() => ({ entries: 0, bytes: 0 })) };
+    case 'dub:usage:reset':
+      await ttsLedger.reset();
+      return { ok: true };
+    case 'dub:cache:clear':
+      await dubbing.cache.clear();
+      return { ok: true };
+    case 'offscreen:dub':
+      dubbing.onOffscreen(msg);
+      return { ok: true };
     case 'offscreen:ready':
       return { ok: true };
     case 'offscreen:started': {
@@ -299,6 +352,7 @@ chrome.runtime.onMessage.addListener((msg: BackgroundRequest & { target?: string
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+  void dubbing.onTabRemoved(tabId);
   void audio.stop(tabId, 'tab-closed');
   registry.removeTab(tabId);
 });

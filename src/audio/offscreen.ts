@@ -1,5 +1,5 @@
 import type { BackgroundRequest, OffscreenMessage } from '../shared/messages';
-import { arrayBufferToBase64 } from '../shared/util';
+import { arrayBufferToBase64, base64ToUint8 } from '../shared/util';
 import { SpeechChunker } from './chunker';
 import { encodeWav, resample } from './wav';
 
@@ -94,9 +94,85 @@ async function stop(reason: string): Promise<void> {
   if (reason !== 'restart') send({ type: 'offscreen:stopped', sessionId: s.id, reason });
 }
 
+// ---- AI Vietnamese dubbing player ---------------------------------------------------------------
+// Extension-owned audio (not the Skool tab's audio): unaffected when the tab or the video is muted.
+// Bounded: at most 40 decoded clips (LRU), object URLs revoked on eviction; one clip plays at a time.
+const clips = new Map<string, { url: string; el: HTMLAudioElement }>();
+let current: { el: HTMLAudioElement; token: string; segId: string } | null = null;
+
+function loadClip(key: string, b64: string, mime: string): Promise<number> {
+  const old = clips.get(key);
+  if (old) {
+    clips.delete(key);
+    clips.set(key, old); // LRU touch
+    return Promise.resolve(old.el.duration || 0);
+  }
+  const url = URL.createObjectURL(new Blob([base64ToUint8(b64) as Uint8Array<ArrayBuffer>], { type: mime }));
+  const el = new Audio();
+  el.preload = 'auto';
+  (el as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = true;
+  el.src = url;
+  clips.set(key, { url, el });
+  while (clips.size > 40) {
+    const [k, v] = clips.entries().next().value!;
+    if (current?.el === v.el) break;
+    v.el.removeAttribute('src');
+    URL.revokeObjectURL(v.url);
+    clips.delete(k);
+  }
+  return new Promise((resolve) => {
+    const done = () => resolve(Number.isFinite(el.duration) ? el.duration : 0);
+    el.addEventListener('loadedmetadata', done, { once: true });
+    el.addEventListener('error', () => resolve(0), { once: true });
+    setTimeout(done, 3000);
+  });
+}
+
+function stopClip(): void {
+  if (!current) return;
+  current.el.pause();
+  current.el.onended = current.el.onerror = null;
+  current = null;
+}
+
+async function playClip(m: Extract<OffscreenMessage, { type: 'dub-play' }>): Promise<void> {
+  stopClip();
+  const c = clips.get(m.key);
+  if (!c) return void send({ type: 'offscreen:dub', event: 'error', token: m.token, segId: m.segId, error: 'clip not loaded' });
+  const el = c.el;
+  el.playbackRate = Math.min(2, Math.max(0.5, m.rate));
+  el.volume = Math.min(1, Math.max(0, m.volume));
+  try {
+    el.currentTime = Math.max(0, m.offsetSec);
+  } catch {
+    /* not seekable yet */
+  }
+  current = { el, token: m.token, segId: m.segId };
+  el.onended = () => {
+    if (current?.el !== el) return;
+    current = null;
+    send({ type: 'offscreen:dub', event: 'ended', token: m.token, segId: m.segId });
+  };
+  el.onerror = () => send({ type: 'offscreen:dub', event: 'error', token: m.token, segId: m.segId, error: 'audio element error' });
+  try {
+    await el.play();
+    send({ type: 'offscreen:dub', event: 'started', token: m.token, segId: m.segId });
+  } catch (e) {
+    send({ type: 'offscreen:dub', event: 'error', token: m.token, segId: m.segId, error: (e as Error).message });
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg: OffscreenMessage, _sender, sendResponse) => {
   if (msg?.target !== 'offscreen') return;
-  if (msg.type === 'start') void start(msg.streamId, msg.sessionId);
+  if (msg.type === 'dub-load') {
+    void loadClip(msg.key, msg.audioBase64, msg.mime).then((durationSec) => sendResponse({ ok: true, durationSec }));
+    return true;
+  }
+  if (msg.type === 'dub-play') void playClip(msg);
+  else if (msg.type === 'dub-stop') stopClip();
+  else if (msg.type === 'dub-pause') current?.el.pause();
+  else if (msg.type === 'dub-resume') void current?.el.play().catch(() => undefined);
+  else if (msg.type === 'start') void start(msg.streamId, msg.sessionId);
   else if (msg.type === 'stop') void stop('user');
   sendResponse({ ok: true });
 });

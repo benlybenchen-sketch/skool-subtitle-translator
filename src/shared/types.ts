@@ -56,6 +56,39 @@ export interface ConsentSettings {
   remoteTranslation: boolean;
   /** User allowed sending tab AUDIO chunks to a non-local STT endpoint. */
   remoteAudio: boolean;
+  /** User allowed sending Vietnamese TEXT to a cloud text-to-speech service (dubbing). */
+  remoteTts?: boolean;
+}
+
+export type TtsProviderKind = 'chrome' | 'google' | 'mock';
+export type DubListenMode = 'original' | 'vi' | 'mix';
+
+/** AI Vietnamese dubbing (Phase 4). Off until the user enables it. */
+export interface DubbingSettings {
+  enabled: boolean;
+  provider: TtsProviderKind;
+  /** Voice id: chrome voiceName, or a Google voice name (e.g. vi-VN-Neural2-A). '' = best match for `gender`. */
+  voice: string;
+  gender: 'female' | 'male';
+  /** Base speech rate 0.8–1.5. */
+  rate: number;
+  /** Vietnamese voice volume 0–1. */
+  volume: number;
+  /** Original video volume in "mix" mode 0–1. */
+  originalVolume: number;
+  listenMode: DubListenMode;
+  /** Audio lookahead (cloud TTS prefetch), 30–90 s. */
+  lookaheadSec: number;
+  /** 'skip' = drop a sentence that is too late; 'delay' = speak it late (bounded by maxDelaySec). */
+  latePolicy: 'skip' | 'delay';
+  /** Max delay of speech behind the video before sentences are skipped. */
+  maxDelaySec: number;
+  /** Max speed-up factor applied to fit a sentence into its time slot (relative to `rate`). */
+  maxSpeedup: number;
+  /** After sustained TTS failure, restore the original audio. */
+  restoreOnFailure: boolean;
+  /** Google Cloud TTS endpoint. */
+  googleEndpoint: string;
 }
 
 export interface Settings {
@@ -105,6 +138,7 @@ export interface Settings {
   autoTranslateTextLessons: boolean;
   /** Display of translated text lessons (switchable without new API calls). */
   textDisplayMode: TextDisplayMode;
+  dubbing: DubbingSettings;
   /** Source subtitle language (BCP-47 prefix). Only English is supported by the prompt today. */
   sourceLanguage: 'en';
   /** Target language. Only Vietnamese is supported today. */
@@ -120,6 +154,25 @@ export type CaptionSourceKind = 'texttrack' | 'dom' | 'manual' | 'live';
 export type ActiveMode = 'off' | 'paused' | 'idle' | 'caption' | 'audio' | 'waiting-audio';
 
 /** What one frame (top Skool page or an embedded player iframe) reports. */
+export interface DubStatus {
+  enabled: boolean;
+  provider: TtsProviderKind;
+  state: 'off' | 'waiting' | 'buffering' | 'speaking' | 'idle' | 'paused' | 'error' | 'no-voice' | 'no-captions';
+  /** Seconds of upcoming speech that is ready (translated + synthesized). */
+  bufferedAheadSec: number;
+  segmentsTotal: number;
+  spoken: number;
+  skipped: number;
+  late: number;
+  rateAdjusted: number;
+  medianDelayMs: number | null;
+  p95DelayMs: number | null;
+  firstSpeechMs: number | null;
+  muted: 'element' | 'tab' | 'none';
+  voice?: string;
+  lastError?: string;
+}
+
 export interface FrameStatus {
   frameId: number;
   isTop: boolean;
@@ -146,6 +199,7 @@ export interface FrameStatus {
   error?: string;
   notice?: string;
   perf?: CaptionPerf;
+  dub?: DubStatus;
   /** An English track exists but is disabled and auto-enable is off (user can opt in). */
   captionsOff?: boolean;
   updatedAt: number;
@@ -216,4 +270,6 @@ export interface Secrets {
   /** One API key per translation provider. */
   translationApiKeys?: Partial<Record<TranslationProviderKind, string>>;
   sttApiKey?: string;
+  /** Google Cloud Text-to-Speech API key (separate from any Gemini key). */
+  ttsApiKey?: string;
 }

@@ -74,6 +74,22 @@ export const DEFAULT_SETTINGS: Settings = {
   autoEnableCaptionsAsked: false,
   autoInitOnNavigation: true,
   autoTranslateTextLessons: false,
+  dubbing: {
+    enabled: false,
+    provider: 'chrome',
+    voice: '',
+    gender: 'female',
+    rate: 1,
+    volume: 1,
+    originalVolume: 0.15,
+    listenMode: 'vi',
+    lookaheadSec: 60,
+    latePolicy: 'skip',
+    maxDelaySec: 2.5,
+    maxSpeedup: 1.35,
+    restoreOnFailure: true,
+    googleEndpoint: 'https://texttospeech.googleapis.com/v1',
+  },
   textDisplayMode: 'vi',
   sourceLanguage: 'en',
   targetLanguage: 'vi',
@@ -96,6 +112,7 @@ export function mergeSettings(stored: Partial<Settings> | undefined): Settings {
     modeModels: { ...(s.modeModels ?? {}) },
     stt: { ...DEFAULT_SETTINGS.stt, ...(s.stt ?? {}) },
     consent: { ...DEFAULT_SETTINGS.consent, ...(s.consent ?? {}) },
+    dubbing: { ...DEFAULT_SETTINGS.dubbing, ...(s.dubbing ?? {}) },
   };
 }
 
