@@ -65,7 +65,8 @@ export type BackgroundRequest =
   // AI Vietnamese dubbing (Phase 4)
   | { type: 'dub:voices'; provider: import('./types').TtsProviderKind }
   | { type: 'dub:speak'; token: string; segId: string; text: string; voice: string; rate: number; volume: number }
-  | { type: 'dub:prepare'; lesson: string; text: string; provider: 'google' | 'mock'; voice: string; rate: number }
+  | { type: 'dub:prepare'; lesson: string; text: string; provider: 'google' | 'gemini' | 'mock'; voice: string; rate: number; model?: string; style?: boolean }
+  | { type: 'dub:preview'; provider: 'google' | 'gemini' | 'mock'; voice: string }
   | { type: 'dub:play'; token: string; segId: string; key: string; rate: number; volume: number; offsetSec: number }
   | { type: 'dub:control'; action: 'stop' | 'pause' | 'resume'; token?: string; final?: boolean }
   | { type: 'dub:tabmute'; mute: boolean }

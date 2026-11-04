@@ -142,7 +142,9 @@
           <label for="d-late">Câu đến muộn</label>
           <select id="d-late"><option value="skip">Bỏ qua câu quá muộn (đồng bộ tốt nhất)</option><option value="delay">Đọc muộn (tối đa gấp đôi thời gian trễ)</option></select>
         </div>
-        <label class="check"><input id="d-consent" type="checkbox" /> Cho phép gửi <b>văn bản tiếng Việt</b> đã dịch tới Google Cloud TTS (chỉ khi chọn Google Cloud TTS)</label>
+        <p class="hint"><b>Gemini TTS</b> (Gemini 3.8 Flash-Lite TTS / Flash TTS) dùng <b>chính API key Gemini</b> ở mục 1 — không cần key Cloud TTS. Quyền dùng model và chi phí phụ thuộc dự án/gói Gemini của bạn (gói miễn phí có giới hạn, không phải không giới hạn).</p>
+        <label class="check"><input id="d-gstyle" type="checkbox" /> Gemini TTS: gửi chỉ dẫn giọng giảng dạy rõ ràng, bình tĩnh (dạng speech metadata, không đọc thành lời)</label>
+        <label class="check"><input id="d-consent" type="checkbox" /> Cho phép gửi <b>văn bản tiếng Việt</b> đã dịch tới dịch vụ TTS đám mây (Google Cloud TTS / Gemini TTS) — chỉ khi bạn chọn các dịch vụ này</label>
         <label class="check"><input id="d-restore" type="checkbox" /> Lỗi giọng đọc kéo dài → tự bật lại âm thanh gốc</label>
       </section>
 

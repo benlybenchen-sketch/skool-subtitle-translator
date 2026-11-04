@@ -60,7 +60,8 @@ export interface ConsentSettings {
   remoteTts?: boolean;
 }
 
-export type TtsProviderKind = 'chrome' | 'google' | 'mock';
+export type TtsProviderKind = 'chrome' | 'google' | 'gemini' | 'mock';
+export type GeminiTtsModel = 'gemini-3.8-flash-lite-tts' | 'gemini-3.8-flash-tts';
 export type DubListenMode = 'original' | 'vi' | 'mix';
 
 /** AI Vietnamese dubbing (Phase 4). Off until the user enables it. */
@@ -91,6 +92,12 @@ export interface DubbingSettings {
   showSubtitles: boolean;
   /** Google Cloud TTS endpoint. */
   googleEndpoint: string;
+  /** Gemini TTS: Fast (Flash-Lite TTS) or Quality (Flash TTS); uses the Gemini translation key. */
+  geminiModel: GeminiTtsModel;
+  /** Gemini prebuilt voice name ('' = Kore). */
+  geminiVoice: string;
+  /** Send a calm, clear teaching-tone style hint as structured speech metadata (never in the spoken text). */
+  geminiStyle: boolean;
 }
 
 export interface Settings {

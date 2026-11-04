@@ -36,12 +36,16 @@ class CloudSink implements DubSink {
   constructor(private readonly s: DubbingSession) {}
   prepare(u: { id: string; text: string }): Promise<{ key: string; durationSec: number }> {
     const d = this.s.settings;
-    return this.s.send({ type: 'dub:prepare', lesson: this.s.lesson, text: u.text, provider: d.provider === 'mock' ? 'mock' : 'google', voice: this.s.voiceId, rate: d.rate });
+    const provider = d.provider === 'mock' ? 'mock' : d.provider === 'gemini' ? 'gemini' : 'google';
+    return this.s
+      .send<{ key: string; durationSec: number }>({ type: 'dub:prepare', lesson: this.s.lesson, text: u.text, provider, voice: this.s.voiceId, rate: d.rate, model: d.geminiModel, style: d.geminiStyle })
+      // Gemini audio is synthesized at its natural rate; the user's rate is applied at playback → scale the duration
+      .then((r) => (provider === 'gemini' ? { ...r, durationSec: r.durationSec / d.rate } : r));
   }
   speak(u: SpeechUnit, speed: number): void {
     if (!u.audioKey) return this.s.onEvent(this.s.token, u.id, 'error', 'audio not prepared');
     void this.s
-      .send({ type: 'dub:play', token: this.s.token, segId: u.id, key: u.audioKey, rate: speed, volume: this.s.settings.volume, offsetSec: 0 })
+      .send({ type: 'dub:play', token: this.s.token, segId: u.id, key: u.audioKey, rate: this.s.settings.provider === 'gemini' ? speed * this.s.settings.rate : speed, volume: this.s.settings.volume, offsetSec: 0 })
       .catch((e: Error) => this.s.onEvent(this.s.token, u.id, 'error', e.message));
   }
   stop(): void {
@@ -94,7 +98,7 @@ export class DubbingSession {
       this.error = (e as Error).message;
     }
     if (this.disposed) return;
-    this.voice = pickVoice(voices, d.voice || (d.provider === 'google' ? defaultGoogleVoice(d.gender) : ''), d.gender);
+    this.voice = pickVoice(voices, d.provider === 'gemini' ? d.geminiVoice || 'Kore' : d.voice || (d.provider === 'google' ? defaultGoogleVoice(d.gender) : ''), d.gender);
     if (!this.voice) {
       this.state = 'no-voice';
       this.onChange();

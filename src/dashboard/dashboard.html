@@ -19,7 +19,7 @@
       <section>
         <h2>🔊 Lồng tiếng (Text-to-Speech) — tách riêng khỏi dịch</h2>
         <p class="hint">Ký tự đã gửi tổng hợp giọng, số yêu cầu, độ trễ tạo giọng, tỷ lệ trúng cache âm thanh. Chi phí là <b>ước tính</b> theo giá niêm yết của Google Cloud TTS
-          (Standard / WaveNet $4, Neural2 $16, Chirp 3 HD $30, Studio $160 mỗi 1 triệu ký tự — kiểm tra lại trang giá; chưa trừ hạn mức miễn phí). Chrome TTS: miễn phí.</p>
+          (Standard / WaveNet $4, Neural2 $16, Chirp 3 HD $30, Studio $160 mỗi 1 triệu ký tự — kiểm tra lại trang giá; chưa trừ hạn mức miễn phí). Gemini TTS: theo token (3.8 Flash-Lite TTS ≈ $0.50 vào / $6 âm thanh ra, 3.8 Flash TTS ≈ $0.50 / $9 mỗi 1 triệu token — số liệu công bố lúc ra mắt, cần kiểm tra), tách riêng khỏi token dịch. Chrome TTS: miễn phí.</p>
         <table id="tts-overview" class="kv"></table>
         <div class="scroll"><table id="tts-usage" class="grid"></table></div>
         <div class="row"><button id="tts-cache-clear" type="button">Xóa cache âm thanh</button><button id="tts-reset" type="button" class="danger">Xóa thống kê TTS</button></div>

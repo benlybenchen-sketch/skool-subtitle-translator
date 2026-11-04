@@ -461,7 +461,7 @@ export class SubtitleController {
     const d = this.settings.dubbing;
     const media = this.target && this.target.kind !== 'iframe' ? this.target.el : null;
     const want = !!this.env.dubSend && !!media && d.enabled && d.listenMode !== 'original' && this.settings.enabled && !this.audioActive && this.settings.modePreference !== 'audio';
-    const key = want ? [this.videoKey, d.provider, d.voice, d.gender, d.rate, d.maxSpeedup, d.maxDelaySec, d.latePolicy, d.lookaheadSec].join('|') : '';
+    const key = want ? [this.videoKey, d.provider, d.voice, d.gender, d.rate, d.maxSpeedup, d.maxDelaySec, d.latePolicy, d.lookaheadSec, d.geminiModel, d.geminiVoice, d.geminiStyle].join('|') : '';
     if (this.dub && (!want || key !== this.dubKey)) {
       this.dub.dispose();
       this.dub = null;

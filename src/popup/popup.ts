@@ -32,15 +32,20 @@ const DUB_STATE: Record<string, string> = {
 
 async function fillVoices(s: Settings): Promise<void> {
   const sel = $<HTMLSelectElement>('dub-voice');
-  sel.replaceChildren(new Option('(tự chọn theo giới tính)', ''));
+  const gemini = s.dubbing.provider === 'gemini';
+  sel.replaceChildren(new Option(gemini ? 'Kore (mặc định)' : '(tự chọn theo giới tính)', ''));
+  $('dub-gemini-row').classList.toggle('hidden', !gemini);
+  $('dub-gender').classList.toggle('hidden', gemini); // Gemini voices: gender is not assumed — use "Nghe thử"
+  $('dub-novoice').classList.add('hidden');
   try {
     const r = await sendToBackground<{ voices: { id: string; label: string; gender: string }[]; error?: string }>({ type: 'dub:voices', provider: s.dubbing.provider });
-    for (const v of r.voices.filter((v) => v.gender === s.dubbing.gender || v.gender === 'unknown')) sel.add(new Option(v.label, v.id));
-    $('dub-conn').textContent = r.voices.length ? `${r.voices.length} giọng tiếng Việt` : '✗ ' + (r.error ?? 'Không có giọng');
+    for (const v of r.voices.filter((v) => gemini || v.gender === s.dubbing.gender || v.gender === 'unknown')) sel.add(new Option(v.label, v.id));
+    $('dub-conn').textContent = r.voices.length ? `${r.voices.length} giọng${gemini ? ' Gemini' : ' tiếng Việt'}` : '✗ ' + (r.error ?? 'Không có giọng');
+    if (s.dubbing.provider === 'chrome' && !r.voices.length) $('dub-novoice').classList.remove('hidden');
   } catch (e) {
     $('dub-conn').textContent = '✗ ' + (e as Error).message;
   }
-  sel.value = s.dubbing.voice;
+  sel.value = gemini ? s.dubbing.geminiVoice : s.dubbing.voice;
 }
 
 function bindDubbing(): void {
@@ -69,8 +74,8 @@ function bindDubbing(): void {
   $<HTMLSelectElement>('dub-listen').addEventListener('change', (e) => save({ listenMode: (e.target as HTMLSelectElement).value as Settings['dubbing']['listenMode'] }));
   $<HTMLSelectElement>('dub-provider').addEventListener('change', async (e) => {
     const provider = (e.target as HTMLSelectElement).value as Settings['dubbing']['provider'];
-    if (provider === 'google') {
-      const origin = originPattern(d().googleEndpoint);
+    if (provider === 'google' || provider === 'gemini') {
+      const origin = originPattern(provider === 'google' ? d().googleEndpoint : settings.providerProfiles.gemini?.endpoint || PROVIDER_PRESETS.gemini.endpoint);
       if (origin) await chrome.permissions.request({ origins: [origin] }).catch(() => false);
     }
     save({ provider, voice: '' });
@@ -80,7 +85,40 @@ function bindDubbing(): void {
     save({ gender: (e.target as HTMLSelectElement).value as 'female' | 'male', voice: '' });
     void fillVoices(settings);
   });
-  $<HTMLSelectElement>('dub-voice').addEventListener('change', (e) => save({ voice: (e.target as HTMLSelectElement).value }));
+  $<HTMLSelectElement>('dub-voice').addEventListener('change', (e) => {
+    const v = (e.target as HTMLSelectElement).value;
+    save(d().provider === 'gemini' ? { geminiVoice: v } : { voice: v });
+  });
+  $<HTMLSelectElement>('dub-gemini-model').value = d().geminiModel;
+  $<HTMLSelectElement>('dub-gemini-model').addEventListener('change', (e) => save({ geminiModel: (e.target as HTMLSelectElement).value as Settings['dubbing']['geminiModel'] }));
+  const useGemini = async () => {
+    const origin = originPattern(settings.providerProfiles.gemini?.endpoint || PROVIDER_PRESETS.gemini.endpoint);
+    if (origin) await chrome.permissions.request({ origins: [origin] }).catch(() => false);
+    save({ provider: 'gemini' });
+    $<HTMLSelectElement>('dub-provider').value = 'gemini';
+    void fillVoices(settings);
+  };
+  $('dub-use-gemini').addEventListener('click', () => void useGemini());
+  // Explicit preview: one short sample (chrome.tts locally; cloud voices via the background).
+  $('dub-preview').addEventListener('click', async () => {
+    const s = d();
+    const voice = $<HTMLSelectElement>('dub-voice').value;
+    if (s.provider === 'chrome') {
+      chrome.tts.speak('Xin chào, đây là giọng đọc tiếng Việt thử nghiệm.', { lang: 'vi-VN', voiceName: voice || undefined, rate: s.rate, volume: s.volume });
+      return;
+    }
+    $('dub-conn').textContent = 'Đang tạo câu mẫu…';
+    try {
+      const r = await sendToBackground<{ base64: string; mime: string }>({ type: 'dub:preview', provider: s.provider === 'gemini' ? 'gemini' : s.provider === 'mock' ? 'mock' : 'google', voice: voice || (s.provider === 'gemini' ? 'Kore' : '') });
+      const a = new Audio(`data:${r.mime};base64,${r.base64}`);
+      a.volume = s.volume;
+      a.playbackRate = s.provider === 'gemini' ? s.rate : 1;
+      await a.play();
+      $('dub-conn').textContent = '✓ Đã phát câu mẫu';
+    } catch (e) {
+      $('dub-conn').textContent = '✗ ' + (e as Error).message;
+    }
+  });
   const range = (id: string, key: 'rate' | 'volume' | 'originalVolume') =>
     $<HTMLInputElement>(id).addEventListener('change', (e) => {
       save({ [key]: Number((e.target as HTMLInputElement).value) });

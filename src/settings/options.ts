@@ -223,6 +223,7 @@ function fill(s: Settings, sttKey?: string): void {
   $<HTMLSelectElement>('d-late').value = s.dubbing.latePolicy;
   $('d-consent').checked = !!s.consent.remoteTts;
   $('d-restore').checked = s.dubbing.restoreOnFailure;
+  $('d-gstyle').checked = s.dubbing.geminiStyle;
   $<HTMLTextAreaElement>('dom-sel').value = s.customCaptionSelectors;
   $('panel').checked = s.showPanel;
 }
@@ -246,6 +247,7 @@ function read(): Settings {
       maxDelaySec: Math.min(6, Math.max(1, Number($('d-delay').value) || 2.5)),
       latePolicy: $<HTMLSelectElement>('d-late').value as 'skip' | 'delay',
       restoreOnFailure: $('d-restore').checked,
+      geminiStyle: $('d-gstyle').checked,
     },
     translationMode: $<HTMLSelectElement>('mode').value as Settings['translationMode'],
     modeModels: readModeModels(),
@@ -277,6 +279,7 @@ async function save(): Promise<void> {
     next.provider.kind !== 'mock' ? next.provider.endpoint : '',
     next.stt.kind !== 'mock' ? next.stt.endpoint : '',
     next.dubbing.provider === 'google' || $('d-key').value.trim() ? next.dubbing.googleEndpoint : '',
+    next.dubbing.provider === 'gemini' ? next.providerProfiles.gemini?.endpoint || PROVIDER_PRESETS.gemini.endpoint : '',
   ]
     .map((e) => (e ? originPattern(e) : null))
     .filter((o): o is string => !!o);

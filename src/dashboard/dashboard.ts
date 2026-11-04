@@ -106,14 +106,14 @@ async function renderTts(dub?: import('../shared/types').DubStatus): Promise<voi
   $('tts-overview').innerHTML = rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
   const row = (label: string, b?: TtsRow) =>
     b
-      ? `<tr><td>${label}</td><td>${n(b.requests)}</td><td>${n(b.chars)}</td><td>${n(b.failures)}</td><td>${pct(b.cacheHits, b.cacheHits + b.cacheMisses)}</td><td>${b.latencyCount ? Math.round(b.latencyMsTotal / b.latencyCount) : '–'} ms</td><td class="est">${usd(b.estCostUsd)} (ước tính)</td></tr>`
+      ? `<tr><td>${label}</td><td>${n(b.requests)}</td><td>${n(b.chars)}</td><td>${n(b.inputTokens ?? 0)} / ${n(b.outputTokens ?? 0)}${b.estimatedTokens ? ' <span class="est">(một phần ước tính)</span>' : ''}</td><td>${n(b.failures)}</td><td>${pct(b.cacheHits, b.cacheHits + b.cacheMisses)}</td><td>${b.latencyCount ? Math.round(b.latencyMsTotal / b.latencyCount) : '–'} ms</td><td class="est">${usd(b.estCostUsd)} (ước tính)</td></tr>`
       : '';
   $('tts-usage').innerHTML =
-    '<tr><th></th><th>Yêu cầu</th><th>Ký tự</th><th>Lỗi</th><th>Trúng cache</th><th>Độ trễ TB</th><th>Chi phí</th></tr>' +
+    '<tr><th></th><th>Yêu cầu</th><th>Ký tự</th><th>Token vào / ra (Gemini TTS)</th><th>Lỗi</th><th>Trúng cache</th><th>Độ trễ TB</th><th>Chi phí</th></tr>' +
     row('Phiên', u.session) + row('Hôm nay', u.today) + row('Tổng', u.total) +
     Object.entries(u.providers).map(([k, b]) => row(esc(k), b)).join('');
 }
-type TtsRow = { requests: number; chars: number; failures: number; cacheHits: number; cacheMisses: number; latencyMsTotal: number; latencyCount: number; estCostUsd: number };
+type TtsRow = { requests: number; chars: number; failures: number; cacheHits: number; cacheMisses: number; latencyMsTotal: number; latencyCount: number; estCostUsd: number; inputTokens?: number; outputTokens?: number; estimatedTokens?: number };
 
 $('tts-cache-clear').addEventListener('click', async () => {
   await sendToBackground({ type: 'dub:cache:clear' });

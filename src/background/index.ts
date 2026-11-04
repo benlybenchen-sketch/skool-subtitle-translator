@@ -331,6 +331,8 @@ async function handle(msg: BackgroundRequest, sender: chrome.runtime.MessageSend
       if (tabId === undefined) return { ok: false };
       dubTabs.add(tabId);
       return dubbing.speakChrome(tabId, frameId, msg);
+    case 'dub:preview':
+      return dubbing.preview(msg.provider, msg.voice);
     case 'dub:prepare':
       if (tabId !== undefined) dubTabs.add(tabId);
       return dubbing.prepare(msg);

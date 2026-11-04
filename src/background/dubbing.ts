@@ -2,7 +2,9 @@ import type { ContentMessage, OffscreenMessage } from '../shared/messages';
 import type { Secrets, Settings, TtsProviderKind } from '../shared/types';
 import { ConfigError, HttpError } from '../translation/errors';
 import { arrayBufferToBase64, sleep } from '../shared/util';
-import { GOOGLE_VI_VOICES, GoogleCloudTts, MockTts, defaultGoogleVoice, ttsCostUsd, vietnameseChromeVoices, type CloudTts, type VoiceInfo } from '../tts/providers';
+import { GEMINI_VOICES, GOOGLE_VI_VOICES, GeminiTts, GoogleCloudTts, MockTts, defaultGoogleVoice, geminiTtsCostUsd, ttsCostUsd, vietnameseChromeVoices, type CloudTts, type VoiceInfo } from '../tts/providers';
+import { apiKeyFor, PROVIDER_PRESETS } from '../shared/settings';
+import { arrayBufferToBase64 as toB64 } from '../shared/util';
 import { TtsAudioCache, audioKey } from '../tts/audioCache';
 import type { TtsLedger } from '../tts/ttsLedger';
 
@@ -22,7 +24,7 @@ export interface DubbingDeps {
   tabs?: Pick<typeof chrome.tabs, 'get' | 'update'>;
   session: Area;
   cache?: TtsAudioCache;
-  cloudFactory?: (provider: 'google' | 'mock', s: Settings, secrets: Secrets) => CloudTts;
+  cloudFactory?: (provider: 'google' | 'gemini' | 'mock', s: Settings, secrets: Secrets) => CloudTts;
 }
 
 interface Owner {
@@ -55,6 +57,7 @@ export class DubbingService {
 
   async voices(provider: TtsProviderKind): Promise<{ voices: VoiceInfo[]; error?: string }> {
     if (provider === 'google') return { voices: GOOGLE_VI_VOICES };
+    if (provider === 'gemini') return { voices: GEMINI_VOICES };
     if (provider === 'mock') return { voices: [{ id: 'mock-vi', label: 'Mock (im lặng)', lang: 'vi-VN', gender: 'female' }] };
     const tts = this.d.tts;
     if (!tts?.getVoices) return { voices: [], error: 'chrome.tts không khả dụng.' };
@@ -94,25 +97,48 @@ export class DubbingService {
 
   // ---- Cloud TTS ----------------------------------------------------------------------------
 
-  private async cloud(provider: 'google' | 'mock'): Promise<{ tts: CloudTts; s: Settings }> {
+  static geminiEndpoint(s: Settings): string {
+    return (s.provider.kind === 'gemini' ? s.provider.endpoint : s.providerProfiles.gemini?.endpoint) || PROVIDER_PRESETS.gemini.endpoint;
+  }
+
+  private async cloud(provider: 'google' | 'gemini' | 'mock'): Promise<{ tts: CloudTts; s: Settings }> {
     const s = await this.d.getSettings();
     const secrets = await this.d.getSecrets();
-    if (provider === 'google') {
-      if (!s.consent.remoteTts) throw new ConfigError('Chưa cho phép gửi văn bản tiếng Việt tới Google Cloud TTS (Cài đặt → Lồng tiếng → quyền riêng tư).');
-      if (!(await this.d.hasEndpointPermission(s.dubbing.googleEndpoint))) throw new ConfigError('Chưa cấp quyền truy cập Google Cloud TTS. Mở Cài đặt và bấm "Lưu & cấp quyền".');
+    if (provider !== 'mock') {
+      const label = provider === 'google' ? 'Google Cloud TTS' : 'Gemini TTS';
+      if (!s.consent.remoteTts) throw new ConfigError(`Chưa cho phép gửi văn bản tiếng Việt tới ${label} (Cài đặt → mục 7 → quyền gửi văn bản tới TTS đám mây).`);
+      const endpoint = provider === 'google' ? s.dubbing.googleEndpoint : DubbingService.geminiEndpoint(s);
+      if (!(await this.d.hasEndpointPermission(endpoint))) throw new ConfigError(`Chưa cấp quyền truy cập ${label}. Mở Cài đặt và bấm "Lưu & cấp quyền".`);
     }
     const tts = this.d.cloudFactory
       ? this.d.cloudFactory(provider, s, secrets)
       : provider === 'google'
         ? new GoogleCloudTts({ endpoint: s.dubbing.googleEndpoint, apiKey: secrets.ttsApiKey })
-        : new MockTts();
+        : provider === 'gemini'
+          ? new GeminiTts({ endpoint: DubbingService.geminiEndpoint(s), apiKey: apiKeyFor(secrets, 'gemini', s.provider.kind), model: s.dubbing.geminiModel, style: s.dubbing.geminiStyle })
+          : new MockTts();
     return { tts, s };
   }
 
+  /** Explicit "Nghe thử": one short sample, returned to the extension page that asked. */
+  async preview(provider: 'google' | 'gemini' | 'mock', voice: string): Promise<{ base64: string; mime: string }> {
+    const { tts, s } = await this.cloud(provider);
+    const text = 'Xin chào, đây là giọng đọc tiếng Việt thử nghiệm cho bài học của bạn.';
+    const started = Date.now();
+    const r = await tts.synthesize({ text, voice, rate: s.dubbing.rate });
+    void this.d.ledger.record(
+      { type: 'request', chars: r.chars, latencyMs: Date.now() - started, costUsd: r.tokens ? geminiTtsCostUsd(s.dubbing.geminiModel, r.tokens.inputTokens, r.tokens.outputTokens) : ttsCostUsd(provider, voice, r.chars), tokens: r.tokens },
+      { provider },
+    );
+    return { base64: toB64(r.audio.slice().buffer as ArrayBuffer), mime: r.mime };
+  }
+
   /** Synthesize (or reuse) and load into the offscreen player. Deduplicated per audio key. */
-  prepare(m: { lesson: string; text: string; provider: 'google' | 'mock'; voice: string; rate: number }): Promise<{ key: string; durationSec: number; cached: boolean }> {
-    const voice = m.provider === 'google' ? m.voice || defaultGoogleVoice('female') : m.voice || 'mock-vi';
-    const key = audioKey({ provider: m.provider, voice, format: m.provider === 'google' ? 'mp3' : 'wav', rate: m.rate, lesson: m.lesson, text: m.text });
+  prepare(m: { lesson: string; text: string; provider: 'google' | 'gemini' | 'mock'; voice: string; rate: number; model?: string; style?: boolean }): Promise<{ key: string; durationSec: number; cached: boolean }> {
+    const voice = m.provider === 'google' ? m.voice || defaultGoogleVoice('female') : m.provider === 'gemini' ? m.voice || 'Kore' : m.voice || 'mock-vi';
+    // Gemini: model + style hint change the audio → part of the key; synthesis at natural rate (rate applied at playback)
+    const format = m.provider === 'google' ? 'mp3' : m.provider === 'gemini' ? `wav:${m.model ?? ''}:${m.style ? 'style' : 'plain'}` : 'wav';
+    const key = audioKey({ provider: m.provider, voice, format, rate: m.provider === 'gemini' ? 1 : m.rate, lesson: m.lesson, text: m.text });
     let p = this.inflight.get(key);
     if (!p) {
       p = this.prepareKey(key, { ...m, voice }).finally(() => this.inflight.delete(key));
@@ -121,7 +147,7 @@ export class DubbingService {
     return p;
   }
 
-  private async prepareKey(key: string, m: { lesson: string; text: string; provider: 'google' | 'mock'; voice: string; rate: number }) {
+  private async prepareKey(key: string, m: { lesson: string; text: string; provider: 'google' | 'gemini' | 'mock'; voice: string; rate: number; model?: string }) {
     let entry = await this.cache.get(key).catch(() => null);
     const meta = { provider: m.provider, lesson: m.lesson };
     const hit = !!entry;
@@ -135,7 +161,7 @@ export class DubbingService {
         const ac = new AbortController();
         const timer = setTimeout(() => ac.abort(), 15_000);
         try {
-          res = await tts.synthesize({ text: m.text, voice: m.voice, rate: m.rate, signal: ac.signal });
+          res = await tts.synthesize({ text: m.text, voice: m.voice, rate: m.provider === 'gemini' ? 1 : m.rate, signal: ac.signal });
         } catch (e) {
           last = e;
           const transient = (e instanceof HttpError && e.retryable) || e instanceof TypeError || (e as Error).name === 'AbortError';
@@ -149,7 +175,8 @@ export class DubbingService {
         void this.d.ledger.record({ type: 'failure' }, meta);
         throw last instanceof Error ? last : new Error(String(last));
       }
-      void this.d.ledger.record({ type: 'request', chars: res.chars, latencyMs: Date.now() - started, costUsd: ttsCostUsd(m.provider, m.voice, res.chars) }, meta);
+      const costUsd = res.tokens ? geminiTtsCostUsd(m.model ?? '', res.tokens.inputTokens, res.tokens.outputTokens) : ttsCostUsd(m.provider, m.voice, res.chars);
+      void this.d.ledger.record({ type: 'request', chars: res.chars, latencyMs: Date.now() - started, costUsd, tokens: res.tokens }, meta);
       entry = { key, audio: res.audio, mime: res.mime, durationSec: res.durationSec, size: res.audio.byteLength, lastUsed: Date.now(), createdAt: Date.now() };
       await this.cache.put({ key, audio: res.audio, mime: res.mime, durationSec: res.durationSec }).catch(() => undefined);
     }

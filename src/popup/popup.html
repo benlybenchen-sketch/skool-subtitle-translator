@@ -73,10 +73,13 @@
       <div class="row"><label for="dub-listen">Nghe</label>
         <select id="dub-listen"><option value="vi">Chỉ giọng Việt</option><option value="mix">Giọng Việt + âm gốc nhỏ</option><option value="original">Âm thanh gốc</option></select></div>
       <div class="row"><label for="dub-provider">Giọng đọc (TTS)</label>
-        <select id="dub-provider"><option value="chrome">Chrome TTS (trên máy, miễn phí)</option><option value="google">Google Cloud TTS (trả phí)</option><option value="mock">Mock (thử nghiệm)</option></select></div>
+        <select id="dub-provider"><option value="chrome">Chrome TTS (trên máy, miễn phí)</option><option value="gemini">Gemini TTS (dùng key Gemini)</option><option value="google">Google Cloud TTS (key riêng, trả phí)</option><option value="mock">Mock (thử nghiệm)</option></select></div>
+      <div class="row hidden" id="dub-gemini-row"><label for="dub-gemini-model">Model Gemini TTS</label>
+        <select id="dub-gemini-model"><option value="gemini-3.8-flash-lite-tts">Nhanh — 3.8 Flash-Lite TTS</option><option value="gemini-3.8-flash-tts">Chất lượng — 3.8 Flash TTS</option></select></div>
+      <div id="dub-novoice" class="notice hidden">Chrome TTS Vietnamese voice unavailable — máy chưa có giọng tiếng Việt. <button id="dub-use-gemini">Dùng Gemini TTS</button></div>
       <div class="row"><label for="dub-gender">Giọng</label>
         <select id="dub-gender"><option value="female">Nữ</option><option value="male">Nam</option></select>
-        <select id="dub-voice" title="Giọng tiếng Việt có sẵn"></select></div>
+        <select id="dub-voice" title="Giọng tiếng Việt có sẵn"></select><button id="dub-preview" title="Tạo một câu mẫu ngắn (có thể tính phí với dịch vụ đám mây)">▶ Nghe thử</button></div>
       <div class="row"><label for="dub-rate">Tốc độ <output id="dub-rate-out"></output></label><input id="dub-rate" type="range" min="0.8" max="1.5" step="0.05" /></div>
       <div class="row"><label for="dub-volume">Âm lượng giọng Việt <output id="dub-volume-out"></output></label><input id="dub-volume" type="range" min="0" max="1" step="0.05" /></div>
       <div class="row"><label for="dub-orig">Âm gốc (chế độ trộn) <output id="dub-orig-out"></output></label><input id="dub-orig" type="range" min="0" max="1" step="0.05" /></div>

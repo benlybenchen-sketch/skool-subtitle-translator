@@ -12,8 +12,12 @@ export interface TtsBucket {
   latencyMsTotal: number;
   latencyCount: number;
   estCostUsd: number;
+  /** Gemini TTS tokens (text in / audio out); `estimatedTokens` = not reported by the provider. */
+  inputTokens?: number;
+  outputTokens?: number;
+  estimatedTokens?: number;
 }
-export const emptyTts = (): TtsBucket => ({ requests: 0, failures: 0, chars: 0, cacheHits: 0, cacheMisses: 0, latencyMsTotal: 0, latencyCount: 0, estCostUsd: 0 });
+export const emptyTts = (): TtsBucket => ({ requests: 0, failures: 0, chars: 0, cacheHits: 0, cacheMisses: 0, latencyMsTotal: 0, latencyCount: 0, estCostUsd: 0, inputTokens: 0, outputTokens: 0, estimatedTokens: 0 });
 
 export interface TtsLedgerData {
   total: TtsBucket;
@@ -23,7 +27,7 @@ export interface TtsLedgerData {
 }
 
 export type TtsEvent =
-  | { type: 'request'; chars: number; latencyMs: number; costUsd: number }
+  | { type: 'request'; chars: number; latencyMs: number; costUsd: number; tokens?: { inputTokens: number; outputTokens: number; estimated: boolean } }
   | { type: 'failure' }
   | { type: 'cache'; hit: boolean };
 
@@ -63,6 +67,11 @@ export class TtsLedger {
         b.latencyMsTotal += e.latencyMs;
         b.latencyCount++;
         b.estCostUsd += e.costUsd;
+        if (e.tokens) {
+          b.inputTokens = (b.inputTokens ?? 0) + e.tokens.inputTokens;
+          b.outputTokens = (b.outputTokens ?? 0) + e.tokens.outputTokens;
+          if (e.tokens.estimated) b.estimatedTokens = (b.estimatedTokens ?? 0) + e.tokens.inputTokens + e.tokens.outputTokens;
+        }
       } else if (e.type === 'failure') b.failures++;
       else if (e.hit) b.cacheHits++;
       else b.cacheMisses++;
