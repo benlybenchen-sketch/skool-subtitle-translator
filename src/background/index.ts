@@ -46,7 +46,8 @@ const service = new TranslationService({
   hasEndpointPermission,
 });
 
-let dubbingActive = false;
+/** Tabs with a live dubbing session (keeps the offscreen player open). */
+const dubTabs = new Set<number>();
 const ttsLedger = new TtsLedger(chrome.storage.local, chrome.storage.session);
 const dubbing = new DubbingService({
   getSettings: loadSettings,
@@ -97,7 +98,7 @@ async function ensureOffscreen(): Promise<void> {
 }
 
 async function closeOffscreen(): Promise<void> {
-  if (dubbingActive) return; // the dubbing player lives in the same document
+  if (dubTabs.size) return; // the dubbing player lives in the same document
   const contexts = await chrome.runtime.getContexts({ contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT] });
   if (contexts.length) await chrome.offscreen.closeDocument();
 }
@@ -289,18 +290,19 @@ async function handle(msg: BackgroundRequest, sender: chrome.runtime.MessageSend
       return dubbing.voices(msg.provider);
     case 'dub:speak':
       if (tabId === undefined) return { ok: false };
-      dubbingActive = true;
+      dubTabs.add(tabId);
       return dubbing.speakChrome(tabId, frameId, msg);
     case 'dub:prepare':
-      dubbingActive = true;
+      if (tabId !== undefined) dubTabs.add(tabId);
       return dubbing.prepare(msg);
     case 'dub:play':
       if (tabId === undefined) return { ok: false };
-      dubbingActive = true;
+      dubTabs.add(tabId);
       await dubbing.play(tabId, frameId, msg);
       return { ok: true };
     case 'dub:control':
-      if ((await dubbing.control(msg.action, msg.token)) && msg.action === 'stop') dubbingActive = false;
+      await dubbing.control(msg.action, msg.token);
+      if (msg.final && tabId !== undefined) dubTabs.delete(tabId);
       return { ok: true };
     case 'dub:tabmute':
       if (tabId === undefined) return { ok: false };
@@ -350,7 +352,16 @@ chrome.runtime.onMessage.addListener((msg: BackgroundRequest & { target?: string
   return true;
 });
 
+// Offscreen dubbing player → worker events (see audio/offscreen.ts for why a Port is used).
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'sst-offscreen-dub' || port.sender?.id !== chrome.runtime.id) return;
+  port.onMessage.addListener((m: { type?: string; event?: 'started' | 'ended' | 'error'; token?: string; segId?: string; error?: string }) => {
+    if (m?.type === 'offscreen:dub' && m.event && m.token && m.segId) dubbing.onOffscreen({ event: m.event, token: m.token, segId: m.segId, error: m.error });
+  });
+});
+
 chrome.tabs.onRemoved.addListener((tabId) => {
+  dubTabs.delete(tabId);
   void dubbing.onTabRemoved(tabId);
   void audio.stop(tabId, 'tab-closed');
   registry.removeTab(tabId);

@@ -162,7 +162,8 @@ export class DubbingService {
         if (!entry.durationSec) void this.cache.setDuration(key, durationSec).catch(() => undefined);
       }
       this.loaded.add(key);
-      if (this.loaded.size > 60) this.loaded.delete(this.loaded.values().next().value!);
+      // stay below the offscreen player's own LRU (60) so a key marked loaded is really there
+      if (this.loaded.size > 40) this.loaded.delete(this.loaded.values().next().value!);
     }
     return { key, durationSec, cached: hit };
   }
@@ -170,13 +171,23 @@ export class DubbingService {
   async play(tabId: number, frameId: number, m: { token: string; segId: string; key: string; rate: number; volume: number; offsetSec: number }): Promise<void> {
     this.owner = { tabId, frameId, token: m.token, segId: m.segId };
     await this.d.ensureOffscreen();
-    if (!this.loaded.has(m.key)) {
+    const load = async () => {
       const e = await this.cache.get(m.key).catch(() => null);
       if (!e) throw new Error('audio not cached');
       await this.d.sendOffscreen({ target: 'offscreen', type: 'dub-load', key: m.key, audioBase64: arrayBufferToBase64(e.audio.slice().buffer as ArrayBuffer), mime: e.mime });
       this.loaded.add(m.key);
+    };
+    if (!this.loaded.has(m.key)) await load();
+    // Explicit fields: the incoming request also has a `type`, which must not leak into this one.
+    const send = () => this.d.sendOffscreen({ target: 'offscreen', type: 'dub-play', key: m.key, token: m.token, segId: m.segId, rate: m.rate, volume: m.volume, offsetSec: m.offsetSec }) as Promise<{ ok?: boolean; error?: string } | undefined>;
+    let r = await send();
+    if (r?.ok === false && r.error === 'clip not loaded') {
+      // evicted by the player (or offscreen document recreated): reload from the cache once
+      this.loaded.delete(m.key);
+      await load();
+      r = await send();
     }
-    await this.d.sendOffscreen({ target: 'offscreen', type: 'dub-play', ...m });
+    if (r?.ok === false) throw new Error(r.error ?? 'playback failed');
   }
 
   /** Offscreen playback events → the owning frame. */

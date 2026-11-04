@@ -126,6 +126,13 @@ export class DubbingSession {
   onEvent(token: string, segId: string, kind: 'start' | 'end' | 'error' | 'interrupted', error?: string): void {
     if (token !== this.token || this.disposed) return; // speech of an older lesson/session
     if (kind === 'error') this.error = error;
+    if (kind === 'start' && this.fatal) {
+      // speech works again after a failure period: back to normal (re-mute if we had restored)
+      this.fatal = false;
+      this.error = undefined;
+      this.state = 'buffering';
+      this.audio.apply(this.settings.listenMode, this.settings.originalVolume);
+    }
     this.scheduler?.handleEvent(segId, kind, error);
     this.onChange();
   }
@@ -214,7 +221,7 @@ export class DubbingSession {
     this.disposed = true;
     this.scheduler?.dispose();
     this.scheduler = null;
-    void this.send({ type: 'dub:control', action: 'stop', token: this.token }).catch(() => undefined);
+    void this.send({ type: 'dub:control', action: 'stop', token: this.token, final: true }).catch(() => undefined);
     this.audio.dispose();
   }
 }

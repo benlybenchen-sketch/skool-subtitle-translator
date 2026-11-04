@@ -23,7 +23,35 @@ interface Session {
 
 let session: Session | null = null;
 
-const send = (msg: BackgroundRequest) => chrome.runtime.sendMessage(msg).catch(() => undefined);
+const sendRuntime = (msg: BackgroundRequest) => chrome.runtime.sendMessage(msg).catch(() => undefined);
+
+// Dubbing playback events go through a long-lived Port: one-off runtime messages from this
+// document can be dropped by Chrome while the worker is still handling the request that
+// triggered playback (reproduced in Chromium). Reconnects when the worker restarts.
+let port: chrome.runtime.Port | null = null;
+function connect(): void {
+  try {
+    port = chrome.runtime.connect({ name: 'sst-offscreen-dub' });
+    port.onDisconnect.addListener(() => {
+      port = null;
+      setTimeout(connect, 500);
+    });
+  } catch {
+    port = null;
+  }
+}
+connect();
+const send = (msg: BackgroundRequest) => {
+  if (msg.type === 'offscreen:dub' && port) {
+    try {
+      port.postMessage(msg);
+      return;
+    } catch {
+      port = null;
+    }
+  }
+  void sendRuntime(msg);
+};
 
 async function start(streamId: string, sessionId: string): Promise<void> {
   await stop('restart');
@@ -96,7 +124,7 @@ async function stop(reason: string): Promise<void> {
 
 // ---- AI Vietnamese dubbing player ---------------------------------------------------------------
 // Extension-owned audio (not the Skool tab's audio): unaffected when the tab or the video is muted.
-// Bounded: at most 40 decoded clips (LRU), object URLs revoked on eviction; one clip plays at a time.
+// Bounded: at most 60 decoded clips (LRU), object URLs revoked on eviction; one clip plays at a time.
 const clips = new Map<string, { url: string; el: HTMLAudioElement }>();
 let current: { el: HTMLAudioElement; token: string; segId: string } | null = null;
 
@@ -113,7 +141,7 @@ function loadClip(key: string, b64: string, mime: string): Promise<number> {
   (el as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = true;
   el.src = url;
   clips.set(key, { url, el });
-  while (clips.size > 40) {
+  while (clips.size > 60) {
     const [k, v] = clips.entries().next().value!;
     if (current?.el === v.el) break;
     v.el.removeAttribute('src');
@@ -135,10 +163,10 @@ function stopClip(): void {
   current = null;
 }
 
-async function playClip(m: Extract<OffscreenMessage, { type: 'dub-play' }>): Promise<void> {
+async function playClip(m: Extract<OffscreenMessage, { type: 'dub-play' }>): Promise<{ ok: boolean; error?: string }> {
   stopClip();
   const c = clips.get(m.key);
-  if (!c) return void send({ type: 'offscreen:dub', event: 'error', token: m.token, segId: m.segId, error: 'clip not loaded' });
+  if (!c) return { ok: false, error: 'clip not loaded' }; // the worker reloads it and retries
   const el = c.el;
   el.playbackRate = Math.min(2, Math.max(0.5, m.rate));
   el.volume = Math.min(1, Math.max(0, m.volume));
@@ -157,8 +185,10 @@ async function playClip(m: Extract<OffscreenMessage, { type: 'dub-play' }>): Pro
   try {
     await el.play();
     send({ type: 'offscreen:dub', event: 'started', token: m.token, segId: m.segId });
+    return { ok: true };
   } catch (e) {
     send({ type: 'offscreen:dub', event: 'error', token: m.token, segId: m.segId, error: (e as Error).message });
+    return { ok: false, error: (e as Error).message };
   }
 }
 
@@ -168,8 +198,11 @@ chrome.runtime.onMessage.addListener((msg: OffscreenMessage, _sender, sendRespon
     void loadClip(msg.key, msg.audioBase64, msg.mime).then((durationSec) => sendResponse({ ok: true, durationSec }));
     return true;
   }
-  if (msg.type === 'dub-play') void playClip(msg);
-  else if (msg.type === 'dub-stop') stopClip();
+  if (msg.type === 'dub-play') {
+    void playClip(msg).then(sendResponse);
+    return true;
+  }
+  if (msg.type === 'dub-stop') stopClip();
   else if (msg.type === 'dub-pause') current?.el.pause();
   else if (msg.type === 'dub-resume') void current?.el.play().catch(() => undefined);
   else if (msg.type === 'start') void start(msg.streamId, msg.sessionId);

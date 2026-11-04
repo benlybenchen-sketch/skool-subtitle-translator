@@ -56,7 +56,7 @@ export type BackgroundRequest =
   | { type: 'dub:speak'; token: string; segId: string; text: string; voice: string; rate: number; volume: number }
   | { type: 'dub:prepare'; lesson: string; text: string; provider: 'google' | 'mock'; voice: string; rate: number }
   | { type: 'dub:play'; token: string; segId: string; key: string; rate: number; volume: number; offsetSec: number }
-  | { type: 'dub:control'; action: 'stop' | 'pause' | 'resume'; token?: string }
+  | { type: 'dub:control'; action: 'stop' | 'pause' | 'resume'; token?: string; final?: boolean }
   | { type: 'dub:tabmute'; mute: boolean }
   | { type: 'dub:recover' }
   | { type: 'dub:usage' }
