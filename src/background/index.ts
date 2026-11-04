@@ -8,6 +8,8 @@ import { TabRegistry } from './tabRegistry';
 import { AudioSessionManager } from './audioSession';
 import { checkBackends } from '../translation/health';
 import { loadEffectiveGlossary } from '../shared/glossaryStore';
+import { UsageLedger } from './usageLedger';
+import { DEFAULT_PRICES, loadPricing, savePricing } from '../translation/pricing';
 
 /*
  * MV3 service worker. All listeners are registered synchronously at the top
@@ -19,6 +21,7 @@ import { loadEffectiveGlossary } from '../shared/glossaryStore';
 const OFFSCREEN_URL = 'audio/offscreen.html';
 
 const cache = new TranslationCache();
+const ledger = new UsageLedger(chrome.storage.local, chrome.storage.session, loadPricing);
 const registry = new TabRegistry(chrome.storage.session);
 
 async function hasEndpointPermission(endpoint: string): Promise<boolean> {
@@ -36,6 +39,7 @@ const service = new TranslationService({
   getSettings: loadSettings,
   getSecrets: loadSecrets,
   getGlossaryText: (s) => loadEffectiveGlossary(s.glossary),
+  onAccounting: (e, meta) => void ledger.record(e, meta),
   hasEndpointPermission,
 });
 
@@ -183,6 +187,14 @@ async function handle(msg: BackgroundRequest, sender: chrome.runtime.MessageSend
       );
       return { collectedAt: new Date().toISOString(), extensionVersion: chrome.runtime.getManifest().version, frames };
     }
+    case 'usage:get':
+      return { usage: await ledger.snapshot(), pricing: await loadPricing(), defaultPricing: DEFAULT_PRICES };
+    case 'usage:reset':
+      await ledger.reset();
+      return { ok: true };
+    case 'pricing:set':
+      await savePricing(msg.rows);
+      return { ok: true };
     case 'metrics:get':
       return service.metrics.snapshot();
     case 'cache:stats':

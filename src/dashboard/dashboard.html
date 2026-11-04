@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Thống kê – Skool VI Subtitles</title>
+    <link rel="stylesheet" href="./dashboard.css" />
+  </head>
+  <body>
+    <main>
+      <div class="head"><h1>Thống kê dịch &amp; chi phí API</h1><button id="refresh" type="button">Làm mới</button></div>
+      <p class="hint">Token lấy từ số liệu nhà cung cấp trả về; mục "ước tính" là khi nhà cung cấp không báo. Chi phí là <b>ước tính</b> theo bảng giá bên dưới (bạn có thể sửa) — không phải hóa đơn, và tiện ích không giới hạn chi tiêu phía nhà cung cấp.</p>
+      <div id="warn" class="warn hidden"></div>
+
+      <section><h2>Hiện tại</h2><table id="overview" class="kv"></table></section>
+      <section><h2>Sử dụng</h2><div class="scroll"><table id="usage" class="grid"></table></div></section>
+      <section><h2>Theo nhà cung cấp / model</h2><div class="scroll"><table id="models" class="grid"></table></div></section>
+
+      <section>
+        <h2>Bảng giá (USD / 1 triệu token)</h2>
+        <p class="hint">Khớp theo tiền tố model (dài nhất thắng). Giá mặc định chỉ là giá khởi đầu kèm nguồn — hãy cập nhật theo trang giá chính thức. Model không có trong bảng: token được ghi riêng ("chưa có giá").</p>
+        <div class="scroll"><table id="pricing" class="grid edit"></table></div>
+        <div class="row"><button id="p-add" type="button">Thêm dòng</button><button id="p-save" type="button" class="primary">Lưu bảng giá</button><button id="p-default" type="button">Khôi phục mặc định</button><span id="p-msg" class="hint"></span></div>
+      </section>
+
+      <section>
+        <h2>Cảnh báo &amp; dữ liệu</h2>
+        <div class="row"><label for="warnUsd">Cảnh báo khi chi phí ước tính trong ngày vượt (USD, 0 = tắt)</label><input id="warnUsd" type="number" min="0" step="0.01" /><button id="warnSave" type="button">Lưu</button></div>
+        <div class="row"><button id="reset" type="button" class="danger">Xóa toàn bộ thống kê</button><span class="hint">Không ảnh hưởng bộ nhớ đệm bản dịch.</span></div>
+      </section>
+    </main>
+    <script type="module" src="./dashboard.ts"></script>
+  </body>
+</html>

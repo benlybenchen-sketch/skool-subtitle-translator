@@ -625,6 +625,25 @@ await test('CC OFF, no opt-in, <track src> caption file: whole 12-min transcript
   await p.close();
 });
 
+await test('Dashboard: usage ledger filled by earlier lessons (mock → labelled estimates), editable price table persists', async () => {
+  const d = await context.newPage();
+  await d.goto(`chrome-extension://${extId}/dashboard/dashboard.html`);
+  await d.waitForFunction(() => document.querySelectorAll('#usage tr').length >= 5);
+  const session = await d.$eval('#usage', (t) => t.rows[2].innerText);
+  assert(!/chưa có dữ liệu/.test(session), `session row empty: ${session}`);
+  const rows = await d.$$eval('#pricing tr[data-i]', (r) => r.length);
+  assert(rows >= 5, `pricing rows ${rows}`);
+  await d.fill('#pricing tr[data-i="0"] [data-k="input"]', '0.42');
+  await d.click('#p-save');
+  await d.reload();
+  await d.waitForFunction(() => document.querySelectorAll('#pricing tr[data-i]').length > 0);
+  const v = await d.inputValue('#pricing tr[data-i="0"] [data-k="input"]');
+  assert(v === '0.42', `price not persisted: ${v}`);
+  const leaked = await d.evaluate(() => document.body.innerText);
+  assert(!/Welcome back to the course|sk-|skool\.com\/test-group/.test(leaked), 'dashboard must not show subtitles, keys or lesson URLs');
+  await d.close();
+});
+
 await test('Extension reloaded with a Skool tab open: orphaned content script removes its UI without errors', async () => {
   const p = await context.newPage();
   const errors = [];

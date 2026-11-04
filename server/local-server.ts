@@ -111,11 +111,14 @@ const server = createServer(async (req, res) => {
         target?: string;
       };
       const segments = (body.segments ?? []).filter((s) => s && typeof s.id === 'string' && typeof s.text === 'string').slice(0, 64);
-      const usage = { inputTokens: 0, outputTokens: 0 };
+      const usage = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0 };
       const out = await translator.translateBatch({
         onUsage: (u) => {
           usage.inputTokens += u.inputTokens;
           usage.outputTokens += u.outputTokens;
+          usage.cachedInputTokens += u.cachedInputTokens ?? 0;
+          usage.cacheWriteTokens += u.cacheWriteTokens ?? 0;
+          usage.reasoningTokens += u.reasoningTokens ?? 0;
         },
         segments,
         context: (body.context ?? []).slice(-8),

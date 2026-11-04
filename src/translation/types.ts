@@ -10,9 +10,18 @@ export interface BatchSegment {
 }
 
 export interface TokenUsage {
+  /** All input tokens of the request (cached ones included). */
   inputTokens: number;
-  /** Output tokens including any thinking tokens (billed as output). */
+  /** Output tokens including any thinking/reasoning tokens (billed as output). */
   outputTokens: number;
+  /** Input tokens served from the provider's prompt cache (subset of inputTokens). */
+  cachedInputTokens?: number;
+  /** Input tokens written to the provider's prompt cache (subset of inputTokens; Anthropic). */
+  cacheWriteTokens?: number;
+  /** Reasoning/thinking tokens (subset of outputTokens), when reported. */
+  reasoningTokens?: number;
+  /** true = the provider reported no usage; counts were estimated from text length. */
+  estimated?: boolean;
 }
 
 export interface BatchRequest {

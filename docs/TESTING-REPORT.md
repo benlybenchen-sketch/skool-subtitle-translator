@@ -4,8 +4,8 @@ Run on 2026-11-03, Node 22, Chromium (Playwright 1.63 build), Linux.
 
 ```
 npm run typecheck   → 0 errors
-npm test            → 15 files, 204 tests passed
-npm run test:e2e    → 24/24 passed (built extension loaded in Chromium, mock pages)
+npm test            → 18 files, 238 tests passed
+npm run test:e2e    → 26/26 passed (built extension loaded in Chromium, mock pages)
 ```
 
 **First real-Skool evidence (user diagnostic, v3.1.1, 2026-11-04):** Skool Native `<video>` lives in an
@@ -60,6 +60,24 @@ with a logged-in Skool account.
 | 26 | **Extension reloaded while a Skool tab is open** (real report: `Uncaught TypeError: Cannot read properties of undefined (reading 'onChanged')` in content.js) | `runtime.test` — unsubscribing with `chrome.storage` gone (fails on the pre-fix code with exactly that TypeError) | ✓ orphaned script removes its panel/overlay without errors (note: this headless harness cannot bring an extension back after `chrome.runtime.reload()`, so it does not reproduce the missing `chrome.storage`; the unit test does) |
 
 | 27 | **Player inside an open shadow root; Gemini 429 quota** (real diagnostics) | `players.test` (video added / replaced / removed inside a shadow root, non-composed `play` inside a shadow root, shadow roots created later — all 3 fail on the old detector); `translation.test` (Gemini `retryDelay` parsed from the body, one 429 pauses all batches via a shared cooldown); `scheduler.test` (background pretranslation paused 2 min after a 429 while urgent work continues) | — |
+
+| 28 | **Phase 2: adaptive prefetch, translation intelligence, usage accounting** | `scheduler.test` (P0 current / P1 0–15 s / P2 15–60 s / P3 lookahead / P4 background; 2× urgency; FAST caps P2 at its 45 s horizon; live mode switch keeps translations; bounded window-edge spill-over), `api-speed.test` (measured, see below), `intelligence.test` (glossary migration / presets without overwrite / active subjects change the cache version / import-export; reordered + malformed replies; context per mode; per-mode model only when user-configured, approval for pricier/unknown), `usage.test` (Gemini / OpenAI / Claude / local usage parsing incl. cached, cache-write and reasoning tokens; pricing with cached tokens; ledger by total/day/model/lesson/session surviving a worker restart; estimates and unpriced tokens kept apart; cache hits never counted as API usage) | ✓ glossary editor, mode selectors, dashboard (ledger rows, price edits persist, no subtitles/keys/lesson URLs shown) |
+
+### Measured scheduling performance (simulated)
+`tests/unit/api-speed.test.ts` — 10-minute lesson, cues every 2.5 s, only ~90 s exposed initially, the
+rest in 90 s chunks; API latency on the same simulated clock as playback. These are **simulation**
+results for the scheduler, not real-network measurements.
+
+| Mode | API latency | Time to first VI subtitle | Missed (shown before translated) | Requests / 10 min |
+|---|---|---|---|---|
+| FAST | 0.3 s / 1.2 s / 4 s | 0.5 s / 1.25 s / 4.0 s | 0% / 0% / 0.5% | 60 |
+| BALANCED | 0.3 s / 1.2 s / 4 s | 0.5 s / 1.25 s / 4.0 s | 0% / 0% / 0.5% | 28 |
+| QUALITY | 0.3 s / 1.2 s / 4 s | 0.5 s / 1.25 s / 4.0 s | 0% / 0% / 0.5% | 22 |
+| BALANCED 1.5× / 2× | 1.2 s | 1.33 s / 1.38 s | 0.3% / 0.4% | 28 |
+
+Before the window-edge batch filling, the same run sent FAST 189 and BALANCED 78 requests (same
+latency and misses). With very short cues the first-subtitle time is bounded by the API latency;
+the modes mainly differ in request count (and therefore repeated system-prompt tokens).
 
 Additional: VAD chunker (pauses, forced cuts, noise/clicks, flush), WAV encoding/resampling, live
 segment assembly (fragment merge, overlap removal, hallucination filter), STT ordering under

@@ -77,6 +77,7 @@ export const DEFAULT_SETTINGS: Settings = {
   targetLanguage: 'vi',
   mergeFragments: true,
   customCaptionSelectors: '',
+  costWarningUsd: 0,
 };
 
 export const SETTINGS_KEY = 'settings';

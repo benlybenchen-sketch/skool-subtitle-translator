@@ -12,6 +12,7 @@ import type { TranslationProvider } from './types';
 import { ConfigError, HttpError } from './errors';
 import { effectiveProvider, translationIsRemote } from '../shared/settings';
 import { modeProfile } from './modes';
+import type { AccountingEvent } from '../background/usageLedger';
 import { percentile } from '../shared/util';
 
 export interface ServiceDeps {
@@ -21,6 +22,8 @@ export interface ServiceDeps {
   /** Checks that the extension may contact the endpoint (host permission). */
   hasEndpointPermission?: (endpoint: string) => Promise<boolean>;
   providerFactory?: (s: Settings, secrets: Secrets) => TranslationProvider;
+  /** Accounting sink (persistent usage ledger); receives queue events + cache hits with labels. */
+  onAccounting?: (e: AccountingEvent, meta: Record<string, string>) => void;
   /** Effective glossary text (editable glossary store); defaults to settings.glossary. */
   getGlossaryText?: (s: Settings) => Promise<string>;
   queueOptions?: Partial<QueueOptions>;
@@ -106,7 +109,8 @@ export class TranslationService {
   constructor(private readonly deps: ServiceDeps) {
     this.queue = new TranslationQueue({
       ...deps.queueOptions,
-      onEvent: (e) => {
+      onEvent: (e, meta) => {
+        if (meta) deps.onAccounting?.(e as AccountingEvent, meta);
         if (e.type === 'request') this.metrics.requests++;
         else if (e.type === 'success') {
           this.metrics.segmentsTranslated += e.size;
@@ -114,7 +118,7 @@ export class TranslationService {
         } else if (e.type === 'retry') this.metrics.retries++;
         else if (e.type === 'rate-limited') this.metrics.rateLimited++;
         else if (e.type === 'failure') this.metrics.failedRequests++;
-        else if (e.type === 'usage') this.metrics.recordUsage(this.currentModel, e.usage.inputTokens, e.usage.outputTokens);
+        else if (e.type === 'usage') this.metrics.recordUsage(meta?.model ?? this.currentModel, e.usage.inputTokens, e.usage.outputTokens);
         deps.queueOptions?.onEvent?.(e);
       },
     });
@@ -161,6 +165,8 @@ export class TranslationService {
     });
     this.metrics.cacheHits += keyed.length - misses.length;
     this.metrics.cacheMisses += misses.length;
+    const meta = { provider: settings.provider.kind, model: this.currentModel, lesson: hash53(videoKey) };
+    this.deps.onAccounting?.({ type: 'cache', hits: keyed.length - misses.length, misses: misses.length }, meta);
 
     if (misses.length) {
       const secrets = await this.deps.getSecrets();
@@ -179,6 +185,7 @@ export class TranslationService {
           glossary: parseGlossary(settings.glossary),
           group: videoKey,
           priority,
+          meta,
         },
       );
       const toCache: { key: string; videoKey: string; vi: string }[] = [];

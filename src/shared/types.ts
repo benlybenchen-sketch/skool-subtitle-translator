@@ -103,6 +103,8 @@ export interface Settings {
   sourceLanguage: 'en';
   /** Target language. Only Vietnamese is supported today. */
   targetLanguage: 'vi';
+  /** Daily estimated-cost warning threshold in USD (0 = off). Advisory only — not a billing limit. */
+  costWarningUsd: number;
   /** Extra CSS selectors that point to caption text rendered in the DOM (advanced). */
   customCaptionSelectors: string;
 }
@@ -149,8 +151,16 @@ export interface CaptionPerf {
   timeToFirstMs?: number;
   /** Segments that became visible on screen before their translation arrived. */
   missedDeadlines: number;
-  /** Share of segments in the next 90 s that are already translated (0–1). */
+  /** Share of segments in the prefetch window that are already translated (0–1). */
   aheadCoverage: number;
+  /** Video coverage: latest available English cue, latest translated cue, media duration (s). */
+  sourceUntilSec?: number;
+  translatedUntilSec?: number;
+  durationSec?: number;
+  /** Scheduler state (translating / idle / waiting-retry / fatal-backoff / paused). */
+  queueState?: string;
+  queuedInWindow?: number;
+  lastError?: string | null;
 }
 
 export interface AudioStatus {

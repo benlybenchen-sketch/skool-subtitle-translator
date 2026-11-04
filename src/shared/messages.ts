@@ -32,6 +32,9 @@ export type BackgroundRequest =
   | { type: 'diag:run'; tabId: number }
   | { type: 'backend:check' }
   | { type: 'session:start' }
+  | { type: 'usage:get' }
+  | { type: 'usage:reset' }
+  | { type: 'pricing:set'; rows: import('../translation/pricing').PriceRow[] | null }
   | { type: 'metrics:get' }
   | { type: 'cache:stats' }
   | { type: 'cache:clear' }

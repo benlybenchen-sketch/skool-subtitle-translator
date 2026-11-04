@@ -4,6 +4,8 @@ import { PROVIDER_PRESETS, loadSettings, saveSettings, onSettingsChanged, switch
 import type { FrameStatus, Settings, TabStatus, TranslationProviderKind } from '../shared/types';
 import { originPattern } from '../shared/util';
 import { checkModeSwitch, type TranslationMode } from '../translation/modes';
+import type { LedgerSnapshot } from '../background/usageLedger';
+import { hash53 } from '../shared/hash';
 import { parseSubtitleFile } from '../subtitles/parse';
 import { adapterById } from '../players/adapters';
 
@@ -193,14 +195,21 @@ function renderStatus(res: StatusResponse): void {
   $('ttfs').textContent = perf?.timeToFirstMs !== undefined ? `${perf.timeToFirstMs} ms` : '–';
   $('coverage').textContent = perf ? `${Math.round(perf.aheadCoverage * 100)}%` : '–';
   $('missed').textContent = perf ? `${perf.missedDeadlines} đoạn` : '–';
-  $('tokens').textContent =
-    m.inputTokens || m.outputTokens ? `${m.inputTokens.toLocaleString()} / ${m.outputTokens.toLocaleString()}` : '–';
-  $('cost').textContent =
-    m.estimatedCostUsd === null
-      ? 'không rõ giá model'
-      : m.inputTokens || m.outputTokens
-        ? '≈ $' + m.estimatedCostUsd.toFixed(4)
-        : '–';
+  // Persistent ledger (provider-reported tokens; estimates labelled; cache hits not counted as usage).
+  const lessonFrame = frames.find((f) => f.captionSource && f.videoKey) ?? frames.find((f) => f.videoKey);
+  void sendToBackground<{ usage: LedgerSnapshot }>({ type: 'usage:get' })
+    .then(({ usage }) => {
+      const lesson = lessonFrame?.videoKey ? usage.lessons[hash53(lessonFrame.videoKey)] : undefined;
+      const fmt = (x: number) => '$' + x.toFixed(4);
+      const est = (b?: { estimatedInputTokens: number; estimatedOutputTokens: number }) => (b && b.estimatedInputTokens + b.estimatedOutputTokens ? ' (≈ có ước tính)' : '');
+      $('tokens').textContent = lesson ? `${lesson.inputTokens.toLocaleString()} / ${lesson.outputTokens.toLocaleString()}${est(lesson)}` : '–';
+      const today = usage.today.costUsd + usage.today.estimatedCostUsd;
+      $('cost').textContent = `${lesson ? fmt(lesson.costUsd + lesson.estimatedCostUsd) : '–'} / ${fmt(today)}`;
+      const over = settings.costWarningUsd > 0 && today >= settings.costWarningUsd;
+      $('cost-warn').textContent = over ? `⚠ Chi phí ước tính hôm nay đã vượt ngưỡng ${fmt(settings.costWarningUsd)} (chỉ là cảnh báo).` : '';
+      $('cost-warn').classList.toggle('hidden', !over);
+    })
+    .catch(() => undefined);
   $('failures').textContent = `${m.failedRequests} / ${m.retries}${m.rateLimited ? ` · 429×${m.rateLimited}` : ''}`;
 }
 
@@ -305,6 +314,10 @@ async function init(): Promise<void> {
   $<HTMLInputElement>('import').addEventListener('change', (e) => {
     const f = (e.target as HTMLInputElement).files?.[0];
     if (f) void importFile(f);
+  });
+  $('open-dashboard').addEventListener('click', (e) => {
+    e.preventDefault();
+    void chrome.tabs.create({ url: chrome.runtime.getURL(`dashboard/dashboard.html${tabId !== undefined ? `?tab=${tabId}` : ''}`) });
   });
   $('open-options').addEventListener('click', (e) => {
     e.preventDefault();

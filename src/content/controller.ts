@@ -543,6 +543,24 @@ export class SubtitleController {
     }
   }
 
+  private perf(): NonNullable<FrameStatus['perf']> {
+    const sch = this.scheduler!;
+    const d = sch.debug();
+    const media = this.target && this.target.kind !== 'iframe' ? this.target.el : null;
+    const src = this.timed instanceof TextTrackSource ? this.timed : null;
+    return {
+      timeToFirstMs: sch.timeToFirstMs,
+      missedDeadlines: this.missed.size,
+      aheadCoverage: Math.round(sch.aheadCoverage() * 100) / 100,
+      sourceUntilSec: Math.round(src ? src.latestCueEnd : this.timeline?.units.at(-1)?.end ?? 0),
+      translatedUntilSec: Math.round(d.latestTranslatedEnd),
+      durationSec: media && Number.isFinite(media.duration) ? Math.round(media.duration) : undefined,
+      queueState: d.state,
+      queuedInWindow: d.queuedInWindow,
+      lastError: d.lastError ? d.lastError.slice(0, 160) : null,
+    };
+  }
+
   /** Diagnostics snapshot — timings and counts only, never caption text, keys or URLs. */
   debugState() {
     const media = this.target && this.target.kind !== 'iframe' ? this.target.el : null;
@@ -884,9 +902,7 @@ export class SubtitleController {
       error: this.error ?? quotaError,
       notice: this.notice,
       captionsOff: this.captionsOff || undefined,
-      perf: this.scheduler
-        ? { timeToFirstMs: this.scheduler.timeToFirstMs, missedDeadlines: this.missed.size, aheadCoverage: Math.round(this.scheduler.aheadCoverage() * 100) / 100 }
-        : undefined,
+      perf: this.scheduler ? this.perf() : undefined,
       updatedAt: Date.now(),
     };
   }

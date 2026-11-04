@@ -20,6 +20,17 @@ boundaries. In that situation:
   fullscreen the overlay only shows if the fullscreen element is in the accessible DOM.
 - Use popup → **"Chạy chẩn đoán"** and share the result when reporting issues.
 
+## Modes, glossary and cost (v3.4.0)
+- Mode values (batch sizes, 45 / 90 / 120 s lookahead, context 1 / 3 / 6) are initial tuning values,
+  measured only in simulation. The window edge may spill over by up to half a batch.
+- Modes never change the model; a per-mode model is used only if you enter one, and switching to a
+  pricier or unknown-price model asks first (the check uses the default price table).
+- Token counts come from the provider's response; when a provider reports none (mock, some local
+  servers) they are estimated from text length and shown as estimates. Costs are estimates from an
+  editable price table — not invoices, and no provider-side spending limit is enforced.
+- Usage history is stored locally (chrome.storage.local): per lesson (hashed id, last 300 lessons),
+  per day (last 120 days), per model, per browser session.
+
 ## Gemini quota (v3.2.0)
 Free/low Gemini tiers return HTTP 429 ("You exceeded your current quota…"). The extension now waits
 for Gemini's `retryDelay` with one shared cooldown, pauses background pretranslation for 2 minutes,

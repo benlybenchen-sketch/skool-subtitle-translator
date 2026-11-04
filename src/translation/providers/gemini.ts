@@ -46,10 +46,16 @@ export class GeminiProvider implements TranslationProvider {
     const data = (await res.json()) as {
       candidates?: { content?: { parts?: { text?: string }[] } }[];
       promptFeedback?: { blockReason?: string };
-      usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number };
+      usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number; cachedContentTokenCount?: number };
     };
     const u = data.usageMetadata;
-    if (u) req.onUsage?.({ inputTokens: u.promptTokenCount ?? 0, outputTokens: (u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0) });
+    if (u)
+      req.onUsage?.({
+        inputTokens: u.promptTokenCount ?? 0,
+        outputTokens: (u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0),
+        cachedInputTokens: u.cachedContentTokenCount || undefined,
+        reasoningTokens: u.thoughtsTokenCount || undefined,
+      });
     if (data.promptFeedback?.blockReason) throw new ConfigError(`Gemini blocked the request: ${data.promptFeedback.blockReason}`);
     const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
     return parseTranslations(extractJson(text), req.segments.map((s) => s.id));

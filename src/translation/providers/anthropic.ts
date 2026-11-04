@@ -79,7 +79,15 @@ export class AnthropicProvider implements TranslationProvider {
       }
       throw e;
     }
-    req.onUsage?.({ inputTokens: res.usage.input_tokens ?? 0, outputTokens: res.usage.output_tokens ?? 0 });
+    // Anthropic reports uncached input separately from cache reads/writes: normalise to totals.
+    const cacheRead = res.usage.cache_read_input_tokens ?? 0;
+    const cacheWrite = res.usage.cache_creation_input_tokens ?? 0;
+    req.onUsage?.({
+      inputTokens: (res.usage.input_tokens ?? 0) + cacheRead + cacheWrite,
+      outputTokens: res.usage.output_tokens ?? 0,
+      cachedInputTokens: cacheRead || undefined,
+      cacheWriteTokens: cacheWrite || undefined,
+    });
     if (res.stop_reason === 'refusal') throw new ParseError('Claude declined this batch');
     const text = res.content.map((b) => (b.type === 'text' ? b.text : '')).join('');
     return parseTranslations(extractJson(text), req.segments.map((s) => s.id));

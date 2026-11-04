@@ -19,6 +19,8 @@ export interface QueueContext {
   targetLang?: string;
   /** 1 = needed now … 4 = background. Lower numbers get free request slots first. */
   priority?: number;
+  /** Accounting labels attached to every event of this request (provider, model, lesson). */
+  meta?: Record<string, string>;
 }
 
 export type QueueEvent =
@@ -41,7 +43,7 @@ export interface QueueOptions {
   sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
   random: () => number;
   now: () => number;
-  onEvent?: (e: QueueEvent) => void;
+  onEvent?: (e: QueueEvent, meta?: Record<string, string>) => void;
 }
 
 export const DEFAULT_QUEUE_OPTIONS: QueueOptions = {
@@ -222,8 +224,9 @@ export class TranslationQueue {
     const segments: BatchSegment[] = batch.map((it, i) => ({ id: 's' + i, text: it.text }));
     let error: unknown;
     let raw: Record<string, string> | undefined;
+    let reported = false;
     try {
-      this.opts.onEvent?.({ type: 'request', size: batch.length });
+      this.opts.onEvent?.({ type: 'request', size: batch.length }, ctx.meta);
       raw = await ctx.provider.translateBatch({
         segments,
         context: ctx.context,
@@ -231,7 +234,10 @@ export class TranslationQueue {
         sourceLang: ctx.sourceLang ?? 'en',
         targetLang: ctx.targetLang ?? 'vi',
         signal: combined,
-        onUsage: (usage) => this.opts.onEvent?.({ type: 'usage', usage }),
+        onUsage: (usage) => {
+          reported = true;
+          this.opts.onEvent?.({ type: 'usage', usage }, ctx.meta);
+        },
       });
     } catch (e) {
       error = timeout.signal.aborted && !signal.aborted ? Object.assign(new Error('Translation request timed out'), { name: 'TimeoutError' }) : e;
@@ -241,6 +247,12 @@ export class TranslationQueue {
     }
 
     if (raw) {
+      if (!reported) {
+        // Provider returned no usage: estimate (≈4 chars/token in, ≈3 for Vietnamese out), labelled.
+        const inChars = 1600 + batch.reduce((a, b) => a + b.text.length, 0) + ctx.context.join(' ').length;
+        const outChars = Object.values(raw).reduce((a, b) => a + b.length, 0);
+        this.opts.onEvent?.({ type: 'usage', usage: { inputTokens: Math.ceil(inChars / 4), outputTokens: Math.ceil(outChars / 3), estimated: true } }, ctx.meta);
+      }
       const out = new Map<string, ItemResult>();
       const missing: QueueItem[] = [];
       batch.forEach((it, i) => {
@@ -248,7 +260,7 @@ export class TranslationQueue {
         if (typeof v === 'string' && v.trim()) out.set(it.key, { vi: v.trim() });
         else missing.push(it);
       });
-      this.opts.onEvent?.({ type: 'success', size: batch.length - missing.length, latencyMs: Date.now() - started });
+      this.opts.onEvent?.({ type: 'success', size: batch.length - missing.length, latencyMs: Date.now() - started }, ctx.meta);
       if (!missing.length) {
         this.budget = Math.min(this.opts.maxBatchChars, Math.round(this.budget * 1.25));
         return out;
@@ -269,7 +281,7 @@ export class TranslationQueue {
       err.name === 'TimeoutError' ||
       err instanceof TypeError; // fetch network failure
     if (!retryable || err instanceof ConfigError || attempt >= this.opts.maxRetries) {
-      this.opts.onEvent?.({ type: 'failure', size: batch.length, reason: err.message });
+      this.opts.onEvent?.({ type: 'failure', size: batch.length, reason: err.message }, ctx.meta);
       const out = new Map<string, ItemResult>();
       for (const it of batch) out.set(it.key, { error: err });
       return out;
@@ -291,10 +303,10 @@ export class TranslationQueue {
     if (err instanceof HttpError && err.status === 429) {
       if (err.retryAfterMs !== undefined) delay = Math.min(this.opts.maxDelayMs * 3, err.retryAfterMs);
       this.cooldownUntil = Math.max(this.cooldownUntil, this.opts.now() + delay);
-      this.opts.onEvent?.({ type: 'rate-limited', delayMs: delay });
+      this.opts.onEvent?.({ type: 'rate-limited', delayMs: delay }, ctx.meta);
     }
     delay = Math.round(delay);
-    this.opts.onEvent?.({ type: 'retry', attempt: attempt + 1, delayMs: delay, reason: err.message });
+    this.opts.onEvent?.({ type: 'retry', attempt: attempt + 1, delayMs: delay, reason: err.message }, ctx.meta);
     // 429: the shared cooldown (in acquire) is the wait — for this and every other batch.
     if (!(err instanceof HttpError && err.status === 429)) await this.opts.sleep(delay, signal);
     // Split large batches that failed to parse into halves.

@@ -6,7 +6,7 @@ Tiện ích Chrome này dịch video bài học tiếng Anh trên **Skool** sang
 
 **Cách A — dùng tệp ZIP có sẵn**
 
-1. Tải tệp `release/skool-vi-subtitles-v3.3.0.zip` từ repository GitHub.
+1. Tải tệp `release/skool-vi-subtitles-v3.4.0.zip` từ repository GitHub.
 2. Giải nén vào một thư mục cố định (ví dụ `Documents/skool-vi-subtitles`). Đừng xóa thư mục này sau khi cài.
 3. Mở Chrome, gõ `chrome://extensions` vào thanh địa chỉ.
 4. Bật **Developer mode / Chế độ dành cho nhà phát triển** (góc trên bên phải).
@@ -76,7 +76,16 @@ Trong Cài đặt, chọn từng nhà cung cấp và nhập API key (+ model n�
 Mỗi nhà cung cấp nhớ key/model/endpoint riêng (dấu ✓ = đã có key). Sau đó đổi AI chỉ bằng ô **"AI dịch"** trong popup.
 Mặc định: Gemini `gemini-3.5-flash-lite`, OpenAI `gpt-4o-mini`, Claude `claude-opus-5-5` (rẻ/nhanh hơn: `claude-haiku-5-5`).
 
-### Thuật ngữ (glossary)
+### Chế độ dịch, thuật ngữ, thống kê chi phí (v3.4.0)
+- **Chế độ dịch** (popup hoặc Cài đặt → mục 4): *Nhanh* (dịch trước ~45 giây), *Cân bằng* (mặc định, ~90 giây),
+  *Chất lượng* (~120 giây, ngữ cảnh dài hơn). Chế độ không tự đổi model; nếu muốn, nhập model riêng cho từng chế độ
+  trong Cài đặt — đổi sang model đắt hơn sẽ được hỏi xác nhận.
+- **Thuật ngữ**: bảng thêm/sửa/xóa; để trống ô tiếng Việt để giữ nguyên tiếng Anh; chọn chủ đề (Marketing,
+  Dropshipping, AI, Lập trình); nút "+ Bộ mẫu" không ghi đè thuật ngữ bạn đã có; nhập/xuất JSON. Bấm "Lưu".
+- **Thống kê**: popup → "Thống kê chi tiết & bảng giá" — token, số yêu cầu, lỗi, cache, độ trễ, chi phí ước tính
+  theo bài học / phiên / ngày / tổng, theo model; sửa bảng giá; đặt ngưỡng cảnh báo chi phí theo ngày.
+
+### Thuật ngữ (glossary) — định dạng cũ
 
 Mục **4. Chất lượng dịch** có sẵn danh sách thuật ngữ marketing / e-commerce / lập trình. Mỗi dòng:
 - `funnel => phễu bán hàng (funnel)` — bắt buộc dịch như vậy;

@@ -286,7 +286,7 @@ describe('speed-first Gemini 3.5 Flash-Lite configuration', () => {
     expect((fetchImpl.mock.calls[0] as any)[0]).toContain('/models/gemini-3.5-flash-lite:generateContent');
     expect(body.generationConfig).toMatchObject({ temperature: 0.2, responseMimeType: 'application/json', thinkingConfig: { thinkingLevel: 'minimal' } });
     expect(body.generationConfig.responseSchema.properties.translations.items.required).toEqual(['subtitle_id', 'translated_text']);
-    expect(usage).toEqual([{ inputTokens: 120, outputTokens: 45 }]); // thinking tokens billed as output
+    expect(usage).toEqual([{ inputTokens: 120, outputTokens: 45, cachedInputTokens: undefined, reasoningTokens: 5 }]); // thinking tokens billed as output
   });
 
   it('does not send thinkingConfig to pre-3.x models (switching models keeps working)', async () => {

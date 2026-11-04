@@ -39,9 +39,21 @@ export class OpenAICompatibleProvider implements TranslationProvider {
     await ensureOk(res, 'OpenAI-compatible');
     const data = (await res.json()) as {
       choices?: { message?: { content?: string } }[];
-      usage?: { prompt_tokens?: number; completion_tokens?: number };
+      usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        prompt_tokens_details?: { cached_tokens?: number };
+        completion_tokens_details?: { reasoning_tokens?: number };
+      };
     };
-    if (data.usage) req.onUsage?.({ inputTokens: data.usage.prompt_tokens ?? 0, outputTokens: data.usage.completion_tokens ?? 0 });
+    const u = data.usage;
+    if (u)
+      req.onUsage?.({
+        inputTokens: u.prompt_tokens ?? 0,
+        outputTokens: u.completion_tokens ?? 0,
+        cachedInputTokens: u.prompt_tokens_details?.cached_tokens || undefined,
+        reasoningTokens: u.completion_tokens_details?.reasoning_tokens || undefined,
+      });
     const content = data.choices?.[0]?.message?.content ?? '';
     return parseTranslations(extractJson(content), req.segments.map((s) => s.id));
   }

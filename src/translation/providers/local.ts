@@ -1,4 +1,4 @@
-import type { BatchRequest, TranslationProvider } from '../types';
+import type { BatchRequest, TokenUsage, TranslationProvider } from '../types';
 import { ConfigError, ensureOk } from '../errors';
 import { parseTranslations } from '../prompt';
 
@@ -39,8 +39,8 @@ export class LocalHttpProvider implements TranslationProvider {
       }),
     });
     await ensureOk(res, 'Local backend');
-    const data = (await res.json()) as { usage?: { inputTokens?: number; outputTokens?: number } };
-    if (data.usage) req.onUsage?.({ inputTokens: data.usage.inputTokens ?? 0, outputTokens: data.usage.outputTokens ?? 0 });
+    const data = (await res.json()) as { usage?: TokenUsage };
+    if (data.usage && (data.usage.inputTokens || data.usage.outputTokens)) req.onUsage?.({ ...data.usage });
     return parseTranslations(data, req.segments.map((s) => s.id));
   }
 }
