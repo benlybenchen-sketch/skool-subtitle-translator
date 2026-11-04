@@ -1,6 +1,9 @@
 import { sendToBackground, type UnitResult } from '../shared/messages';
 import {
+  PROVIDER_KINDS,
   PROVIDER_PRESETS,
+  apiKeyFor,
+  profileFor,
   clearSecrets,
   loadSecrets,
   loadSettings,
@@ -9,7 +12,7 @@ import {
   sttIsRemote,
   translationIsRemote,
 } from '../shared/settings';
-import type { Settings, SttKind, TranslationProviderKind } from '../shared/types';
+import type { Settings, SttKind, TranslationProviderKind, TranslationProviderSettings } from '../shared/types';
 import { originPattern } from '../shared/util';
 
 const $ = <T extends HTMLElement = HTMLInputElement>(id: string) => document.getElementById(id) as unknown as T;
@@ -21,21 +24,54 @@ const HINTS: Record<TranslationProviderKind, string> = {
     'OpenAI: https://api.openai.com/v1 (model gpt-4o-mini). Ollama cục bộ: http://localhost:11434/v1 (model ví dụ qwen2.5:7b, không cần key).',
   gemini:
     'Khuyến nghị (nhanh, rẻ): model gemini-3.5-flash-lite, temperature 0.2, thinking "minimal", JSON có cấu trúc. Endpoint https://generativelanguage.googleapis.com/v1beta, key từ Google AI Studio.',
+  anthropic:
+    'Anthropic Claude: endpoint https://api.anthropic.com, model mặc định claude-opus-5-5 (nhanh/rẻ hơn: claude-haiku-5-5). Dùng JSON có cấu trúc, effort "low"; temperature không được gửi. Key từ console.anthropic.com.',
   mock: 'Chỉ để thử giao diện: hiển thị "[VI] câu gốc" thay vì bản dịch thật.',
 };
 
 let current: Settings;
+/** Per-provider form state kept while switching in the dropdown (saved together on "Lưu"). */
+const profiles: Partial<Record<TranslationProviderKind, TranslationProviderSettings>> = {};
+const keys: Partial<Record<TranslationProviderKind, string>> = {};
+let shownKind: TranslationProviderKind;
 
-function fill(s: Settings, keys: { t?: string; s?: string }): void {
-  $<HTMLSelectElement>('p-kind').value = s.provider.kind;
-  $('p-endpoint').value = s.provider.endpoint;
-  $('p-model').value = s.provider.model;
-  $('p-temp').value = String(s.provider.temperature);
-  $('p-key').value = keys.t ?? '';
+function formProfile(): TranslationProviderSettings {
+  return {
+    kind: shownKind,
+    endpoint: $('p-endpoint').value.trim(),
+    model: $('p-model').value.trim(),
+    temperature: Number($('p-temp').value) || 0,
+  };
+}
+
+function showProvider(kind: TranslationProviderKind): void {
+  shownKind = kind;
+  const p = profiles[kind] ?? profileFor(current, kind);
+  $<HTMLSelectElement>('p-kind').value = kind;
+  $('p-endpoint').value = p.endpoint;
+  $('p-model').value = p.model;
+  $('p-temp').value = String(p.temperature);
+  $('p-temp').toggleAttribute('disabled', kind === 'anthropic');
+  $('p-key').value = keys[kind] ?? '';
+  $('p-hint').textContent = HINTS[kind];
+  markKeys();
+}
+
+/** Show which providers already have a key. */
+function markKeys(): void {
+  for (const o of $<HTMLSelectElement>('p-kind').options) {
+    const k = o.value as TranslationProviderKind;
+    const has = !!keys[k] || (k === shownKind && !!$('p-key').value.trim());
+    o.textContent = PROVIDER_PRESETS[k].label + (k === 'local' ? ' — server/ trong repo' : '') + (has ? ' ✓ có API key' : '');
+  }
+}
+
+function fill(s: Settings, sttKey?: string): void {
+  showProvider(s.provider.kind);
+  $('s-key').value = sttKey ?? '';
   $<HTMLSelectElement>('s-kind').value = s.stt.kind;
   $('s-endpoint').value = s.stt.endpoint;
   $('s-model').value = s.stt.model;
-  $('s-key').value = keys.s ?? '';
   $('c-text').checked = s.consent.remoteTranslation;
   $('c-audio').checked = s.consent.remoteAudio;
   $('ctx').value = String(s.contextWindow);
@@ -47,18 +83,13 @@ function fill(s: Settings, keys: { t?: string; s?: string }): void {
   $<HTMLTextAreaElement>('glossary').value = s.glossary;
   $<HTMLTextAreaElement>('dom-sel').value = s.customCaptionSelectors;
   $('panel').checked = s.showPanel;
-  $('p-hint').textContent = HINTS[s.provider.kind];
 }
 
 function read(): Settings {
   return {
     ...current,
-    provider: {
-      kind: $<HTMLSelectElement>('p-kind').value as TranslationProviderKind,
-      endpoint: $('p-endpoint').value.trim(),
-      model: $('p-model').value.trim(),
-      temperature: Number($('p-temp').value) || 0,
-    },
+    provider: formProfile(),
+    providerProfiles: { ...current.providerProfiles, ...profiles, [shownKind]: formProfile() },
     stt: {
       kind: $<HTMLSelectElement>('s-kind').value as SttKind,
       endpoint: $('s-endpoint').value.trim(),
@@ -99,10 +130,9 @@ async function save(): Promise<void> {
     }
   }
   current = await saveSettings(next);
-  await saveSecrets(
-    { translationApiKey: $('p-key').value.trim() || undefined, sttApiKey: $('s-key').value.trim() || undefined },
-    $('k-session').checked,
-  );
+  keys[shownKind] = $('p-key').value.trim() || undefined;
+  const translationApiKeys = Object.fromEntries(Object.entries(keys).filter(([, v]) => !!v));
+  await saveSecrets({ translationApiKeys, sttApiKey: $('s-key').value.trim() || undefined }, $('k-session').checked);
   const warnings: string[] = [];
   if (translationIsRemote(current) && !current.consent.remoteTranslation) warnings.push('Dịch từ xa chưa được cho phép (mục 3).');
   if (sttIsRemote(current) && !current.consent.remoteAudio) warnings.push('Audio Mode từ xa chưa được cho phép (mục 3).');
@@ -129,14 +159,18 @@ async function init(): Promise<void> {
   const secrets = await loadSecrets();
   const session = await chrome.storage.session.get('secrets');
   $('k-session').checked = !!session.secrets;
-  fill(current, { t: secrets.translationApiKey, s: secrets.sttApiKey });
+  for (const k of PROVIDER_KINDS) {
+    const key = apiKeyFor(secrets, k, current.provider.kind);
+    if (key) keys[k] = key;
+  }
+  fill(current, secrets.sttApiKey);
+  // Switching keeps what was typed for the previous provider (in memory until "Lưu").
   $<HTMLSelectElement>('p-kind').addEventListener('change', () => {
-    const kind = $<HTMLSelectElement>('p-kind').value as TranslationProviderKind;
-    const preset = PROVIDER_PRESETS[kind];
-    $('p-endpoint').value = preset.endpoint;
-    $('p-model').value = preset.model;
-    $('p-hint').textContent = HINTS[kind];
+    profiles[shownKind] = formProfile();
+    keys[shownKind] = $('p-key').value.trim() || undefined;
+    showProvider($<HTMLSelectElement>('p-kind').value as TranslationProviderKind);
   });
+  $('p-key').addEventListener('input', markKeys);
   $<HTMLSelectElement>('s-kind').addEventListener('change', () => {
     const kind = $<HTMLSelectElement>('s-kind').value;
     $('s-endpoint').value = kind === 'openai' ? 'https://api.openai.com/v1' : kind === 'local' ? 'http://localhost:8787' : 'mock://';
@@ -146,7 +180,9 @@ async function init(): Promise<void> {
   $('test').addEventListener('click', () => void test());
   $('k-clear').addEventListener('click', async () => {
     await clearSecrets();
+    for (const k of Object.keys(keys)) delete keys[k as TranslationProviderKind];
     $('p-key').value = '';
+    markKeys();
     $('s-key').value = '';
     msg('Đã xóa API key.');
   });

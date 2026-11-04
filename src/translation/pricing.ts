@@ -6,6 +6,10 @@
 const PRICES: { match: RegExp; input: number; output: number }[] = [
   { match: /^gemini-3\.5-flash-lite/i, input: 0.3, output: 2.5 },
   { match: /^gpt-4o-mini/i, input: 0.15, output: 0.6 },
+  // Anthropic list prices (per 1M tokens), from the Claude API reference cached 2026-10-06.
+  { match: /^claude-opus-5-5/i, input: 4, output: 20 },
+  { match: /^claude-sonnet-5-5/i, input: 2, output: 10 },
+  { match: /^claude-haiku-5-5/i, input: 0.1, output: 0.5 },
 ];
 
 export function estimateCostUsd(model: string, inputTokens: number, outputTokens: number): number | null {

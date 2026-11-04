@@ -1,7 +1,8 @@
 import type { StatusResponse } from '../shared/messages';
 import { sendToBackground } from '../shared/messages';
-import { loadSettings, saveSettings, onSettingsChanged, translationIsRemote } from '../shared/settings';
-import type { FrameStatus, Settings, TabStatus } from '../shared/types';
+import { PROVIDER_PRESETS, loadSettings, saveSettings, onSettingsChanged, switchProvider, translationIsRemote } from '../shared/settings';
+import type { FrameStatus, Settings, TabStatus, TranslationProviderKind } from '../shared/types';
+import { originPattern } from '../shared/util';
 import { parseSubtitleFile } from '../subtitles/parse';
 import { adapterById } from '../players/adapters';
 
@@ -40,8 +41,20 @@ function bindSettings(): void {
     outline.checked = s.outline;
     shadow.checked = s.shadow;
     const p = s.provider;
-    $('st-translator').textContent = `${p.kind === 'local' ? 'Backend cục bộ' : p.kind === 'openai' ? 'OpenAI-compatible' : p.kind === 'gemini' ? 'Gemini' : 'Mock (thử nghiệm)'}${p.kind !== 'mock' ? ' · ' + p.model : ''}${translationIsRemote(s) ? ' ☁' : ''}`;
+    $<HTMLSelectElement>('quickProvider').value = p.kind;
+    $('st-translator').textContent = `${PROVIDER_PRESETS[p.kind].label}${p.kind !== 'mock' ? ' · ' + p.model : ''}${translationIsRemote(s) ? ' ☁' : ''}`;
   };
+  // One-click provider switch: activates the stored profile + key of the chosen provider.
+  $<HTMLSelectElement>('quickProvider').addEventListener('change', async (e) => {
+    const kind = (e.target as HTMLSelectElement).value as TranslationProviderKind;
+    const next = switchProvider(settings, kind);
+    const origin = kind !== 'mock' ? originPattern(next.provider.endpoint) : null;
+    // Host permission for that endpoint: request() first (inside this user gesture); it returns
+    // at once without a prompt when already granted.
+    if (origin) await chrome.permissions.request({ origins: [origin] }).catch(() => false);
+    settings = await saveSettings(next);
+    void checkHealth();
+  });
   fill(settings);
   onSettingsChanged((s) => {
     settings = s;

@@ -1,6 +1,6 @@
 import type { Secrets, Settings } from '../shared/types';
 import { isLoopbackUrl } from '../shared/util';
-import { sttIsRemote, translationIsRemote } from '../shared/settings';
+import { apiKeyFor, sttIsRemote, translationIsRemote } from '../shared/settings';
 
 export type BackendState = 'ready' | 'configured' | 'mock' | 'no-consent' | 'no-permission' | 'no-key' | 'unreachable';
 
@@ -51,7 +51,7 @@ async function check(
 
 export async function checkBackends(s: Settings, secrets: Secrets, d: HealthDeps): Promise<{ translation: BackendHealth; stt: BackendHealth }> {
   const [translation, stt] = await Promise.all([
-    check(s.provider.kind, s.provider.endpoint, translationIsRemote(s), s.consent.remoteTranslation, !!secrets.translationApiKey, d),
+    check(s.provider.kind, s.provider.endpoint, translationIsRemote(s), s.consent.remoteTranslation, !!apiKeyFor(secrets, s.provider.kind, s.provider.kind), d),
     check(s.stt.kind, s.stt.endpoint, sttIsRemote(s), s.consent.remoteAudio, !!secrets.sttApiKey, d),
   ]);
   return { translation, stt };

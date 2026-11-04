@@ -27,6 +27,16 @@
 
     <section class="card">
       <div class="row">
+        <label for="quickProvider">AI dịch</label>
+        <select id="quickProvider" title="Đổi nhanh — dùng API key/model đã lưu của từng nhà cung cấp">
+          <option value="gemini">Google Gemini</option>
+          <option value="openai">OpenAI GPT</option>
+          <option value="anthropic">Anthropic Claude</option>
+          <option value="local">Backend cục bộ</option>
+          <option value="mock">Mock</option>
+        </select>
+      </div>
+      <div class="row">
         <label for="displayMode">Hiển thị</label>
         <select id="displayMode">
           <option value="vi">Chỉ tiếng Việt</option>

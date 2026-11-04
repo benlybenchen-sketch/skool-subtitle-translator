@@ -439,6 +439,32 @@ await test('Pretranslation: cues translated before playback reaches them, shown 
   await p.close();
 });
 
+await test('Settings: Gemini / OpenAI GPT / Anthropic Claude as separate providers; switching keeps each one\'s key, model and endpoint', async () => {
+  const o = await context.newPage();
+  await o.goto(`chrome-extension://${extId}/settings/options.html`);
+  const pick = (k) => o.selectOption('#p-kind', k);
+  const val = (id) => o.inputValue(id);
+  const labels = await o.$$eval('#p-kind option', (els) => els.map((e) => e.value));
+  assert(['gemini', 'openai', 'anthropic'].every((k) => labels.includes(k)), labels.join(','));
+  await pick('gemini');
+  await o.fill('#p-model', 'gemini-3.5-flash-lite');
+  await o.fill('#p-key', 'GEMINI-KEY');
+  await pick('anthropic');
+  assert((await val('#p-endpoint')) === 'https://api.anthropic.com' && (await val('#p-model')) === 'claude-opus-5-5', 'Claude preset');
+  assert((await val('#p-key')) === '', 'Claude key must start empty');
+  assert(await o.$eval('#p-temp', (e) => e.disabled), 'temperature not used for Claude');
+  await o.fill('#p-key', 'CLAUDE-KEY');
+  await pick('openai');
+  assert((await val('#p-model')) === 'gpt-4o-mini', 'OpenAI preset');
+  await pick('gemini');
+  assert((await val('#p-key')) === 'GEMINI-KEY' && (await val('#p-model')) === 'gemini-3.5-flash-lite', 'Gemini restored without re-entering');
+  await pick('anthropic');
+  assert((await val('#p-key')) === 'CLAUDE-KEY', 'Claude key kept');
+  const marked = await o.$eval('#p-kind', (s) => [...s.options].filter((x) => x.textContent.includes('✓')).map((x) => x.value).sort().join(','));
+  assert(marked === 'anthropic,gemini', `key markers: ${marked}`);
+  await o.close();
+});
+
 await test('Seek regression: player disables CC on seek → Vietnamese subtitles recover without toggling CC', async () => {
   const before = await setup.evaluate(() => chrome.runtime.sendMessage({ type: 'metrics:get' }));
   const p = await context.newPage();

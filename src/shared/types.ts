@@ -32,7 +32,7 @@ export interface TimedUnit extends Unit {
 
 export type DisplayMode = 'vi' | 'bilingual';
 export type ModePreference = 'auto' | 'caption' | 'audio';
-export type TranslationProviderKind = 'openai' | 'gemini' | 'local' | 'mock';
+export type TranslationProviderKind = 'gemini' | 'openai' | 'anthropic' | 'local' | 'mock';
 export type SttKind = 'openai' | 'local' | 'mock';
 
 export interface TranslationProviderSettings {
@@ -67,7 +67,10 @@ export interface Settings {
   outline: boolean;
   shadow: boolean;
   showPanel: boolean;
+  /** Active translation provider (a copy of its profile). */
   provider: TranslationProviderSettings;
+  /** Remembered endpoint/model/temperature per provider, so switching never loses configuration. */
+  providerProfiles: Partial<Record<TranslationProviderKind, TranslationProviderSettings>>;
   stt: SttSettings;
   consent: ConsentSettings;
   /** Glossary, one entry per line: `English term => Vietnamese` or just `Term` (keep as-is). */
@@ -185,6 +188,9 @@ export interface CacheStats {
 }
 
 export interface Secrets {
+  /** Legacy single key (pre-3.3); still used as a fallback for the active provider. */
   translationApiKey?: string;
+  /** One API key per translation provider. */
+  translationApiKeys?: Partial<Record<TranslationProviderKind, string>>;
   sttApiKey?: string;
 }

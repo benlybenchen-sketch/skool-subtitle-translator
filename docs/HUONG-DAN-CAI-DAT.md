@@ -6,7 +6,7 @@ Tiện ích Chrome này dịch video bài học tiếng Anh trên **Skool** sang
 
 **Cách A — dùng tệp ZIP có sẵn**
 
-1. Tải tệp `release/skool-vi-subtitles-v3.2.0.zip` từ repository GitHub.
+1. Tải tệp `release/skool-vi-subtitles-v3.3.0.zip` từ repository GitHub.
 2. Giải nén vào một thư mục cố định (ví dụ `Documents/skool-vi-subtitles`). Đừng xóa thư mục này sau khi cài.
 3. Mở Chrome, gõ `chrome://extensions` vào thanh địa chỉ.
 4. Bật **Developer mode / Chế độ dành cho nhà phát triển** (góc trên bên phải).
@@ -70,6 +70,11 @@ OPENAI_BASE_URL=http://localhost:11434/v1 OPENAI_MODEL=qwen2.5:7b npm run local-
 ⚠️ **Rủi ro khi lưu API key trong tiện ích:** key được lưu không mã hóa trong hồ sơ Chrome (không đồng bộ lên tài khoản Google).
 Phần mềm độc hại trên máy hoặc người dùng chung hồ sơ Chrome có thể đọc được. Hãy dùng key có giới hạn chi tiêu,
 tích "Chỉ nhớ API key trong phiên trình duyệt này", hoặc tốt nhất dùng backend cục bộ.
+
+### Đổi nhanh giữa Gemini / OpenAI GPT / Anthropic Claude
+Trong Cài đặt, chọn từng nhà cung cấp và nhập API key (+ model nếu muốn) **một lần**, bấm "Lưu & cấp quyền".
+Mỗi nhà cung cấp nhớ key/model/endpoint riêng (dấu ✓ = đã có key). Sau đó đổi AI chỉ bằng ô **"AI dịch"** trong popup.
+Mặc định: Gemini `gemini-3.5-flash-lite`, OpenAI `gpt-4o-mini`, Claude `claude-opus-5-5` (rẻ/nhanh hơn: `claude-haiku-5-5`).
 
 ### Thuật ngữ (glossary)
 

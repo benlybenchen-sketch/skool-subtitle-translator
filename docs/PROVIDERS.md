@@ -40,10 +40,16 @@ Extension settings: provider **Backend cục bộ**, endpoint `http://localhost:
 
 ## Direct providers (key stored in the browser)
 
+Gemini, OpenAI GPT and Anthropic Claude are **separate providers**, each with its own API key,
+endpoint, model and temperature. Switching (Settings dropdown, or the "AI dịch" select in the popup)
+restores the stored configuration of the chosen provider — nothing has to be typed again. Each
+endpoint origin needs Chrome host permission once (asked on the first switch/save).
+
 | Provider | Endpoint | Model example | Notes |
 |---|---|---|---|
 | OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` | Bearer key; uses `response_format: json_object` |
 | Any OpenAI-compatible (Ollama, LM Studio, vLLM, OpenRouter, Groq…) | its `/v1` base URL | depends | Ollama/LM Studio on localhost need no key |
+| Anthropic Claude | `https://api.anthropic.com` | `claude-opus-5-5` (faster/cheaper: `claude-haiku-5-5`) | Official `@anthropic-ai/sdk` (0.137.0, pinned); `x-api-key`; JSON-schema structured output; `output_config.effort: "low"`; server-side `fallbacks: "default"` (Opus/Sonnet 5.5); no `temperature` (rejected by Claude Opus 5.5) |
 | Google Gemini (**recommended, speed-first**) | `https://generativelanguage.googleapis.com/v1beta` | `gemini-3.5-flash-lite` | Key in `x-goog-api-key` header; sends `thinkingConfig.thinkingLevel: "minimal"` (Gemini 3.x only), temperature 0.2, `responseSchema` JSON |
 | STT: OpenAI Whisper API | `https://api.openai.com/v1` | `whisper-1` | `/audio/transcriptions` |
 | STT: faster-whisper / speaches / LocalAI | `http://localhost:8000/v1` | e.g. `Systran/faster-whisper-small.en` | OpenAI-compatible |

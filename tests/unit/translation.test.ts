@@ -381,3 +381,87 @@ describe('Gemini quota / rate limits (real Skool diagnostic: 13× "Gemini HTTP 4
     expect(calls.slice(1).every((c) => c.t >= 30_000)).toBe(true); // nothing sent before the cooldown ended
   });
 });
+
+describe('Anthropic Claude provider (official SDK)', () => {
+  const claudeReply = (text: string, extra: Record<string, unknown> = {}) =>
+    vi.fn(async (_url: any, _init: any) =>
+      jsonResponse({
+        id: 'msg_1', type: 'message', role: 'assistant', model: 'claude-opus-5-5',
+        content: [{ type: 'text', text }], stop_reason: 'end_turn', stop_sequence: null,
+        usage: { input_tokens: 210, output_tokens: 34 }, ...extra,
+      }),
+    );
+
+  it('calls the Messages API with key, structured JSON output, low effort, default fallbacks, no temperature', async () => {
+    const { AnthropicProvider } = await import('../../src/translation/providers/anthropic');
+    const fetchImpl = claudeReply('{"translations":[{"subtitle_id":"s0","translated_text":"Tỷ lệ CTR là 2,5%."}]}');
+    const usage: any[] = [];
+    const p = new AnthropicProvider({ endpoint: 'https://api.anthropic.com', model: 'claude-opus-5-5', apiKey: 'sk-ant-test', fetchImpl: fetchImpl as any });
+    expect(await p.translateBatch({ ...req(['The CTR is 2.5%.']), onUsage: (u) => usage.push(u) })).toEqual({ s0: 'Tỷ lệ CTR là 2,5%.' });
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(String(url)).toBe('https://api.anthropic.com/v1/messages?beta=true');
+    const headers = new Headers(init.headers);
+    expect(headers.get('x-api-key')).toBe('sk-ant-test');
+    expect(headers.get('anthropic-beta')).toContain('server-side-fallback-2026-07-01');
+    expect(headers.get('anthropic-dangerous-direct-browser-access')).toBe('true');
+    const body = JSON.parse(init.body);
+    expect(body).toMatchObject({ model: 'claude-opus-5-5', fallbacks: 'default', output_config: { effort: 'low', format: { type: 'json_schema' } } });
+    expect(body.output_config.format.schema.additionalProperties).toBe(false);
+    expect(body.temperature).toBeUndefined();
+    expect(usage).toEqual([{ inputTokens: 210, outputTokens: 34 }]);
+  });
+
+  it('maps API errors to HttpError (429 retryable with retry-after, 401 permanent) and refusals to a retryable ParseError', async () => {
+    const { AnthropicProvider } = await import('../../src/translation/providers/anthropic');
+    const err = (status: number, headers: Record<string, string> = {}) =>
+      (async () => new Response(JSON.stringify({ type: 'error', error: { type: 'x', message: 'nope' } }), { status, headers: { 'content-type': 'application/json', ...headers } })) as any;
+    const e429 = await new AnthropicProvider({ endpoint: 'https://api.anthropic.com', model: 'claude-haiku-5-5', apiKey: 'k', fetchImpl: err(429, { 'retry-after': '7' }) }).translateBatch(req(['a'])).catch((e) => e);
+    expect(e429).toBeInstanceOf(HttpError);
+    expect(e429.retryable).toBe(true);
+    expect(e429.retryAfterMs).toBe(7000);
+    const e401 = await new AnthropicProvider({ endpoint: 'https://api.anthropic.com', model: 'claude-opus-5-5', apiKey: 'bad', fetchImpl: err(401) }).translateBatch(req(['a'])).catch((e) => e);
+    expect(e401.retryable).toBe(false);
+    const refused = await new AnthropicProvider({ endpoint: 'https://api.anthropic.com', model: 'claude-opus-5-5', apiKey: 'k', fetchImpl: claudeReply('', { stop_reason: 'refusal' }) as any }).translateBatch(req(['a'])).catch((e) => e);
+    expect(refused).toBeInstanceOf(ParseError);
+  });
+
+  it('Haiku: no fallbacks field (not offered), still structured output', async () => {
+    const { AnthropicProvider } = await import('../../src/translation/providers/anthropic');
+    const fetchImpl = claudeReply('{"translations":[{"subtitle_id":"s0","translated_text":"x"}]}');
+    await new AnthropicProvider({ endpoint: 'https://api.anthropic.com', model: 'claude-haiku-5-5', apiKey: 'k', fetchImpl: fetchImpl as any }).translateBatch(req(['a']));
+    const body = JSON.parse(fetchImpl.mock.calls[0][1].body);
+    expect(body.fallbacks).toBeUndefined();
+    expect(body.output_config.format.type).toBe('json_schema');
+  });
+
+  it('requires an API key', async () => {
+    const { AnthropicProvider } = await import('../../src/translation/providers/anthropic');
+    expect(() => new AnthropicProvider({ endpoint: 'https://api.anthropic.com', model: 'claude-opus-5-5' })).toThrow(/API key/);
+  });
+});
+
+describe('per-provider profiles: switch AI in one click without re-entering configuration', () => {
+  it('keeps each provider\'s endpoint/model/temperature and uses its own key', async () => {
+    const { switchProvider, mergeSettings, DEFAULT_SETTINGS, apiKeyFor, profileFor } = await import('../../src/shared/settings');
+    let s = mergeSettings({ ...DEFAULT_SETTINGS, provider: { kind: 'gemini', endpoint: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-3.5-flash-lite', temperature: 0.2 } });
+    s = switchProvider(s, 'anthropic');
+    expect(s.provider).toMatchObject({ kind: 'anthropic', endpoint: 'https://api.anthropic.com', model: 'claude-opus-5-5' }); // preset
+    s = { ...s, provider: { ...s.provider, model: 'claude-haiku-5-5' } }; // user edits Claude
+    s = switchProvider(s, 'openai');
+    expect(s.provider).toMatchObject({ kind: 'openai', endpoint: 'https://api.openai.com/v1', model: 'gpt-4o-mini' });
+    s = switchProvider(s, 'gemini');
+    expect(s.provider.model).toBe('gemini-3.5-flash-lite'); // restored, not reset
+    expect(profileFor(s, 'anthropic').model).toBe('claude-haiku-5-5');
+    const secrets = { translationApiKeys: { gemini: 'g', anthropic: 'a', openai: 'o' } };
+    expect(['gemini', 'openai', 'anthropic'].map((k) => apiKeyFor(secrets, k as any))).toEqual(['g', 'o', 'a']);
+    expect(apiKeyFor({ translationApiKey: 'legacy' }, 'gemini', 'gemini')).toBe('legacy'); // pre-3.3 key still works
+    expect(apiKeyFor({ translationApiKey: 'legacy' }, 'openai', 'gemini')).toBeUndefined();
+  });
+
+  it('createProvider picks the key of the ACTIVE provider only', async () => {
+    const { createProvider } = await import('../../src/translation/providers');
+    const fetchImpl = vi.fn(async () => jsonResponse({ candidates: [{ content: { parts: [{ text: '{"translations":[{"subtitle_id":"s0","translated_text":"x"}]}' }] } }] }));
+    await createProvider({ kind: 'gemini', endpoint: 'https://g', model: 'gemini-3.5-flash-lite', temperature: 0.2 }, { translationApiKeys: { gemini: 'G-KEY', anthropic: 'A-KEY' } }, fetchImpl as any).translateBatch(req(['a']));
+    expect((fetchImpl.mock.calls[0] as any)[1].headers['x-goog-api-key']).toBe('G-KEY');
+  });
+});

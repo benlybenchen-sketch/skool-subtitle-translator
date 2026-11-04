@@ -1,4 +1,4 @@
-import type { Secrets, Settings } from './types';
+import type { Secrets, Settings, TranslationProviderKind, TranslationProviderSettings } from './types';
 import { isLoopbackUrl } from './util';
 
 export const DEFAULT_GLOSSARY = `# One entry per line. "English => Vietnamese" forces a translation,
@@ -57,6 +57,7 @@ export const DEFAULT_SETTINGS: Settings = {
     model: 'default',
     temperature: 0.2,
   },
+  providerProfiles: {},
   stt: {
     kind: 'local',
     endpoint: 'http://localhost:8787',
@@ -86,6 +87,7 @@ export function mergeSettings(stored: Partial<Settings> | undefined): Settings {
     ...DEFAULT_SETTINGS,
     ...s,
     provider: { ...DEFAULT_SETTINGS.provider, ...(s.provider ?? {}) },
+    providerProfiles: { ...(s.providerProfiles ?? {}) },
     stt: { ...DEFAULT_SETTINGS.stt, ...(s.stt ?? {}) },
     consent: { ...DEFAULT_SETTINGS.consent, ...(s.consent ?? {}) },
   };
@@ -151,10 +153,31 @@ export function sttIsRemote(s: Settings): boolean {
   return s.stt.kind !== 'mock' && !isLoopbackUrl(s.stt.endpoint);
 }
 
-export const PROVIDER_PRESETS: Record<string, { endpoint: string; model: string }> = {
-  openai: { endpoint: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+export const PROVIDER_PRESETS: Record<TranslationProviderKind, { endpoint: string; model: string; label: string }> = {
   // Recommended speed-first model (structured JSON, minimal thinking).
-  gemini: { endpoint: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-3.5-flash-lite' },
-  local: { endpoint: 'http://localhost:8787', model: 'default' },
-  mock: { endpoint: 'mock://', model: 'mock' },
+  gemini: { endpoint: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-3.5-flash-lite', label: 'Google Gemini' },
+  openai: { endpoint: 'https://api.openai.com/v1', model: 'gpt-4o-mini', label: 'OpenAI GPT' },
+  anthropic: { endpoint: 'https://api.anthropic.com', model: 'claude-opus-5-5', label: 'Anthropic Claude' },
+  local: { endpoint: 'http://localhost:8787', model: 'default', label: 'Backend cục bộ' },
+  mock: { endpoint: 'mock://', model: 'mock', label: 'Mock (thử nghiệm)' },
 };
+
+export const PROVIDER_KINDS: TranslationProviderKind[] = ['gemini', 'openai', 'anthropic', 'local', 'mock'];
+
+/** Stored profile of a provider, or its preset defaults. */
+export function profileFor(s: Settings, kind: TranslationProviderKind): TranslationProviderSettings {
+  if (s.provider.kind === kind) return s.provider;
+  const p = PROVIDER_PRESETS[kind];
+  return s.providerProfiles[kind] ?? { kind, endpoint: p.endpoint, model: p.model, temperature: 0.2 };
+}
+
+/** One-click switch: remember the current provider's profile, activate the target's. */
+export function switchProvider(s: Settings, kind: TranslationProviderKind): Settings {
+  const providerProfiles = { ...s.providerProfiles, [s.provider.kind]: s.provider };
+  return { ...s, providerProfiles, provider: { ...profileFor({ ...s, providerProfiles }, kind), kind } };
+}
+
+/** API key of a provider (per-provider keys; the legacy single key counts for the active one). */
+export function apiKeyFor(secrets: Secrets, kind: TranslationProviderKind, activeKind?: TranslationProviderKind): string | undefined {
+  return secrets.translationApiKeys?.[kind] ?? (kind === activeKind ? secrets.translationApiKey : undefined);
+}

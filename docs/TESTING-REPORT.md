@@ -4,8 +4,8 @@ Run on 2026-11-03, Node 22, Chromium (Playwright 1.63 build), Linux.
 
 ```
 npm run typecheck   → 0 errors
-npm test            → 15 files, 198 tests passed
-npm run test:e2e    → 23/23 passed (built extension loaded in Chromium, mock pages)
+npm test            → 15 files, 204 tests passed
+npm run test:e2e    → 24/24 passed (built extension loaded in Chromium, mock pages)
 ```
 
 **First real-Skool evidence (user diagnostic, v3.1.1, 2026-11-04):** Skool Native `<video>` lives in an
