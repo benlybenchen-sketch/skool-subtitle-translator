@@ -88,6 +88,7 @@ export const DEFAULT_SETTINGS: Settings = {
     maxDelaySec: 2.5,
     maxSpeedup: 1.35,
     restoreOnFailure: true,
+    showSubtitles: true,
     googleEndpoint: 'https://texttospeech.googleapis.com/v1',
   },
   textDisplayMode: 'vi',

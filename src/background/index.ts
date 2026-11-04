@@ -300,8 +300,7 @@ async function handle(msg: BackgroundRequest, sender: chrome.runtime.MessageSend
       await dubbing.play(tabId, frameId, msg);
       return { ok: true };
     case 'dub:control':
-      await dubbing.control(msg.action, msg.token);
-      if (msg.action === 'stop') dubbingActive = false;
+      if ((await dubbing.control(msg.action, msg.token)) && msg.action === 'stop') dubbingActive = false;
       return { ok: true };
     case 'dub:tabmute':
       if (tabId === undefined) return { ok: false };

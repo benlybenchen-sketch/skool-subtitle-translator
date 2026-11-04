@@ -10,6 +10,7 @@ import { segmentCues } from '../subtitles/segmenter';
 import { Timeline } from '../subtitles/timeline';
 import { DomCaptionSource, ManualSource, TextTrackSource, findEnglishTrack, type TimedSource } from '../subtitles/sources';
 import { CaptionBootstrap, type BootstrapState } from '../players/captionBootstrap';
+import { DubbingSession, type DubSend } from '../dubbing/session';
 import { TranslationScheduler, type SchedulerOptions, type TranslateBridge } from './scheduler';
 import { hash53 } from '../shared/hash';
 import { modeProfile } from '../translation/modes';
@@ -27,6 +28,9 @@ export interface ControllerEnv {
   settings: Settings;
   /** Grace period to wait for late text tracks before declaring "no captions". */
   captionGraceMs?: number;
+  /** Background messaging for AI dubbing (absent → dubbing unavailable in this frame). */
+  dubSend?: DubSend;
+  dubSchedulerOptions?: Partial<import('../dubbing/scheduler').DubSchedulerOptions>;
   /** Test hooks / tuning for the Skool Native caption bootstrap. */
   bootstrapOptions?: Partial<import('../players/captionBootstrap').BootstrapOptions>;
   /** Max wait for a media change after SPA navigation when the <video> element is reused. */
@@ -56,6 +60,9 @@ export class SubtitleController {
   private boot: CaptionBootstrap | null = null;
   private bootNotice: string | undefined;
   private bootNeedsConsent = false;
+  /** AI Vietnamese dubbing session for the current lesson video (Phase 4). */
+  private dub: DubbingSession | null = null;
+  private dubKey = '';
   private timed: TimedSource | null = null;
   private dom: DomCaptionSource | null = null;
   private timeline: Timeline | null = null;
@@ -280,6 +287,7 @@ export class SubtitleController {
       this.bindVideo(target.el);
       this.startBootstrap(target.el, target.provider);
       this.attachCaptionSource();
+      this.syncDubbing();
     } else {
       // Cross-origin player iframe: captions (if any) are read by the content
       // script running inside that frame. Here we only host Audio Mode output.
@@ -288,6 +296,41 @@ export class SubtitleController {
     }
     this.applyVisibility();
     this.queueStatus();
+  }
+
+  /** Create / update / stop the dubbing session to match settings and the current target. */
+  private syncDubbing(): void {
+    const d = this.settings.dubbing;
+    const media = this.target && this.target.kind !== 'iframe' ? this.target.el : null;
+    const want = !!this.env.dubSend && !!media && d.enabled && d.listenMode !== 'original' && this.settings.enabled && !this.audioActive && this.settings.modePreference !== 'audio';
+    const key = want ? [this.videoKey, d.provider, d.voice, d.gender, d.rate, d.maxSpeedup, d.maxDelaySec, d.latePolicy, d.lookaheadSec].join('|') : '';
+    if (this.dub && (!want || key !== this.dubKey)) {
+      this.dub.dispose();
+      this.dub = null;
+    }
+    this.dubKey = key;
+    if (!want || !media) {
+      this.applyVisibility();
+      return;
+    }
+    if (this.dub) {
+      this.dub.updateSettings(d);
+      this.applyVisibility();
+      return;
+    }
+    const session = new DubbingSession(media, hash53(this.videoKey ?? 'unknown'), d, this.env.dubSend!, () => this.queueStatus(), { schedulerOptions: this.env.dubSchedulerOptions });
+    this.dub = session;
+    void session.start().then(() => {
+      if (this.dub !== session) return;
+      if (this.timeline) session.setUnits(this.timeline.units);
+      this.queueStatus();
+    });
+    this.applyVisibility();
+  }
+
+  /** Speech events from the background (chrome.tts / offscreen player), filtered by session token. */
+  onDubEvent(msg: { token: string; segId: string; kind: 'start' | 'end' | 'error' | 'interrupted'; error?: string }): void {
+    this.dub?.onEvent(msg.token, msg.segId, msg.kind, msg.error);
   }
 
   private startBootstrap(video: HTMLMediaElement, provider: string): void {
@@ -364,6 +407,7 @@ export class SubtitleController {
     }
     this.scheduler?.setEnabled(next.enabled && !this.paused && !this.audioActive);
     this.boot?.setEnabled(next.autoEnableCaptions);
+    this.syncDubbing();
     if (!prev.autoEnableCaptions && next.autoEnableCaptions && this.captionsOff && this.target && this.target.kind !== 'iframe') {
       this.stopSources();
       this.attachCaptionSource();
@@ -376,6 +420,7 @@ export class SubtitleController {
   setAudioState(active: boolean, primary: boolean, error?: string): void {
     this.audioActive = active;
     this.audioPrimary = primary;
+    this.syncDubbing();
     if (error) this.error = error;
     if (!active) this.clearLive();
     // Audio Mode works without any accessible media element: page-level overlay.
@@ -420,6 +465,10 @@ export class SubtitleController {
 
   /** Render the subtitle for the current playback time (cheap; called per frame while playing). */
   render = (): void => {
+    if (this.dub) {
+      this.dub.setNoCaptions(!this.timeline && this.captionState === 'unavailable');
+      this.dub.tick();
+    }
     const ov = this.overlay;
     if (!ov) return;
     const mode = this.mode;
@@ -520,18 +569,30 @@ export class SubtitleController {
       video.addEventListener(ev, fn);
       this.videoListeners.push([ev, fn]);
     };
-    on('play', () => this.startLoop());
-    on('playing', () => this.startLoop());
+    on('play', () => {
+      this.startLoop();
+      this.dub?.play();
+    });
+    on('playing', () => {
+      this.startLoop();
+      this.dub?.play();
+    });
     on('pause', () => {
       this.stopLoop();
+      this.dub?.pause();
       this.render();
     });
-    on('ended', () => this.stopLoop());
+    on('ended', () => {
+      this.stopLoop();
+      this.dub?.ended();
+    });
     on('seeking', () => {
+      this.dub?.seek();
       this.scheduler?.setPlayhead(video.currentTime, video.playbackRate);
       this.render();
     });
     on('seeked', () => {
+      this.dub?.seek();
       // Seek completed: re-anchor prefetching on the final position (some players fire
       // `seeking` before currentTime settles), then render from the playback clock.
       this.scheduler?.setPlayhead(video.currentTime, video.playbackRate);
@@ -544,7 +605,10 @@ export class SubtitleController {
       this.pushPlayhead();
       this.watchdog(video);
     });
-    on('ratechange', () => this.scheduler?.setPlayhead(video.currentTime, video.playbackRate));
+    on('ratechange', () => {
+      this.scheduler?.setPlayhead(video.currentTime, video.playbackRate);
+      this.dub?.ratechange();
+    });
     on('emptied', () => {
       // Source swapped in place (some players reuse the <video> between lessons).
       const t = this.target;
@@ -698,6 +762,7 @@ export class SubtitleController {
     return {
       /** Skool Native caption bootstrap: state machine, methods tried, CC controls seen, track snapshots. */
       captionBootstrap: this.boot?.diagnostics() ?? null,
+      dubbing: this.dub?.diagnostics() ?? null,
       /** Privacy-safe lesson identity (hash of route + lesson id). */
       lessonId: this.videoKey ? hash53(this.videoKey) : null,
       videoDetected: media ? (this.target!.kind === 'video' ? 'video' : 'media') : this.target ? 'iframe' : 'none',
@@ -853,6 +918,7 @@ export class SubtitleController {
         this.videoKey ?? 'unknown',
         this.env.bridge,
         () => {
+          if (this.dub && this.timeline) this.dub.setUnits(this.timeline.units);
           this.render();
           this.queueStatus();
         },
@@ -867,6 +933,7 @@ export class SubtitleController {
       this.scheduler.setTimeline(this.timeline);
     }
     this.scheduler.setPlayhead(video?.currentTime ?? 0, video?.playbackRate ?? 1);
+    this.dub?.setUnits(this.timeline.units);
     this.render();
     this.queueStatus();
   }
@@ -933,7 +1000,8 @@ export class SubtitleController {
 
   private applyVisibility(): void {
     const m = this.mode;
-    const show = (m === 'caption' && !!this.target) || (m === 'audio' && this.audioPrimary); // 'paused' → hidden
+    const hideForDub = !!this.dub && !this.settings.dubbing.showSubtitles;
+    const show = ((m === 'caption' && !!this.target) || (m === 'audio' && this.audioPrimary)) && !hideForDub; // 'paused' → hidden
     if (show && this.overlay) this.overlay.setTarget(this.overlayTargetEl());
     this.overlay?.setVisible(show);
     if (!show && this.native) {
@@ -970,6 +1038,9 @@ export class SubtitleController {
     this.native = null;
     this.boot?.dispose();
     this.boot = null;
+    this.dub?.dispose(); // stop speech of this lesson and restore its audio now
+    this.dub = null;
+    this.dubKey = '';
     this.bootNotice = undefined;
     this.bootNeedsConsent = false;
     this.overlay?.setTarget(null);
@@ -1018,6 +1089,7 @@ export class SubtitleController {
       error: this.error ?? quotaError,
       notice: this.notice ?? this.bootNotice,
       captionsOff: this.captionsOff || this.bootNeedsConsent || undefined,
+      dub: this.dub?.status(),
       perf: this.scheduler ? this.perf() : undefined,
       updatedAt: Date.now(),
     };

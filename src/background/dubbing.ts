@@ -186,8 +186,9 @@ export class DubbingService {
     void this.d.sendToFrame(o.tabId, o.frameId, { type: 'dub:event', token: e.token, segId: e.segId, kind: e.event === 'started' ? 'start' : e.event === 'ended' ? 'end' : 'error', error: e.error });
   }
 
-  async control(action: 'stop' | 'pause' | 'resume', token?: string): Promise<void> {
-    if (token && this.owner && this.owner.token !== token && action !== 'stop') return;
+  /** Returns false when the command came from an older session (another lesson owns the voice now). */
+  async control(action: 'stop' | 'pause' | 'resume', token?: string): Promise<boolean> {
+    if (token && this.owner && this.owner.token !== token) return false;
     try {
       if (action === 'stop') this.d.tts?.stop();
       else if (action === 'pause') this.d.tts?.pause();
@@ -197,6 +198,7 @@ export class DubbingService {
     }
     await this.d.sendOffscreen({ target: 'offscreen', type: action === 'stop' ? 'dub-stop' : action === 'pause' ? 'dub-pause' : 'dub-resume' }).catch(() => undefined);
     if (action === 'stop') this.owner = null;
+    return true;
   }
 
   // ---- tab-level mute fallback ---------------------------------------------------------------

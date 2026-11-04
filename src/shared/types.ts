@@ -87,6 +87,8 @@ export interface DubbingSettings {
   maxSpeedup: number;
   /** After sustained TTS failure, restore the original audio. */
   restoreOnFailure: boolean;
+  /** Keep showing Vietnamese subtitles while dubbing. */
+  showSubtitles: boolean;
   /** Google Cloud TTS endpoint. */
   googleEndpoint: string;
 }

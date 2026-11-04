@@ -58,7 +58,16 @@ async function main(): Promise<void> {
     },
   };
 
-  const controller = new SubtitleController({ doc: document, isTop, adapter, bridge, settings });
+  const controller = new SubtitleController({
+    doc: document,
+    isTop,
+    adapter,
+    bridge,
+    settings,
+    dubSend: (m) => sendToBackground(m, { retries: 1 }),
+  });
+  // A previous page in this tab may have muted the tab for dubbing and died: restore it.
+  if (isTop) sendToBackground({ type: 'dub:recover' }, { retries: 0 }).catch(() => undefined);
   const detector = new VideoDetector(document, adapter);
   let panel: ControlPanel | null = null;
   let learning: LearningPanel | null = null;
@@ -188,6 +197,9 @@ async function main(): Promise<void> {
         }
         sendResponse(textLessons?.info() ?? null);
         return;
+      case 'dub:event':
+        controller.onDubEvent(msg);
+        break;
       case 'notes:progress':
         notesView?.onProgress(msg.lessonId, msg.done, msg.total);
         break;
