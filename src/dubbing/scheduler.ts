@@ -80,6 +80,7 @@ export class DubbingScheduler {
   private readonly delays: number[] = [];
   private stats = { spoken: 0, skipped: 0, late: 0, rateAdjusted: 0, failed: 0, prepareRequests: 0, lateSpeechSec: 0, eventTimeouts: 0 };
   private t = 0;
+  private lastSeekAt = -Infinity;
   private rate = 1;
   private playing = false;
   private sig = '';
@@ -161,8 +162,15 @@ export class DubbingScheduler {
   seek(t: number): void {
     this.stopCurrent();
     this.t = t;
+    this.lastSeekAt = this.o.now();
     for (const u of this.units) {
-      if (u.end >= t - 0.2 && (u.status === 'played' || u.status === 'skipped')) u.status = u.text && (this.sink.kind === 'chrome' || u.audioKey) ? 'ready' : 'pending';
+      const done = u.status === 'played' || u.status === 'skipped' || u.status === 'passed';
+      if (u.start < t - 0.5) {
+        // behind the new position (or already half over): not spoken, not counted as missed
+        if (!done && u.status !== 'preparing' && u.status !== 'failed') u.status = 'passed';
+        continue;
+      }
+      if (done || u.status === 'failed') u.status = u.text && (this.sink.kind === 'chrome' || u.audioKey) ? 'ready' : 'pending';
     }
     this.pump();
     if (this.playing) this.tick(t, true, this.rate);
@@ -208,7 +216,7 @@ export class DubbingScheduler {
     }
     for (const u of this.units) {
       if (u.start > t + this.o.leadSec) break;
-      if (u.status === 'played' || u.status === 'skipped' || u.status === 'failed') continue;
+      if (u.status === 'played' || u.status === 'skipped' || u.status === 'passed' || u.status === 'failed') continue;
       const lateSec = t - u.start;
       const delayPolicy = this.o.latePolicy === 'delay';
       const limit = delayPolicy ? this.o.maxDelaySec * 2 : this.o.maxDelaySec;
@@ -280,7 +288,10 @@ export class DubbingScheduler {
   private pump(): void {
     const prepare = this.sink.prepare?.bind(this.sink);
     if (!prepare || this.disposed) return;
-    const horizon = this.t + this.o.lookaheadSec;
+    // Right after a seek only a short window is synthesized (users often seek several times in
+    // a row); the full lookahead resumes once playback has been stable for 8 s.
+    const settled = this.o.now() - this.lastSeekAt > 8000;
+    const horizon = this.t + (settled ? this.o.lookaheadSec : Math.min(15, this.o.lookaheadSec));
     for (const u of this.units) {
       if (this.inflight >= this.o.prefetchConcurrency) return;
       if (u.start > horizon) return;

@@ -84,10 +84,46 @@ async function refresh(): Promise<void> {
   $('usage').innerHTML = HEAD + usageRow('Bài học hiện tại', lesson) + usageRow('Phiên trình duyệt', u.session) + usageRow('Hôm nay', u.today) + usageRow('Tổng đã ghi nhận', u.total);
   const models = Object.entries(u.models).sort((a, b) => b[1].costUsd - a[1].costUsd);
   $('models').innerHTML = HEAD + (models.length ? models.map(([k, b]) => usageRow(esc(k), b)).join('') : '<tr><td colspan="12" class="est">chưa có dữ liệu</td></tr>');
+  await renderTts(st?.status.frames.find((f) => f.dub)?.dub);
   const warn = settings.costWarningUsd > 0 && u.today.costUsd + u.today.estimatedCostUsd >= settings.costWarningUsd;
   $('warn').classList.toggle('hidden', !warn);
   if (warn) $('warn').textContent = `⚠ Chi phí ước tính hôm nay (${usd(u.today.costUsd + u.today.estimatedCostUsd)}) đã vượt ngưỡng cảnh báo ${usd(settings.costWarningUsd)}.`;
 }
+
+async function renderTts(dub?: import('../shared/types').DubStatus): Promise<void> {
+  const r = await sendToBackground<{ usage: { total: TtsRow; today: TtsRow; session: TtsRow; providers: Record<string, TtsRow>; sessionMedianLatencyMs: number; sessionP95LatencyMs: number }; cache: { entries: number; bytes: number } }>({ type: 'dub:usage' }).catch(() => null);
+  if (!r) return;
+  const u = r.usage;
+  const rows: [string, string][] = [
+    ['Trạng thái lồng tiếng (tab)', dub ? `${esc(dub.state)} · ${esc(dub.provider)}${dub.voice ? ' · ' + esc(dub.voice) : ''}` : '– (mở từ popup trên tab Skool có lồng tiếng)'],
+    ['Giọng đã sẵn sàng phía trước', dub ? `${dub.bufferedAheadSec} s` : '–'],
+    ['Câu đã đọc / bỏ qua / trễ (>0.3 s) / tăng tốc', dub ? `${dub.spoken} / ${dub.skipped} / ${dub.late} / ${dub.rateAdjusted}` : '–'],
+    ['Độ trễ đồng bộ trung vị / p95', dub && dub.medianDelayMs !== null ? `${dub.medianDelayMs} ms / ${dub.p95DelayMs} ms` : '–'],
+    ['Giọng Việt đầu tiên sau khi Play', dub?.firstSpeechMs != null ? `${dub.firstSpeechMs} ms` : '–'],
+    ['Độ trễ tạo giọng (phiên) trung vị / p95', `${u.sessionMedianLatencyMs || '–'} ms / ${u.sessionP95LatencyMs || '–'} ms`],
+    ['Cache âm thanh', `${n(r.cache.entries)} đoạn · ${(r.cache.bytes / 1048576).toFixed(1)} MB`],
+  ];
+  $('tts-overview').innerHTML = rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+  const row = (label: string, b?: TtsRow) =>
+    b
+      ? `<tr><td>${label}</td><td>${n(b.requests)}</td><td>${n(b.chars)}</td><td>${n(b.failures)}</td><td>${pct(b.cacheHits, b.cacheHits + b.cacheMisses)}</td><td>${b.latencyCount ? Math.round(b.latencyMsTotal / b.latencyCount) : '–'} ms</td><td class="est">${usd(b.estCostUsd)} (ước tính)</td></tr>`
+      : '';
+  $('tts-usage').innerHTML =
+    '<tr><th></th><th>Yêu cầu</th><th>Ký tự</th><th>Lỗi</th><th>Trúng cache</th><th>Độ trễ TB</th><th>Chi phí</th></tr>' +
+    row('Phiên', u.session) + row('Hôm nay', u.today) + row('Tổng', u.total) +
+    Object.entries(u.providers).map(([k, b]) => row(esc(k), b)).join('');
+}
+type TtsRow = { requests: number; chars: number; failures: number; cacheHits: number; cacheMisses: number; latencyMsTotal: number; latencyCount: number; estCostUsd: number };
+
+$('tts-cache-clear').addEventListener('click', async () => {
+  await sendToBackground({ type: 'dub:cache:clear' });
+  void refresh();
+});
+$('tts-reset').addEventListener('click', async () => {
+  if (!window.confirm('Xóa thống kê lồng tiếng?')) return;
+  await sendToBackground({ type: 'dub:usage:reset' });
+  void refresh();
+});
 
 $('refresh').addEventListener('click', () => void refresh());
 $('p-add').addEventListener('click', () => {

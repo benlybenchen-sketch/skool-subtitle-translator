@@ -12,7 +12,8 @@ export interface SpeechUnit {
   slotEnd: number;
   /** Vietnamese text to speak (validated translation, unchanged); '' until all parts are translated. */
   text: string;
-  status: 'pending' | 'preparing' | 'ready' | 'speaking' | 'played' | 'skipped' | 'failed';
+  /** passed = jumped over by a seek (not counted as missed). */
+  status: 'pending' | 'preparing' | 'ready' | 'speaking' | 'played' | 'skipped' | 'passed' | 'failed';
   /** Synthesized duration at the base rate (cloud), else estimated. */
   durationSec?: number;
   audioKey?: string;
