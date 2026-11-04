@@ -31,6 +31,9 @@ API (for writing your own backend):
 POST /translate   {"source":"en","target":"vi","segments":[{"id":"s0","text":"..."}],
                    "context":["previous line"],"glossary":[{"term":"funnel","translation":"phễu"}]}
                →  {"translations":[{"id":"s0","text":"..."}]}
+                   optional "format":"markup" for text-only lessons (keep <b>, <a1>, ⟦C0⟧ … tags)
+POST /complete    {"system":"...","user":"...","schema":{...},"maxTokens":8000,"model":"..."}
+               →  {"text":"<JSON>","usage":{"inputTokens":0,"outputTokens":0}}     (AI Study Notes)
 POST /transcribe  body: audio/wav (16 kHz mono), headers X-Language, X-Prompt  →  {"text":"..."}
 GET  /health
 ```

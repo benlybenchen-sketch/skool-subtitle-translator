@@ -17,6 +17,12 @@
 - **Secrets:** API keys live in `chrome.storage.local` (or `storage.session`), are read only by the
   service worker, and are never synced. See the risks in PROVIDERS.md.
 - **No remote code:** all code is bundled; the extension-page CSP is `script-src 'self'`.
+- **AI Learning Assistant (v3.5.0):** transcripts, exports and AI notes are built from the current
+  lesson only (no course scraping, no media download). Exports are local downloads (Blob URLs).
+  AI notes are generated only on your click and send the transcript **text** of that lesson to the
+  provider you configured, under the same consent and host-permission rules as subtitles; notes are
+  saved in `chrome.storage.local` on this computer. Text-only lessons are translated only after you
+  opt in (setting) or click "Dịch bài này"; the page's DOM is not rewritten. No new permissions.
 - **Local data:** translations are cached in IndexedDB (auto-pruned after 45 days of non-use, capped
   at 60 000 entries; "Xóa cache" clears everything). Tab status is kept in `storage.session` and is
   removed when the tab closes.

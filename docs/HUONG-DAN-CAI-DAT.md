@@ -6,7 +6,7 @@ Tiện ích Chrome này dịch video bài học tiếng Anh trên **Skool** sang
 
 **Cách A — dùng tệp ZIP có sẵn**
 
-1. Tải tệp `release/skool-vi-subtitles-v3.4.0.zip` từ repository GitHub.
+1. Tải tệp `release/skool-vi-subtitles-v3.5.0.zip` từ repository GitHub.
 2. Giải nén vào một thư mục cố định (ví dụ `Documents/skool-vi-subtitles`). Đừng xóa thư mục này sau khi cài.
 3. Mở Chrome, gõ `chrome://extensions` vào thanh địa chỉ.
 4. Bật **Developer mode / Chế độ dành cho nhà phát triển** (góc trên bên phải).
@@ -102,6 +102,62 @@ Mục **4. Chất lượng dịch** có sẵn danh sách thuật ngữ marketing
 5. Chuyển sang bài học khác trong Classroom: tiện ích tự nhận video mới, **không cần tải lại trang**.
 6. Video YouTube nhúng: hãy bật **CC** trong trình phát YouTube để tiện ích đọc được phụ đề.
 7. Nếu bạn có tệp phụ đề `.vtt` / `.srt` của bài học: popup → **"Nhập .vtt/.srt"**.
+
+## 3b. Trợ lý học tập (v3.5.0)
+
+Mở từ nút **VI** góc dưới phải trang (bấm VI để mở thẻ) hoặc từ popup → mục **"Trợ lý học tập"**.
+Một bảng hiện bên phải trang, có các thẻ:
+
+**📄 Bản ghi** (bài học có video)
+- Danh sách câu phụ đề có mốc thời gian, hiển thị **VI**, **EN+VI** hoặc **EN**.
+- Ô **"Tìm từ khóa…"** tìm trong cả tiếng Anh và tiếng Việt.
+- Bấm mốc thời gian (ví dụ `3:05`) để **tua video** tới đó; câu đang phát được tô sáng.
+- Nút ⧉ sao chép một câu, **"Sao chép tất cả"** sao chép toàn bộ.
+- Dòng trạng thái: **Đầy đủ** (đã có toàn bộ phụ đề bài học) hoặc **MỘT PHẦN** (trình phát mới tải tới
+  một đoạn; bản ghi tăng dần khi bạn xem).
+
+**⬇ Xuất**
+- Chọn định dạng **SRT / VTT / TXT / Markdown** và ngôn ngữ **Tiếng Việt / Song ngữ / English** →
+  **"Xuất phần có sẵn"**. Tệp được tải về máy (không tải lên đâu cả).
+- Nếu bản ghi chưa đầy đủ, tên tệp có đuôi **`-PARTIAL`**.
+- **"Dịch nốt phần còn thiếu rồi xuất"**: dịch các câu chưa dịch (dùng cache, chỉ khi bạn bấm) rồi xuất.
+- Bài viết (không có video) chỉ có TXT/Markdown — không có SRT vì không có mốc thời gian thật.
+
+**🧠 Ghi chú AI**
+- Bấm **"🧠 Tạo ghi chú AI"** — chỉ khi bạn bấm mới gửi **văn bản bản ghi** của bài này tới AI đã chọn
+  trong Cài đặt (dòng "AI: …" cho biết nhà cung cấp/model; tiện ích không tự đổi model).
+- Ghi chú tiếng Việt gồm: tiêu đề, tóm tắt, mục tiêu, khái niệm chính, nhận định của giảng viên,
+  các bước thực hành, thuật ngữ, điểm cần nhớ, checklist áp dụng, mốc thời gian quan trọng.
+  Bấm mốc thời gian trong ghi chú để tua tới đoạn nguồn.
+- Nếu bản ghi chưa đầy đủ: hiện dòng **"AI Notes generated from the available transcript only."**
+- Bài dài (20–60 phút trở lên) được chia phần rồi gộp lại (tốn vài yêu cầu API — xem trong Thống kê).
+- Ghi chú được **lưu trên máy theo từng bài**; mở lại bài (kể cả sau khi tắt Chrome) sẽ hiện ngay,
+  không gọi API. Có nút **Tạo lại**, **Sao chép**, **⬇ MD**, **⬇ TXT**, **Sửa** (sửa và lưu bản của bạn).
+
+### Bài học dạng văn bản (không có video)
+
+Ví dụ bài **"READ ME BEFORE YOU GO ON"** chỉ có chữ.
+1. Mở bài: sau ~3 giây nút VI hiện **"Bài học dạng văn bản (chưa dịch)"**.
+2. Bấm **"Dịch bài này"** — hoặc **"Luôn tự dịch"** / Cài đặt → mục 5 →
+   **"Tự động dịch bài học dạng văn bản"** để các bài viết sau tự dịch khi mở (không cần F5).
+3. Bản tiếng Việt giữ tiêu đề, in đậm, danh sách, liên kết, đoạn code, hình ảnh. Phần đang dịch vẫn
+   hiện tiếng Anh để bạn đọc tiếp.
+4. Chuyển hiển thị ngay lập tức (không gọi lại API): **EN** (bản gốc) / **VI** (mặc định) / **EN+VI**
+   (tiếng Việt ngay dưới từng đoạn). **"Khôi phục bản gốc"** trả trang về nguyên trạng.
+5. Nút của Skool (Hoàn thành bài, bình luận…) vẫn hoạt động bình thường; menu, tên người dùng,
+   bình luận không bị dịch.
+6. Mở lại bài đã dịch: lấy từ cache, không tốn API. Nếu giảng viên sửa bài, chỉ đoạn đã sửa được dịch lại.
+7. Popup cũng có thẻ **"Bài học dạng văn bản"** với các nút tương tự.
+
+Văn bản bài viết chỉ được gửi tới dịch vụ dịch khi bạn đã cho phép "gửi văn bản phụ đề" (mục 3 Cài đặt)
+hoặc dùng backend cục bộ.
+
+### Kiểm tra trên Skool thật (v3.5.0)
+☐ Bản ghi: tìm kiếm, bấm mốc thời gian tua đúng · ☐ Xuất SRT mở được trong VLC, dấu tiếng Việt đúng ·
+☐ Bản thiếu có `-PARTIAL` · ☐ Ghi chú AI chỉ chạy khi bấm, đúng nội dung bài, mốc thời gian đúng ·
+☐ Mở lại bài: ghi chú hiện ngay · ☐ Bài viết: chỉ phần nội dung được dịch, giữ định dạng, EN/VI/EN+VI,
+khôi phục được · ☐ Nút Skool vẫn bấm được · ☐ Bài viết → video → bài viết không cần F5 ·
+☐ Bài video tải chậm không bị nhận nhầm là bài viết. Nếu lỗi: popup → "Chạy chẩn đoán" → gửi kết quả.
 
 ## 4. Bật Audio Mode (khi video không có phụ đề)
 

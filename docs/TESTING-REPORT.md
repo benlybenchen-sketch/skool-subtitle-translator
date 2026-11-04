@@ -1,11 +1,11 @@
 # Testing report
 
-Run on 2026-11-03, Node 22, Chromium (Playwright 1.63 build), Linux.
+Run on 2026-11-04 (v3.5.0), Node 22, Chromium (Playwright 1.63 build), Linux.
 
 ```
 npm run typecheck   → 0 errors
-npm test            → 18 files, 238 tests passed
-npm run test:e2e    → 26/26 passed (built extension loaded in Chromium, mock pages)
+npm test            → 21 files, 296 tests passed
+npm run test:e2e    → 30/30 passed (built extension loaded in Chromium, mock pages)
 ```
 
 **First real-Skool evidence (user diagnostic, v3.1.1, 2026-11-04):** Skool Native `<video>` lives in an
@@ -63,6 +63,10 @@ with a logged-in Skool account.
 
 | 28 | **Phase 2: adaptive prefetch, translation intelligence, usage accounting** | `scheduler.test` (P0 current / P1 0–15 s / P2 15–60 s / P3 lookahead / P4 background; 2× urgency; FAST caps P2 at its 45 s horizon; live mode switch keeps translations; bounded window-edge spill-over), `api-speed.test` (measured, see below), `intelligence.test` (glossary migration / presets without overwrite / active subjects change the cache version / import-export; reordered + malformed replies; context per mode; per-mode model only when user-configured, approval for pricier/unknown), `usage.test` (Gemini / OpenAI / Claude / local usage parsing incl. cached, cache-write and reasoning tokens; pricing with cached tokens; ledger by total/day/model/lesson/session surviving a worker restart; estimates and unpriced tokens kept apart; cache hits never counted as API usage) | ✓ glossary editor, mode selectors, dashboard (ledger rows, price edits persist, no subtitles/keys/lesson URLs shown) |
 
+| 29 | **Phase 3A: transcript & export** | `transcript.test` — coverage complete/partial/none (never "complete" just because loaded cues were processed), version changes with translations, search EN+VI, SRT exact output (`HH:MM:SS,mmm`, sequence numbers, sorted, Unicode), VTT header/dot milliseconds, duplicates and zero-length segments dropped (no invented timing), overlaps kept, TXT/MD with timestamps, `-PARTIAL` file names, unsafe characters removed, SRT/VTT refused for text lessons; panel rows/search/seek/highlight; export downloads locally with no translation call; controller transcript from cached units, seek, "complete missing" makes 0 extra calls | ✓ VI control → "📄 Bản ghi": rows EN/VI, search filter, timestamp click seeks, SRT download (name + body format checked); ✓ top-frame panel reads captions held by a Loom-style iframe |
+| 30 | **Phase 3B: AI Study Notes** | `notes.test` — refs to labels never sent are dropped (timestamps cannot be fabricated), text lessons get none, malformed output coerced, strict schema; partial coverage → prompt guard + banner + `-PARTIAL`; short lesson = 1 call; 60-min lesson = chunks + merge with refs from first and last part, deduplicated, bounded input; regeneration reuses chunk results (not for another model); persistence across a new manager (restart), saved notes returned with 0 calls, local edit/restore; cancel aborts; consent missing / host permission missing → nothing sent; configured model used + `notes` accounting label; 429 retried, 401 not; subtitle batches win queue slots over notes; Gemini/OpenAI/Anthropic/local `complete()` request formats; UI makes no call before the click, renders sections with clickable timestamps, saved notes shown without generating, model output rendered as text only | ✓ notes generated only after the click, timestamp click seeks, saved in `storage.local`, after reload shown with no new request |
+| 31 | **Phase 3C: text-only lessons** | `text.test` with the realistic fixture `tests/fixtures/skool-text-lesson.html` ("READ ME BEFORE YOU GO ON": nav, sidebar, title, rich text, buttons, comments) — article found without nav/sidebar/usernames/buttons/comments; block kinds; markup for bold/italic/links/inline code; nested lists not swallowed; code block untouched; safe rendering (href from original, `javascript:` dropped, `<img onerror>` from the model stays text, broken tags → plain text); no call before start; VI-only clone keeps headings/lists/links/code/images, original DOM byte-identical and hidden; bilingual companions; no duplicates after mode toggles; exact restore; original readable while pending; edited block alone re-translated; removed view repaired; fatal consent error stops the job; TXT/MD keep structure, no SRT, notes without timestamps; manager: opt-in vs "Dịch bài này", default VI-only, loading video never classified as text, SPA text→video restores, non-Classroom inactive | ✓ mock Skool text lesson: "Dịch bài này" offered (auto off), Vietnamese with bold/link/code kept, original hidden, EN+VI / EN (restore) / VI instant with 0 new requests, Skool button still works, "Luôn tự dịch" persisted, SPA → next text lesson auto-translated, → video lesson: text view removed and video subtitles work, reload served from cache (0 new requests), no page errors |
+
 ### Measured scheduling performance (simulated)
 `tests/unit/api-speed.test.ts` — 10-minute lesson, cues every 2.5 s, only ~90 s exposed initially, the
 rest in 90 s chunks; API latency on the same simulated clock as playback. These are **simulation**
@@ -111,3 +115,22 @@ See also the Vietnamese checklist in [HUONG-DAN-CAI-DAT.md](HUONG-DAN-CAI-DAT.md
 
 Record failures with the popup status text, the provider, and the service-worker console
 (`chrome://extensions` → "service worker" → Inspect).
+
+### Phase 3 manual checklist (real Skool, logged in)
+
+| Check | Result |
+|---|---|
+| Video lesson: "📄 Bản ghi" lists EN/VI lines, search works, timestamp click seeks the Skool player | ☐ |
+| Coverage line says "Đầy đủ" only when the whole lesson's captions are known; otherwise "MỘT PHẦN" | ☐ |
+| Export SRT/VTT/TXT/MD opens correctly (SRT in VLC / a subtitle editor; Vietnamese diacritics intact) | ☐ |
+| Partial export: file name ends with `-PARTIAL`, warning shown | ☐ |
+| "🧠 Tạo ghi chú AI": nothing is sent before the click; provider/model shown = Settings | ☐ |
+| Notes in Vietnamese, content matches the lesson (spot-check 5 claims against the video), timestamps seek correctly | ☐ |
+| Partial transcript → banner "AI Notes generated from the available transcript only." | ☐ |
+| 20–60 min lesson: notes complete, popup/dashboard shows the extra requests and tokens | ☐ |
+| Reopen the lesson (also after restarting Chrome): saved notes appear with no new request | ☐ |
+| Text lesson (e.g. "READ ME BEFORE YOU GO ON"): detected; only the lesson body is translated (no menu, names, comments) | ☐ |
+| Headings, bold, lists, links (click one), images kept; EN / VI / EN+VI switch instantly; "Khôi phục bản gốc" restores | ☐ |
+| Skool controls still work on a translated text lesson (mark complete, next lesson, comments, likes) | ☐ |
+| Text lesson → video lesson → text lesson without F5; no duplicate translated blocks | ☐ |
+| A video lesson that loads slowly is never turned into a "text lesson" | ☐ |

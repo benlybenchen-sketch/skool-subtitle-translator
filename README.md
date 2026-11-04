@@ -10,6 +10,10 @@ Chrome extension (Manifest V3) that translates English lesson videos inside **Sk
   **only the current tab's audio** after you click the button in the toolbar popup, runs
   speech-to-text in short utterance chunks, translates, and shows live Vietnamese subtitles.
 
+- **AI Learning Assistant (v3.5.0):** interactive transcript (search, seek, EN/VI), SRT/VTT/TXT/MD
+  exports, user-triggered grounded **AI Study Notes**, and translation of **text-only lessons** with
+  formatting preserved (Original / Vietnamese / Bilingual). See [CHANGELOG.md](CHANGELOG.md).
+
 > 🇻🇳 Hướng dẫn cài đặt tiếng Việt: **[docs/HUONG-DAN-CAI-DAT.md](docs/HUONG-DAN-CAI-DAT.md)**
 
 | Document | Content |
@@ -30,7 +34,7 @@ npm install
 npm run package
 ```
 
-This builds `dist/` (the installable, unpacked extension) and `release/skool-vi-subtitles-v3.4.0.zip`.
+This builds `dist/` (the installable, unpacked extension) and `release/skool-vi-subtitles-v3.5.0.zip`.
 A prebuilt ZIP is committed under `release/`.
 
 Load it: `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select `dist/`
@@ -74,6 +78,9 @@ src/
   audio/        offscreen document, AudioWorklet, VAD chunker, WAV encoder
   speech/       STT backends (OpenAI-compatible Whisper API, local server, mock), live segment assembler
   overlay/      Shadow-DOM subtitle overlay, native-fullscreen TextTrack fallback
+  transcript/   unified transcript model (view over the timeline) + SRT/VTT/TXT/MD export
+  notes/        AI Study Notes: schema/validation, hierarchical generation, Markdown/TXT rendering
+  text/         text-only lessons: article detection, markup serialisation, clone-based translator
   popup/        toolbar popup UI
   settings/     options page (providers, keys, consent, glossary)
   shared/       types, settings, messaging, utilities

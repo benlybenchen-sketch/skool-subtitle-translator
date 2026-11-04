@@ -20,6 +20,42 @@ boundaries. In that situation:
   fullscreen the overlay only shows if the fullscreen element is in the accessible DOM.
 - Use popup → **"Chạy chẩn đoán"** and share the result when reporting issues.
 
+## AI Learning Assistant (v3.5.0) — not yet verified on real Skool
+**Transcript & export**
+- The transcript is what the extension has actually read: on players that load captions
+  progressively (CC off + `hidden` mode) it grows while the video plays. "Đầy đủ / complete" is shown
+  only when a caption file was read or cues reach the end of the video; otherwise exports are
+  marked `-PARTIAL`. Audio Mode lines are not part of the transcript.
+- The transcript of a player iframe (Loom-style) is read from that frame; "translate missing first"
+  then waits for the frame without progress updates.
+- Merged/segmented units are exported (sentence units, not necessarily the player's original cue
+  boundaries); timestamps are the real cue times of those units.
+
+**AI Study Notes**
+- Quality depends entirely on the configured model; the extension validates structure and
+  references, not the truth of every sentence. Spot-check important claims.
+- A reference can only point at a line that was sent, but the model may still cite a less relevant
+  line. Text lessons have no timestamps by design.
+- Very long lessons: at most ~400 000 transcript characters are used (≈ 6–8 h of speech); beyond
+  that the notes say "đã cắt bớt". Long lessons cost several requests (chunks + merge) — shown in the
+  usage dashboard. Gemini/OpenAI-compatible use JSON mode (schema described in the prompt);
+  Anthropic uses strict JSON-schema output. `max_tokens` is sent to OpenAI-compatible servers;
+  reasoning-only OpenAI models that require `max_completion_tokens` are not supported for notes.
+- Regenerating replaces a locally edited version (the button says so).
+- Notes are stored in `chrome.storage.local` (≈ 10 MB quota for the extension, shared with the
+  usage ledger); they are not synced between computers.
+
+**Text-only lessons**
+- Detection is heuristic (text density, semantic tags, exclusion of UI/comment regions). The lesson
+  title above the body is translated only when it is inside the detected container; a page with a
+  player-shaped element (`[class*=video]`, `canvas`…) is treated as a video lesson.
+- The translated view is a copy of the article: interactive widgets inside the article itself (rare:
+  embedded forms, checkboxes, copy buttons) are inert in the copy — switch to EN for them. Embedded
+  iframes/videos inside an article are not duplicated.
+- Inline formatting is carried through lightweight tags; if a model breaks them the block falls
+  back to plain text (no formatting, still translated). Spans with custom styling are flattened.
+- Content rendered on canvas/images is not translated (no OCR, by design).
+
 ## Modes, glossary and cost (v3.4.0)
 - Mode values (batch sizes, 45 / 90 / 120 s lookahead, context 1 / 3 / 6) are initial tuning values,
   measured only in simulation. The window edge may spill over by up to half a batch.
