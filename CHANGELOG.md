@@ -1,5 +1,36 @@
 # Changelog
 
+## 3.5.1 — Automatic English caption activation for Skool Native
+- New `CaptionBootstrap` (src/players/captionBootstrap.ts), one per lesson video, with the state
+  machine WAITING_FOR_PLAYER → PLAYER_READY → ACTIVATING_ENGLISH → VERIFYING_CAPTIONS →
+  TRANSLATING → MONITORING / FAILED(reason). It runs only when "Tự bật phụ đề tiếng Anh" is
+  opted in.
+- Methods are tried in order, each at most once per lesson:
+  1. `hidden` mode on an existing English track. Success requires English cues to actually
+     arrive during playback, not just that the track exists.
+  2. media-chrome's `mediashowsubtitlesrequest` (players built on `<media-controller>`).
+  3. The player's own captions control. It is found semantically (aria-label, title, role, tag)
+     inside the player's open shadow roots. The extension opens the menu once, picks English,
+     and closes the menu with Escape.
+- Safety rules for the player controls:
+  - The CC button is never clicked twice.
+  - A CC toggle that is already on is never clicked.
+  - Nothing is ever positioned by screen coordinates.
+- After the extension itself selected English, the player's English rendering is hidden with
+  `video::cue` inside the player's shadow root, so only Vietnamese shows.
+- Lost captions are re-activated once, bounded to 2 attempts with the player's controls per
+  lesson. If the player keeps re-disabling `hidden` ("enforced"), the extension goes straight to
+  the player's own selection.
+- Not opted in, but the player has a CC control and no track yet: the one-time question is now
+  shown here too.
+- Diagnostics (`subtitles.captionBootstrap`):
+  - state, methods tried, the CC controls found (tag, role, aria attributes, label);
+  - track snapshots (kind, language, label, mode, cue count, last cue end) on every
+    addtrack / removetrack / change event;
+  - each snapshot is tagged `extension` or `external`, so a manual CC → English shows the
+    before/after state;
+  - no caption text, no URLs.
+
 ## 3.5.0 — Phase 3: Skool AI Learning Assistant
 
 ### 3A — Transcript manager & export

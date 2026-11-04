@@ -1,11 +1,11 @@
 # Testing report
 
-Run on 2026-11-04 (v3.5.0), Node 22, Chromium (Playwright 1.63 build), Linux.
+Run on 2026-11-04 (v3.5.1), Node 22, Chromium (Playwright 1.63 build), Linux.
 
 ```
 npm run typecheck   → 0 errors
-npm test            → 21 files, 296 tests passed
-npm run test:e2e    → 30/30 passed (built extension loaded in Chromium, mock pages)
+npm test            → 22 files, 314 tests passed
+npm run test:e2e    → 31/31 passed (built extension loaded in Chromium, mock pages)
 ```
 
 **First real-Skool evidence (user diagnostic, v3.1.1, 2026-11-04):** Skool Native `<video>` lives in an
@@ -67,6 +67,8 @@ with a logged-in Skool account.
 | 30 | **Phase 3B: AI Study Notes** | `notes.test` — refs to labels never sent are dropped (timestamps cannot be fabricated), text lessons get none, malformed output coerced, strict schema; partial coverage → prompt guard + banner + `-PARTIAL`; short lesson = 1 call; 60-min lesson = chunks + merge with refs from first and last part, deduplicated, bounded input; regeneration reuses chunk results (not for another model); persistence across a new manager (restart), saved notes returned with 0 calls, local edit/restore; cancel aborts; consent missing / host permission missing → nothing sent; configured model used + `notes` accounting label; 429 retried, 401 not; subtitle batches win queue slots over notes; Gemini/OpenAI/Anthropic/local `complete()` request formats; UI makes no call before the click, renders sections with clickable timestamps, saved notes shown without generating, model output rendered as text only | ✓ notes generated only after the click, timestamp click seeks, saved in `storage.local`, after reload shown with no new request |
 | 31 | **Phase 3C: text-only lessons** | `text.test` with the realistic fixture `tests/fixtures/skool-text-lesson.html` ("READ ME BEFORE YOU GO ON": nav, sidebar, title, rich text, buttons, comments) — article found without nav/sidebar/usernames/buttons/comments; block kinds; markup for bold/italic/links/inline code; nested lists not swallowed; code block untouched; safe rendering (href from original, `javascript:` dropped, `<img onerror>` from the model stays text, broken tags → plain text); no call before start; VI-only clone keeps headings/lists/links/code/images, original DOM byte-identical and hidden; bilingual companions; no duplicates after mode toggles; exact restore; original readable while pending; edited block alone re-translated; removed view repaired; fatal consent error stops the job; TXT/MD keep structure, no SRT, notes without timestamps; manager: opt-in vs "Dịch bài này", default VI-only, loading video never classified as text, SPA text→video restores, non-Classroom inactive | ✓ mock Skool text lesson: "Dịch bài này" offered (auto off), Vietnamese with bold/link/code kept, original hidden, EN+VI / EN (restore) / VI instant with 0 new requests, Skool button still works, "Luôn tự dịch" persisted, SPA → next text lesson auto-translated, → video lesson: text view removed and video subtitles work, reload served from cache (0 new requests), no page errors |
 
+| 32 | **Skool Native automatic CC activation** (real report: every new lesson needed CC → English by hand) | `cc-bootstrap.test` uses fake players modelling each state. **C:** no track until CC → English is picked in the menu → menu opened once, English chosen once, menu closed, Vietnamese shown, English rendering hidden. **D:** the player reverts `hidden` → escalates to the player menu, playback position kept. **A:** `hidden` works → no UI interaction. media-chrome request event. A CC toggle is pressed exactly once. Captions already on → nothing clicked (never turned off). Cue batches every 60 s → translated to the end of a 10-min lesson. 2× with seeks. Fullscreen does not re-run activation. SPA lesson switch → new bootstrap, old player untouched. Rapid A→B→C → only C activated. No CC control → FAILED with a reason. Player ignores synthetic clicks → FAILED after ≤ 2 attempts. Controls removed → bounded. Repeated track events → no re-click. Not opted in → nothing touched + one-time question. Later opt-in → activates without reload. Manual selection → picked up and logged as `external` | ✓ mock Skool page whose shadow-DOM player creates its English track only through its CC menu: just `play()`, Vietnamese appears without any CC click; exactly 1 CC + 1 English click; menu closed; mode `showing` with native text hidden; diagnostics show `native-ui` and contain no caption text; next lesson (SPA, new player) is also automatic |
+
 ### Measured scheduling performance (simulated)
 `tests/unit/api-speed.test.ts` — 10-minute lesson, cues every 2.5 s, only ~90 s exposed initially, the
 rest in 90 s chunks; API latency on the same simulated clock as playback. These are **simulation**
@@ -115,6 +117,16 @@ See also the Vietnamese checklist in [HUONG-DAN-CAI-DAT.md](HUONG-DAN-CAI-DAT.md
 
 Record failures with the popup status text, the provider, and the service-worker console
 (`chrome://extensions` → "service worker" → Inspect).
+
+### Auto CC checklist (v3.5.1, real Skool, "Tự bật phụ đề tiếng Anh" opted in)
+
+| Check | Result |
+|---|---|
+| New Skool Native lesson → only Play → Vietnamese starts; CC never clicked by hand | ☐ |
+| Next lesson (no F5) → same; also after seeking, 2×, fullscreen | ☐ |
+| Player's English text not visible (only Vietnamese); CC never switched OFF by the extension | ☐ |
+| If it fails: popup → "Chạy chẩn đoán" → `subtitles.captionBootstrap` (state, reason, ccControls, events) | ☐ |
+| Evidence run: with Auto CC OFF, open a lesson, Play, then click CC → English by hand, run diagnostics — the `external` events show what the player changed (needed if automation fails) | ☐ |
 
 ### Phase 3 manual checklist (real Skool, logged in)
 

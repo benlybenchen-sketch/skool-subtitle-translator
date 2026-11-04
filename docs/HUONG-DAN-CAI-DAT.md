@@ -6,7 +6,7 @@ Tiện ích Chrome này dịch video bài học tiếng Anh trên **Skool** sang
 
 **Cách A — dùng tệp ZIP có sẵn**
 
-1. Tải tệp `release/skool-vi-subtitles-v3.5.0.zip` từ repository GitHub.
+1. Tải tệp `release/skool-vi-subtitles-v3.5.1.zip` từ repository GitHub.
 2. Giải nén vào một thư mục cố định (ví dụ `Documents/skool-vi-subtitles`). Đừng xóa thư mục này sau khi cài.
 3. Mở Chrome, gõ `chrome://extensions` vào thanh địa chỉ.
 4. Bật **Developer mode / Chế độ dành cho nhà phát triển** (góc trên bên phải).
@@ -102,6 +102,22 @@ Mục **4. Chất lượng dịch** có sẵn danh sách thuật ngữ marketing
 5. Chuyển sang bài học khác trong Classroom: tiện ích tự nhận video mới, **không cần tải lại trang**.
 6. Video YouTube nhúng: hãy bật **CC** trong trình phát YouTube để tiện ích đọc được phụ đề.
 7. Nếu bạn có tệp phụ đề `.vtt` / `.srt` của bài học: popup → **"Nhập .vtt/.srt"**.
+
+## 3a. Tự bật phụ đề tiếng Anh trên Skool Native (v3.5.1)
+
+1. Cho phép một lần: bấm **"Đồng ý"** ở câu hỏi trên nút VI, hoặc vào Cài đặt → mục 5 → tích
+   **"Tự bật phụ đề tiếng Anh để dịch"**.
+2. Mở bài học mới → bấm **Play**. Tiện ích sẽ thử lần lượt:
+   1. bật track tiếng Anh ở chế độ ẩn;
+   2. nếu trình phát không nhận, gửi yêu cầu chọn phụ đề theo chuẩn của trình phát;
+   3. nếu vẫn chưa được, tự mở menu CC của trình phát và chọn **English** đúng **một lần**.
+3. Khi phụ đề tiếng Anh đã có, tiện ích ẩn chữ Anh của trình phát và chỉ hiện tiếng Việt.
+4. Chuyển bài khác: tự làm lại, không cần F5.
+5. Tiện ích không bao giờ tắt CC của bạn và không thử lặp vô hạn. Nếu không được, nút VI báo
+   **"Không tự bật được phụ đề tiếng Anh…"** kèm lý do. Khi đó:
+   - bấm CC → English một lần, tiện ích sẽ dịch ngay;
+   - sau đó vào popup → **"Chạy chẩn đoán"** → **"Sao chép chẩn đoán"** và gửi lại. Mục
+     `captionBootstrap` cho biết trình phát đã thay đổi gì, không chứa nội dung bài học.
 
 ## 3b. Trợ lý học tập (v3.5.0)
 

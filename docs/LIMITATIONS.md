@@ -20,6 +20,23 @@ boundaries. In that situation:
   fullscreen the overlay only shows if the fullscreen element is in the accessible DOM.
 - Use popup → **"Chạy chẩn đoán"** and share the result when reporting issues.
 
+## Automatic CC activation on Skool Native (v3.5.1) — not yet verified on real Skool
+- **The root cause on real Skool is not proven yet.** One earlier diagnostic showed `hidden` mode
+  working, but the report that every new lesson needs CC → English points to state C (track
+  created only by the player's menu) or state D (the player's internal state overrides track
+  modes). v3.5.1 handles A–D and records evidence (`captionBootstrap` diagnostics) so the real
+  case can be confirmed.
+- The player's controls are found by accessible names (`Captions` / `Subtitles` / `CC` /
+  "phụ đề", roles, aria attributes, media-chrome tags) inside open shadow roots. A player that
+  has no accessible name on its CC button, uses a closed shadow root, renders its menu on a
+  canvas, or **ignores synthetic (untrusted) clicks** cannot be driven. The extension then
+  reports `FAILED` with the reason; it does not use `chrome.debugger`, coordinates or other
+  privileged input.
+- At most 2 uses of the player's controls per lesson. If the player turns captions off again
+  after that, translation continues with the cues already read and the notice says so.
+- Hiding the player's English text uses `video::cue` (native rendering). A player that draws
+  captions in its own DOM element will still show English under the Vietnamese.
+
 ## AI Learning Assistant (v3.5.0) — not yet verified on real Skool
 **Transcript & export**
 - The transcript is what the extension has actually read: on players that load captions

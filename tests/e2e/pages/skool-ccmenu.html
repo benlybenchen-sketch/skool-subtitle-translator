@@ -1,0 +1,54 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Mock Skool lesson (CC menu creates the track)</title>
+<style>body{margin:0;font-family:sans-serif}</style></head>
+<body>
+  <!-- Mock of a Skool Native lesson whose player creates its English TextTrack ONLY when the user
+       picks CC → English in the player's own menu (NOT real Skool markup). -->
+  <h1 id="lesson-title">Lesson CC-1</h1>
+  <skool-player id="sp"></skool-player>
+  <script>
+    window.ccClicks = 0; window.optionClicks = 0;
+    function mount(prefix) {
+      const host = document.getElementById('sp');
+      const root = host.shadowRoot || host.attachShadow({ mode: 'open' });
+      root.innerHTML = `<style>.wrap{width:960px;height:540px;position:relative;background:#000}video{width:100%;height:100%}
+        .bar{position:absolute;bottom:0;left:0;right:0;display:flex;gap:6px}.menu[hidden]{display:none}</style>
+        <div class="wrap"><video muted playsinline crossorigin="anonymous" src="/media/long.wav"></video>
+        <div class="bar"><button aria-label="Play">▶</button>
+          <button class="cc" aria-label="Captions" aria-haspopup="menu" aria-expanded="false">CC</button>
+          <div class="menu" role="menu" hidden><div role="menuitemradio" aria-checked="true" data-v="off">Off</div><div role="menuitemradio" aria-checked="false" data-v="en">English</div></div>
+        </div></div>`;
+      const v = root.querySelector('video'), cc = root.querySelector('.cc'), menu = root.querySelector('.menu');
+      let track = null, loaded = 0;
+      const stream = () => {
+        if (!track || track.mode === 'disabled') return;
+        const until = Math.min(720, v.currentTime + 60);
+        for (let t = Math.ceil(loaded / 5) * 5; t < until; t += 5) track.addCue(new VTTCue(t + 0.5, t + 4, `${prefix} line ${t / 5}.`));
+        loaded = Math.max(loaded, until);
+      };
+      v.addEventListener('timeupdate', stream);
+      cc.addEventListener('click', () => {
+        window.ccClicks++;
+        const open = cc.getAttribute('aria-expanded') !== 'true';
+        cc.setAttribute('aria-expanded', String(open)); menu.hidden = !open;
+      });
+      menu.querySelectorAll('[role=menuitemradio]').forEach((it) => it.addEventListener('click', () => {
+        window.optionClicks++;
+        if (it.dataset.v === 'en') {
+          if (!track) track = v.addTextTrack('subtitles', 'English CC', 'en');
+          track.mode = 'showing';
+          stream();
+        } else if (track) track.mode = 'disabled';
+      }));
+      root.querySelector('.wrap').addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { cc.setAttribute('aria-expanded', 'false'); menu.hidden = true; }
+      });
+    }
+    mount('Lesson one');
+    window.goNextCcLesson = () => {
+      history.pushState({}, '', location.pathname + '?md=ccmenu2');
+      document.getElementById('lesson-title').textContent = 'Lesson CC-2';
+      mount('Lesson two');
+    };
+  </script>
+</body></html>

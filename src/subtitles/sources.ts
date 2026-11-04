@@ -6,7 +6,7 @@ import { parseSubtitleFile } from './parse';
 /** Our own tracks (native fullscreen fallback) must never be read as a source. */
 export const ownTracks = new WeakSet<TextTrack>();
 
-const isOwn = (t: TextTrack) => ownTracks.has(t) || t.label === NativeTrackFallback.LABEL;
+export const isOwn = (t: TextTrack) => ownTracks.has(t) || t.label === NativeTrackFallback.LABEL;
 
 export interface TrackChoice {
   track: TextTrack;

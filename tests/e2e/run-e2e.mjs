@@ -101,6 +101,7 @@ await context.route(/^https:\/\/www\.skool\.com\//, (route) => {
   if (u.pathname === '/media/long.wav') return serveMedia(route, LONG_WAV);
   if (u.pathname === '/media/long.vtt') return route.fulfill(serve(LONG_VTT, 'text/vtt'));
   if (u.search.includes('textlesson')) return route.fulfill(serve(TEXT_PAGE, 'text/html'));
+  if (u.search.includes('ccmenu')) return route.fulfill(serve(readFileSync(join(pages, 'skool-ccmenu.html')), 'text/html'));
   const page = u.search.includes('jstrack') ? 'skool-jstrack.html' : u.search.includes('trackfile') ? 'skool-trackfile.html' : u.search.includes('continuous') ? 'skool-continuous.html' : u.search.includes('seekreset') ? 'skool-seek.html' : u.search.includes('novideo') ? 'skool-novideo.html' : u.search.includes('loom') ? 'skool-loom.html' : u.search.includes('nocaptions') ? 'skool-nocaptions.html' : 'skool-native.html';
   return route.fulfill(serve(readFileSync(join(pages, page)), 'text/html'));
 });
@@ -453,6 +454,41 @@ await test('Text-only lesson: detected, translated on request with formatting ke
   await p.goto('https://www.skool.com/test-group/classroom/course30?md=textlesson');
   await waitFor(async () => (await clone())?.h2 === '[VI] Welcome to the program', 10000, 'auto-translated from cache');
   assert((await requests()) === r1, 'revisit must be served from the cache');
+  assert(!errors.length, errors.join(' | '));
+  await p.close();
+});
+
+await test('Skool Native CC auto-activation: player creates its English track only via CC → English; opted-in user just presses Play → Vietnamese, also on the next lesson (no F5)', async () => {
+  const p = await context.newPage();
+  const errors = [];
+  p.on('pageerror', (e) => errors.push(e.message));
+  await p.goto('https://www.skool.com/test-group/classroom/course40?md=ccmenu1');
+  const shadowVideo = (fn) => p.evaluate(fn);
+  await waitFor(() => shadowVideo(() => !!document.getElementById('sp').shadowRoot?.querySelector('video')), 4000, 'player');
+  assert((await shadowVideo(() => document.getElementById('sp').shadowRoot.querySelector('video').textTracks.length)) === 0, 'mock must start without tracks');
+  const vi = () => p.evaluate(() => document.querySelector('[data-sst-overlay]')?.shadowRoot?.textContent ?? '');
+  await p.evaluate(() => document.getElementById('sp').shadowRoot.querySelector('video').play());
+  await waitFor(async () => /\[VI\] Lesson one line \d+\./.test(await vi()), 12000, 'Vietnamese without clicking CC');
+  const st = await p.evaluate(() => ({
+    cc: window.ccClicks, opt: window.optionClicks,
+    menuOpen: document.getElementById('sp').shadowRoot.querySelector('.cc').getAttribute('aria-expanded'),
+    mode: document.getElementById('sp').shadowRoot.querySelector('video').textTracks[0]?.mode,
+    hidden: !!document.getElementById('sp').shadowRoot.querySelector('style[data-sst-cue-hide]'),
+  }));
+  assert(st.cc === 1 && st.opt === 1, `expected exactly one CC + one English click, got ${JSON.stringify(st)}`);
+  assert(st.menuOpen === 'false' && st.mode === 'showing' && st.hidden, JSON.stringify(st));
+  // diagnostics: state machine + control metadata, no caption text
+  const tabId = await setup.evaluate(async () => (await chrome.tabs.query({ url: '*://www.skool.com/*course40*' }))[0]?.id);
+  const d = await setup.evaluate((tabId) => chrome.runtime.sendMessage({ type: 'diag:run', tabId }), tabId);
+  const boot = d.frames.find((f) => f.report?.subtitles?.captionBootstrap)?.report.subtitles.captionBootstrap;
+  assert(boot && ['TRANSLATING', 'MONITORING'].includes(boot.state) && boot.method === 'native-ui', `diag: ${JSON.stringify(boot)?.slice(0, 300)}`);
+  assert(!JSON.stringify(d).includes('Lesson one line'), 'diagnostics must not contain caption text');
+  // next lesson, SPA, new player instance
+  await p.evaluate(() => window.goNextCcLesson());
+  await p.waitForFunction(() => location.search.includes('ccmenu2'));
+  await p.evaluate(() => document.getElementById('sp').shadowRoot.querySelector('video').play());
+  await waitFor(async () => /\[VI\] Lesson two line \d+\./.test(await vi()), 12000, 'next lesson Vietnamese without clicking CC');
+  assert((await p.evaluate(() => window.ccClicks)) === 2, 'one CC click per lesson');
   assert(!errors.length, errors.join(' | '));
   await p.close();
 });

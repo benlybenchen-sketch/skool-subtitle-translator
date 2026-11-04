@@ -164,7 +164,7 @@ export class ControlPanel {
         ? `<button class="pill ${s.enabled ? '' : 'off'} ${rec ? 'rec' : ''}" data-a="open" title="Phụ đề tiếng Việt"><span class="dot"></span>VI ${rec ? '• REC' : ''}</button>`
         : `<div class="card" role="dialog" aria-label="Phụ đề tiếng Việt">
           <div class="row"><span class="title">Phụ đề tiếng Việt</span><button class="x" data-a="close" aria-label="Thu gọn">×</button></div>
-          ${this.needsCaptionConsent() ? `<div class="consent"><b>Tự bật phụ đề tiếng Anh?</b><div class="muted">Video có phụ đề tiếng Anh nhưng CC đang tắt. Cho phép tiện ích tự chuyển phụ đề tiếng Anh sang chế độ ẩn ở mọi bài học để dịch tự động (không hiện chữ Anh gốc, không bấm nút CC). Chỉ hỏi một lần.</div>
+          ${this.needsCaptionConsent() ? `<div class="consent"><b>Tự bật phụ đề tiếng Anh?</b><div class="muted">Video có phụ đề tiếng Anh nhưng CC đang tắt. Cho phép tiện ích tự bật phụ đề tiếng Anh ở mọi bài học để dịch tự động: chuyển track sang chế độ ẩn, và nếu trình phát Skool chỉ tạo phụ đề qua menu của nó thì tự chọn CC → English một lần mỗi bài (chữ Anh gốc được ẩn). Chỉ hỏi một lần.</div>
             <div class="row"><button class="b on" data-a="consent-yes">Đồng ý</button><button class="b" data-a="consent-no">Không</button></div></div>` : ''}
           ${this.text ? this.renderText(this.text, esc) : `<div class="muted">${esc(line)}</div>
           ${error ? `<div class="err">${esc(error)}</div>` : ''}`}

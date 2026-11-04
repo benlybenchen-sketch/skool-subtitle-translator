@@ -9,6 +9,7 @@ import { normalizeCues } from '../subtitles/normalize';
 import { segmentCues } from '../subtitles/segmenter';
 import { Timeline } from '../subtitles/timeline';
 import { DomCaptionSource, ManualSource, TextTrackSource, findEnglishTrack, type TimedSource } from '../subtitles/sources';
+import { CaptionBootstrap, type BootstrapState } from '../players/captionBootstrap';
 import { TranslationScheduler, type SchedulerOptions, type TranslateBridge } from './scheduler';
 import { hash53 } from '../shared/hash';
 import { modeProfile } from '../translation/modes';
@@ -26,6 +27,8 @@ export interface ControllerEnv {
   settings: Settings;
   /** Grace period to wait for late text tracks before declaring "no captions". */
   captionGraceMs?: number;
+  /** Test hooks / tuning for the Skool Native caption bootstrap. */
+  bootstrapOptions?: Partial<import('../players/captionBootstrap').BootstrapOptions>;
   /** Max wait for a media change after SPA navigation when the <video> element is reused. */
   navSettleMs?: number;
   schedulerOptions?: Partial<SchedulerOptions>;
@@ -49,6 +52,10 @@ export class SubtitleController {
   private target: Target | null = null;
   private overlay: SubtitleOverlay | null = null;
   private native: NativeTrackFallback | null = null;
+  /** Skool Native: automatic English caption initialisation (opt-in), one per lesson video. */
+  private boot: CaptionBootstrap | null = null;
+  private bootNotice: string | undefined;
+  private bootNeedsConsent = false;
   private timed: TimedSource | null = null;
   private dom: DomCaptionSource | null = null;
   private timeline: Timeline | null = null;
@@ -271,6 +278,7 @@ export class SubtitleController {
     this.ensureOverlay().setTarget(this.overlayTargetEl());
     if (target.kind === 'video' || target.kind === 'media') {
       this.bindVideo(target.el);
+      this.startBootstrap(target.el, target.provider);
       this.attachCaptionSource();
     } else {
       // Cross-origin player iframe: captions (if any) are read by the content
@@ -279,6 +287,40 @@ export class SubtitleController {
       this.notice = `Trình phát ${target.provider} nằm trong iframe`;
     }
     this.applyVisibility();
+    this.queueStatus();
+  }
+
+  private startBootstrap(video: HTMLMediaElement, provider: string): void {
+    if (provider !== 'skool-native' || this.env.adapter.id !== 'skool-native' || this.settings.modePreference === 'audio') return;
+    const boot = new CaptionBootstrap(
+      video,
+      { enabled: this.settings.autoEnableCaptions, lang: this.settings.sourceLanguage, ...this.env.bootstrapOptions },
+      {
+        onTracksChanged: () => {
+          if (this.boot !== boot) return;
+          if (this.captionSource !== 'texttrack' && this.captionSource !== 'manual') {
+            this.stopSources();
+            this.attachCaptionSource();
+          }
+        },
+        onState: (s, reason) => {
+          if (this.boot !== boot) return;
+          this.onBootState(boot, s, reason);
+        },
+      },
+    );
+    this.boot = boot;
+    boot.start();
+  }
+
+  private onBootState(boot: CaptionBootstrap, s: BootstrapState, reason?: string): void {
+    if (s === 'ACTIVATING_ENGLISH' || s === 'VERIFYING_CAPTIONS') this.bootNotice = 'Đang tự bật phụ đề tiếng Anh của trình phát Skool (bạn đã cho phép)…';
+    else if (s === 'FAILED')
+      this.bootNotice = `Không tự bật được phụ đề tiếng Anh của trình phát (${reason ?? 'không rõ'}). Hãy bấm CC → English một lần (tiện ích sẽ dịch ngay), hoặc dùng Audio Mode. Popup → "Chạy chẩn đoán" giúp cải thiện tính năng này.`;
+    else this.bootNotice = undefined;
+    if (s === 'TRANSLATING' && this.notice?.startsWith('Trình phát Skool tự tắt lại')) this.notice = undefined;
+    // Not opted in, no track yet, but the player has a CC control → show the one-time question.
+    this.bootNeedsConsent = s === 'IDLE' && !this.settings.autoEnableCaptions && !findEnglishTrack(boot.media, this.settings.sourceLanguage) && boot.findCcControls().length > 0;
     this.queueStatus();
   }
 
@@ -321,6 +363,7 @@ export class SubtitleController {
       this.scheduler?.updateOptions({ ...this.schedulerTuning(), ...this.env.schedulerOptions });
     }
     this.scheduler?.setEnabled(next.enabled && !this.paused && !this.audioActive);
+    this.boot?.setEnabled(next.autoEnableCaptions);
     if (!prev.autoEnableCaptions && next.autoEnableCaptions && this.captionsOff && this.target && this.target.kind !== 'iframe') {
       this.stopSources();
       this.attachCaptionSource();
@@ -653,6 +696,8 @@ export class SubtitleController {
             ? 'completed'
             : 'running';
     return {
+      /** Skool Native caption bootstrap: state machine, methods tried, CC controls seen, track snapshots. */
+      captionBootstrap: this.boot?.diagnostics() ?? null,
       /** Privacy-safe lesson identity (hash of route + lesson id). */
       lessonId: this.videoKey ? hash53(this.videoKey) : null,
       videoDetected: media ? (this.target!.kind === 'video' ? 'video' : 'media') : this.target ? 'iframe' : 'none',
@@ -774,6 +819,8 @@ export class SubtitleController {
         // CC turned off mid-lesson without opt-in → show the one-time question too (v3.0 only
         // asked when CC was already off at lesson start).
         this.captionsOff = state === 'disabled' && !this.settings.autoEnableCaptions;
+        // The player keeps reverting "hidden" → let the bootstrap use the player's own selection.
+        if (state === 'enforced') this.boot?.escalate('player re-disables the hidden English track');
         this.notice =
           state === 'lost'
             ? 'Phụ đề tiếng Anh của trình phát không còn truy cập được — chỉ hiển thị các đoạn đã đọc trước đó.'
@@ -921,6 +968,10 @@ export class SubtitleController {
     this.trackListUnsub = null;
     this.native?.disable();
     this.native = null;
+    this.boot?.dispose();
+    this.boot = null;
+    this.bootNotice = undefined;
+    this.bootNeedsConsent = false;
     this.overlay?.setTarget(null);
     this.overlay?.show(null);
     this.videoKey = null;
@@ -965,8 +1016,8 @@ export class SubtitleController {
       unitsTranslated: counts.done,
       unitsFailed: counts.failed,
       error: this.error ?? quotaError,
-      notice: this.notice,
-      captionsOff: this.captionsOff || undefined,
+      notice: this.notice ?? this.bootNotice,
+      captionsOff: this.captionsOff || this.bootNeedsConsent || undefined,
       perf: this.scheduler ? this.perf() : undefined,
       updatedAt: Date.now(),
     };
