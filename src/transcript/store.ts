@@ -12,6 +12,8 @@ export interface LessonUnit {
   end: number;
   en: string;
   vi?: string;
+  /** Text lessons: block type (h2, li, code…) for structured exports. */
+  block?: string;
 }
 
 export interface LessonRecord {

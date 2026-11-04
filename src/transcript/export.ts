@@ -123,6 +123,19 @@ export function exportFileName(t: Transcript, format: ExportFormat, lang: Export
   return `${base}-${lang === 'bi' ? 'bilingual' : lang}${partial}.${format}`;
 }
 
+/** Binary local download (offline study ZIP). */
+export function downloadBytes(doc: Document, name: string, mime: string, bytes: Uint8Array): void {
+  const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: mime }));
+  const a = doc.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.style.display = 'none';
+  (doc.body ?? doc.documentElement).appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
 /** Local download only (no upload): Blob + object URL + anchor; UTF-8 with BOM for TXT/SRT. */
 export function downloadText(doc: Document, name: string, mime: string, content: string): void {
   const bom = mime === 'text/plain' ? '﻿' : '';

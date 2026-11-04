@@ -407,6 +407,7 @@ async function init(): Promise<void> {
     void chrome.runtime.openOptionsPage();
   });
   $('diag-btn').addEventListener('click', () => void runDiagnostics());
+  $('open-reader').addEventListener('click', () => void chrome.tabs.create({ url: chrome.runtime.getURL('reader/reader.html') }));
   // Text-only lesson controls (talk to the Skool tab's top frame directly).
   const textCmd = (m: { type: 'text:get' } | { type: 'text:cmd'; cmd: 'translate' | 'mode' | 'retry'; mode?: Settings['textDisplayMode'] }) =>
     tabId === undefined ? Promise.resolve(null) : (chrome.tabs.sendMessage(tabId, m, { frameId: 0 }) as Promise<TextLessonInfo | null>).catch(() => null);

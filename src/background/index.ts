@@ -12,6 +12,8 @@ import { UsageLedger } from './usageLedger';
 import { DEFAULT_PRICES, loadPricing, savePricing } from '../translation/pricing';
 import { NotesManager } from './notesManager';
 import { TranscriptStore } from '../transcript/store';
+import { buildStudyPack } from '../offline/studyPack';
+import { arrayBufferToBase64 } from '../shared/util';
 import { DubbingService } from './dubbing';
 import { TtsLedger } from '../tts/ttsLedger';
 
@@ -301,6 +303,16 @@ async function handle(msg: BackgroundRequest, sender: chrome.runtime.MessageSend
       return { ok: true };
     case 'lesson:clear':
       return { removed: await lessons.clear(msg.includeOffline) };
+    case 'lesson:pack': {
+      const rec = await lessons.get(msg.lessonId);
+      if (!rec) return { __error: 'Bài này chưa được lưu.' };
+      const glossary = await loadEffectiveGlossary((await loadSettings()).glossary).catch(() => '');
+      const pack = buildStudyPack(rec, glossary);
+      return { name: pack.name, files: pack.files, base64: arrayBufferToBase64(pack.bytes.slice().buffer as ArrayBuffer) };
+    }
+    case 'reader:open':
+      await chrome.tabs.create({ url: chrome.runtime.getURL(`reader/reader.html${msg.lessonId ? `#${encodeURIComponent(msg.lessonId)}` : ''}`) });
+      return { ok: true };
     case 'lesson:usage': {
       const est = await navigator.storage?.estimate?.().catch(() => undefined);
       return { usage: est?.usage ?? null, quota: est?.quota ?? null, lessons: (await lessons.list()).length };

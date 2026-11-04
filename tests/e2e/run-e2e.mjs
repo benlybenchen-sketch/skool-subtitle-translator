@@ -635,6 +635,53 @@ await test('AI dubbing (mock TTS via offscreen): 20-min lesson — muted origina
   }
 });
 
+await test('Offline study: save lesson from the panel, ZIP download, offline reader works without network (search, bilingual, delete)', async () => {
+  const p = await context.newPage();
+  await p.goto('https://www.skool.com/test-group/classroom/course60?md=lesson1');
+  await p.waitForSelector('video');
+  await p.evaluate(() => document.querySelector('video').play());
+  await seek(p, 2);
+  await waitFor(async () => (await overlayText(p)) === '[VI] Welcome back to the course.', 8000, 'overlay');
+  await p.evaluate(() => {
+    const r = document.querySelector('[data-sst-panel]').shadowRoot;
+    r.querySelector('.pill').click();
+    r.querySelector('[data-a="export"]').click();
+  });
+  const btn = (label) => p.evaluate((label) => {
+    const b = [...(document.querySelector('[data-sst-learning]')?.shadowRoot?.querySelectorAll('button') ?? [])].find((x) => x.textContent.includes(label));
+    if (!b) return false;
+    b.click();
+    return true;
+  }, label);
+  await waitFor(() => btn('Lưu để học offline'), 4000, 'save button');
+  await waitFor(async () => (await p.evaluate(() => document.querySelector('[data-sst-learning]').shadowRoot.textContent)).includes('Đã lưu trên máy'), 5000, 'saved message');
+  const [dl] = await Promise.all([p.waitForEvent('download', { timeout: 8000 }), btn('Gói ZIP')]);
+  assert(/-offline\.zip$/.test(dl.suggestedFilename()), `zip name ${dl.suggestedFilename()}`);
+  const zip = readFileSync(await dl.path());
+  assert(zip.readUInt32LE(0) === 0x04034b50, 'not a zip');
+  const reader = await context.newPage();
+  await reader.goto(`chrome-extension://${extId}/reader/reader.html`);
+  await waitFor(() => reader.evaluate(() => document.querySelectorAll('#items button.item').length > 0), 5000, 'saved lesson listed');
+  await context.setOffline(true);
+  try {
+    await reader.reload();
+    await waitFor(() => reader.evaluate(() => document.querySelectorAll('#items button.item').length > 0), 5000, 'listed while offline');
+    await reader.evaluate(() => document.querySelector('#items button.item').click());
+    await waitFor(() => reader.evaluate(() => document.getElementById('view').textContent.includes('[VI] Welcome back to the course.')), 4000, 'Vietnamese shown offline');
+    await reader.fill('#q', 'welcome');
+    await waitFor(() => reader.evaluate(() => document.querySelectorAll('.rows .r').length >= 1), 3000, 'search');
+    const noVideo = await reader.evaluate(() => document.getElementById('view').textContent.includes('Video không có sẵn offline'));
+    assert(noVideo, 'must not claim the video is available offline');
+  } finally {
+    await context.setOffline(false);
+  }
+  reader.on('dialog', (d) => d.accept());
+  await reader.evaluate(() => [...document.querySelectorAll('#view button')].find((b) => b.textContent === 'Xóa bài này').click());
+  await waitFor(() => reader.evaluate(() => document.getElementById('view').textContent.includes('Đã xóa')), 4000, 'deleted');
+  await reader.close();
+  await p.close();
+});
+
 await test('Transcript panel in the top frame reads captions from a player iframe (relay)', async () => {
   const p = await context.newPage();
   await p.goto('https://www.skool.com/test-group/classroom/course21?md=loomlesson');

@@ -13,7 +13,10 @@ import { createVideoSource } from './learningSource';
 import { AiNotesView } from './notesView';
 import { TextLessonManager } from '../text/manager';
 import { lessonTitle } from './learningSource';
-import type { LearningSource } from './learningPanel';
+import type { LearningSource, OfflineActions } from './learningPanel';
+import { notesToMarkdown, type NotesRecord } from '../notes/render';
+import { downloadBytes } from '../transcript/export';
+import { base64ToUint8 } from '../shared/util';
 
 const GUARD = '__sstContentScript__';
 
@@ -109,7 +112,47 @@ async function main(): Promise<void> {
       save: (lessonId, editedMarkdown) => sendToBackground({ type: 'notes:save', lessonId, editedMarkdown }),
       model: () => sendToBackground({ type: 'notes:model' }),
     });
-    learning = new LearningPanel(document, source, notesView);
+    const offline: OfflineActions = {
+      async save(t) {
+        let notesMarkdown: string | undefined;
+        try {
+          const n = await sendToBackground<{ record: NotesRecord | null }>({ type: 'notes:get', lessonId: t.lessonId });
+          if (n?.record) notesMarkdown = notesToMarkdown(n.record);
+        } catch {
+          /* no notes */
+        }
+        await sendToBackground({
+          type: 'lesson:put',
+          record: {
+            lessonId: t.lessonId,
+            title: t.title,
+            kind: t.kind,
+            units: t.segments.map((s) => ({ id: s.id, start: s.start, end: s.end, en: s.en, vi: s.vi, block: s.block })),
+            complete: t.coverage.state === 'complete',
+            source: t.coverage.sourceLabel ?? (t.kind === 'text' ? 'bài viết' : 'phụ đề'),
+            durationSec: t.coverage.durationSec,
+            sourceUntilSec: t.coverage.sourceUntilSec,
+            contentHash: t.version,
+            savedOffline: true,
+            savedAt: Date.now(),
+            notesMarkdown,
+            updatedAt: Date.now(),
+          },
+        });
+        const partial = t.coverage.state !== 'complete';
+        return `Đã lưu trên máy: ${t.segments.length} đoạn${partial ? ' (bản ghi MỘT PHẦN)' : ''} · đã dịch ${t.coverage.translated}${notesMarkdown ? ' · có ghi chú AI' : ''}.`;
+      },
+      async zip(t) {
+        await this.save(t);
+        const r = await sendToBackground<{ name: string; base64: string; files: string[] }>({ type: 'lesson:pack', lessonId: t.lessonId });
+        downloadBytes(document, r.name, 'application/zip', base64ToUint8(r.base64));
+        return `Đã tải ${r.name} (${r.files.length} tệp).`;
+      },
+      openReader() {
+        void sendToBackground({ type: 'reader:open' }).catch(orphaned);
+      },
+    };
+    learning = new LearningPanel(document, source, notesView, offline);
 
     // Text-only lessons (no video): detected after a grace period; translated only when opted in
     // (setting) or requested ("Dịch bài này").

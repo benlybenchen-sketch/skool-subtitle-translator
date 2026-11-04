@@ -21,6 +21,13 @@ export interface NotesView {
   render(container: HTMLElement, t: Transcript | null, seek: ((sec: number) => void) | null): void;
 }
 
+/** Offline study actions (local only). */
+export interface OfflineActions {
+  save(t: Transcript): Promise<string>;
+  zip(t: Transcript): Promise<string>;
+  openReader(): void;
+}
+
 export type PanelTab = 'transcript' | 'notes' | 'export';
 type ViewLang = 'en' | 'vi' | 'bi';
 
@@ -78,6 +85,7 @@ export class LearningPanel {
     private readonly doc: Document,
     private source: LearningSource,
     private readonly notes: NotesView | null = null,
+    private readonly offline: OfflineActions | null = null,
   ) {
     this.host = doc.createElement('div');
     this.host.setAttribute('data-sst-learning', '');
@@ -305,5 +313,22 @@ export class LearningPanel {
       msg,
       isVideo ? '' : this.el('div', { className: 'muted', textContent: 'Bài viết không có mốc thời gian nên không có SRT/VTT.' }),
     );
+    if (this.offline && t && t.segments.length) {
+      const off = this.offline;
+      const omsg = this.el('div', { className: 'muted' });
+      const run = (fn: () => Promise<string>) => () => void fn().then((m) => (omsg.textContent = m)).catch((e: Error) => (omsg.textContent = `Lỗi: ${e.message}`));
+      body.append(
+        this.el('h3', { textContent: 'Học offline' }),
+        this.el('div', { className: 'muted', textContent: 'Lưu bản ghi Anh/Việt, ghi chú AI và thuật ngữ của bài này trên máy (không tải video, không gửi đi đâu).' }),
+        this.el(
+          'div',
+          { className: 'bar' },
+          this.el('button', { className: 'b primary', textContent: '💾 Lưu để học offline', onclick: run(() => off.save(this.source.transcript() ?? t)) }),
+          this.el('button', { className: 'b', textContent: '⬇ Gói ZIP', onclick: run(() => off.zip(this.source.transcript() ?? t)) }),
+          this.el('button', { className: 'b', textContent: '📚 Thư viện offline', onclick: () => off.openReader() }),
+        ),
+        omsg,
+      );
+    }
   }
 }

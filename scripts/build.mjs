@@ -29,6 +29,7 @@ await build({
         options: resolve(src, 'settings/options.html'),
         offscreen: resolve(src, 'audio/offscreen.html'),
         dashboard: resolve(src, 'dashboard/dashboard.html'),
+        reader: resolve(src, 'reader/reader.html'),
       },
       output: { entryFileNames: 'assets/[name]-[hash].js', chunkFileNames: 'assets/[name]-[hash].js', assetFileNames: 'assets/[name]-[hash][extname]' },
     },

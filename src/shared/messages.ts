@@ -58,6 +58,8 @@ export type BackgroundRequest =
   | { type: 'lesson:delete'; lessonId: string }
   | { type: 'lesson:clear'; includeOffline: boolean }
   | { type: 'lesson:usage' }
+  | { type: 'lesson:pack'; lessonId: string }
+  | { type: 'reader:open'; lessonId?: string }
   // AI Vietnamese dubbing (Phase 4)
   | { type: 'dub:voices'; provider: import('./types').TtsProviderKind }
   | { type: 'dub:speak'; token: string; segId: string; text: string; voice: string; rate: number; volume: number }
