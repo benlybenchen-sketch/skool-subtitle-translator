@@ -37,20 +37,24 @@ describe('TranslationScheduler (prefetch & prioritisation)', () => {
   it('only prefetches within the look-ahead window (cost control)', async () => {
     const tl = new Timeline(units(100));
     const b = mkBridge();
-    const s = new TranslationScheduler(tl, 'v', b, () => undefined, () => undefined, { batchSize: 50, lookAhead: 30, pretranslateAll: false });
+    const s = new TranslationScheduler(tl, 'v', b, () => undefined, () => undefined, { batchSize: 10, backgroundBatchSize: 10, lookAhead: 30, pretranslateAll: false });
     s.setPlayhead(0);
     await new Promise((r) => setTimeout(r, 10));
     const done = tl.units.filter((u) => u.status === 'done').length;
-    expect(done).toBe(7); // starts 0..30s
+    // starts 0..30 s = 7 cues; the window edge may spill over by at most half a batch (5)
+    expect(done).toBeGreaterThanOrEqual(7);
+    expect(done).toBeLessThanOrEqual(7 + 5);
   });
 
   it('scales the look-ahead with playback speed', async () => {
     const tl = new Timeline(units(100));
     const b = mkBridge();
-    const s = new TranslationScheduler(tl, 'v', b, () => undefined, () => undefined, { batchSize: 50, lookAhead: 30, pretranslateAll: false });
+    const s = new TranslationScheduler(tl, 'v', b, () => undefined, () => undefined, { batchSize: 10, backgroundBatchSize: 10, lookAhead: 30, pretranslateAll: false });
     s.setPlayhead(0, 2);
     await new Promise((r) => setTimeout(r, 10));
-    expect(tl.units.filter((u) => u.status === 'done').length).toBe(13); // 0..60s
+    const done = tl.units.filter((u) => u.status === 'done').length;
+    expect(done).toBeGreaterThanOrEqual(13); // 0..60 s at 2×
+    expect(done).toBeLessThanOrEqual(13 + 5);
   });
 
   it('re-prioritises after a seek', async () => {
@@ -200,7 +204,8 @@ describe('priority tiers (speed-first pretranslation)', () => {
     await drain();
     // nothing played yet, but every cue starting within 90 s is already translated
     expect(tl.units.filter((u) => u.start <= 90).every((u) => u.status === 'done')).toBe(true);
-    expect(tl.units.some((u) => u.start > 90 && u.status === 'done')).toBe(false);
+    // bounded spill-over at the window edge (≤ half a background batch), never the whole lesson
+    expect(tl.units.filter((u) => u.start > 90 && u.status === 'done').length).toBeLessThanOrEqual(10);
     expect(sent.map((x) => x.priority).slice(0, 3)).toEqual([0, 2, 3]); // P0 0–19 s (covers the 15 s P1 window), P2 20–65 s, P3 70 s+
     expect(s.aheadCoverage()).toBe(1);
   });

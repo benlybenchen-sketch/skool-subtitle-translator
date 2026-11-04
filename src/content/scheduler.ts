@@ -27,8 +27,6 @@ export interface SchedulerOptions {
   nearWindow: number;
   /** P3: remaining prefetch lookahead (mode-dependent: 45 / 90 / 120 s). */
   lookAhead: number;
-  /** Non-urgent batches smaller than half a batch wait until their first cue is this close (s). */
-  minLeadSec: number;
   /** P4: translate the remaining accessible transcript in the background. */
   pretranslateAll: boolean;
   /** Request slots P4 may use, so urgent work always finds a free slot. */
@@ -59,7 +57,6 @@ export const DEFAULT_SCHEDULER: SchedulerOptions = {
   urgentWindow: 15,
   nearWindow: 60,
   lookAhead: 90,
-  minLeadSec: 20,
   pretranslateAll: true,
   maxBackgroundInFlight: 1,
   maxAttempts: 4,
@@ -291,7 +288,7 @@ export class TranslationScheduler {
     const note = (u: TimedUnit) => {
       if (u.status === 'pending') earliestRetry = Math.min(earliestRetry, this.retryAt.get(u.id) ?? Infinity);
     };
-    // P1–P3: from the playhead forward, inside the prefetch window.
+    // P0–P3: from the playhead forward, inside the prefetch window.
     for (let i = from; i < units.length && units[i].start <= horizon; i++) {
       if (this.eligible(units[i], now)) {
         first = i;
@@ -328,14 +325,17 @@ export class TranslationScheduler {
       batch.push(u);
       chars += u.text.length;
     }
-    // Batching hysteresis: non-urgent work waits until it can fill at least half a batch, so a
-    // rolling window does not send one newly-entering cue per request (each request repeats the
-    // system prompt). Sent anyway when it gets close (< minLeadSec) or no more cues follow it.
-    const lastIdx = units.indexOf(batch[batch.length - 1]);
-    const moreFollow = lastIdx < units.length - 1;
-    const lead = (batch[0].start - this.playhead) / Math.max(1, this.rate);
-    if (priority >= 2 && batch.length < Math.ceil(size / 2) && moreFollow && lead > this.o.minLeadSec) {
-      return null; // the next playhead update re-evaluates (no timer, no polling)
+    // Batch filling at the window edge: a rolling window would otherwise send one newly-entering
+    // cue per request (each request repeats the system prompt). A small batch cut short by the
+    // horizon is extended with the next cues beyond it (needed next anyway) up to half a batch.
+    const minFill = Math.ceil(size / 2);
+    if (priority >= 1 && priority <= 3 && batch.length < minFill) {
+      for (let i = units.indexOf(batch[batch.length - 1]) + 1; i < units.length && batch.length < minFill; i++) {
+        const u = units[i];
+        if (!this.eligible(u, now) || chars + u.text.length > this.o.batchChars) break;
+        batch.push(u);
+        chars += u.text.length;
+      }
     }
     const context = units.slice(Math.max(0, first - this.o.contextSize), first).map((u) => u.text);
     return { units: batch, context, priority };
