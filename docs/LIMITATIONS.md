@@ -20,6 +20,16 @@ boundaries. In that situation:
   fullscreen the overlay only shows if the fullscreen element is in the accessible DOM.
 - Use popup → **"Chạy chẩn đoán"** and share the result when reporting issues.
 
+## AI Vietnamese dubbing (v4.0.0) — not yet verified on real Skool
+See [DUBBING.md](DUBBING.md#limitations). In short:
+- Requires accessible English captions.
+- Chrome TTS quality and duration depend on the OS voice. Chrome has no built-in Vietnamese
+  voice, so an OS voice must be installed.
+- Fitting is by speech rate only (≤ 1.35×), so late sentences are skipped. There is no
+  shortened "concise" dubbing yet.
+- Only one dubbing tab at a time.
+- Costs are list-price estimates.
+
 ## Automatic CC activation on Skool Native (v3.5.1) — not yet verified on real Skool
 - **The root cause on real Skool is not proven yet.** One earlier diagnostic showed `hidden` mode
   working, but the report that every new lesson needs CC → English points to state C (track

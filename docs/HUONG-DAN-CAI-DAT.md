@@ -6,7 +6,7 @@ Tiện ích Chrome này dịch video bài học tiếng Anh trên **Skool** sang
 
 **Cách A — dùng tệp ZIP có sẵn**
 
-1. Tải tệp `release/skool-vi-subtitles-v3.5.1.zip` từ repository GitHub.
+1. Tải tệp `release/skool-vi-subtitles-v4.0.0.zip` từ repository GitHub.
 2. Giải nén vào một thư mục cố định (ví dụ `Documents/skool-vi-subtitles`). Đừng xóa thư mục này sau khi cài.
 3. Mở Chrome, gõ `chrome://extensions` vào thanh địa chỉ.
 4. Bật **Developer mode / Chế độ dành cho nhà phát triển** (góc trên bên phải).
@@ -118,6 +118,43 @@ Mục **4. Chất lượng dịch** có sẵn danh sách thuật ngữ marketing
    - bấm CC → English một lần, tiện ích sẽ dịch ngay;
    - sau đó vào popup → **"Chạy chẩn đoán"** → **"Sao chép chẩn đoán"** và gửi lại. Mục
      `captionBootstrap` cho biết trình phát đã thay đổi gì, không chứa nội dung bài học.
+
+## 3c. Lồng tiếng Việt bằng AI (v4.0.0)
+
+Tiện ích đọc bản dịch tiếng Việt bằng giọng AI, khớp theo thời gian của video, và **tắt tiếng giáo viên tiếng Anh**. Video vẫn chạy bình thường; phụ đề Việt vẫn hiện nếu bạn muốn.
+
+**Chọn giọng đọc**
+- **Chrome TTS (miễn phí, không gửi dữ liệu đi):** dùng giọng tiếng Việt cài trên máy.
+  - Windows: Cài đặt → Thời gian & ngôn ngữ → Giọng nói → Thêm giọng → **Tiếng Việt**, rồi khởi động lại Chrome.
+  - macOS: có sẵn giọng **Linh**.
+  - Chrome không có sẵn giọng Việt riêng. Nếu máy không có giọng Việt, popup báo "Máy này không có giọng tiếng Việt…" và tiện ích **không** tắt tiếng gốc.
+- **Google Cloud TTS (trả phí, giọng tự nhiên hơn):**
+  1. Tạo API key Cloud Text-to-Speech trong Google Cloud Console (bật "Cloud Text-to-Speech API"). **Key Gemini không dùng được.**
+  2. Cài đặt → mục **7. Lồng tiếng Việt** → dán key, tích **"Cho phép gửi văn bản tiếng Việt tới Google Cloud TTS"**, bấm **"Lưu & cấp quyền"**.
+  3. Giọng Neural2-A (nữ) / Neural2-D (nam) là mặc định.
+  4. Chi phí ước tính khoảng **0,20–0,26 USD cho bài 20 phút với Neural2**, hoặc ~0,05 USD với Standard. Mỗi câu chỉ tạo giọng một lần (có cache), xem lại bài không tốn thêm. Nên đặt cảnh báo ngân sách trong Google Cloud.
+
+**Sử dụng**
+1. Mở popup → **🔊 Lồng tiếng Việt** → bật công tắc. Hoặc trên nút VI → "🔊 Lồng tiếng Việt" → BẬT.
+2. Chọn chế độ nghe:
+   - **Chỉ giọng Việt** (mặc định, âm gốc 0%);
+   - **Giọng Việt + âm gốc nhỏ**;
+   - **Âm thanh gốc**.
+3. Chọn nhà cung cấp, giọng **Nữ/Nam**, tốc độ (0.8–1.5×), âm lượng.
+4. Bấm Play. Tua, tạm dừng, đổi tốc độ, toàn màn hình, chuyển bài: giọng đọc tự theo, không đọc chồng, không còn giọng của bài cũ.
+5. Tắt lồng tiếng → âm thanh gốc trở lại đúng mức âm lượng cũ.
+
+**Lưu ý**
+- Cần phụ đề tiếng Anh của bài (giống phần dịch phụ đề). Không có phụ đề thì tiện ích không đọc gì và giữ nguyên âm thanh gốc.
+- Câu tiếng Việt dài hơn khoảng trống: giọng đọc nhanh hơn một chút (tối đa 1.35×). Nếu vẫn không kịp, câu bị **bỏ qua** để giữ đồng bộ (đổi trong Cài đặt → mục 7 thành "Đọc muộn").
+- Ở tốc độ video 2×, một phần câu sẽ bị bỏ qua. Tăng tốc độ giọng trong popup giúp đọc được nhiều câu hơn.
+- Lỗi giọng đọc kéo dài → tiện ích tự bật lại âm thanh gốc và báo lỗi trong popup.
+- Thống kê ký tự, yêu cầu, chi phí ước tính: popup → "Thống kê chi tiết" → mục **🔊 Lồng tiếng**.
+
+**Kiểm tra trên Skool thật**
+☐ Giáo viên im, video chạy, giọng Việt khớp · ☐ Bài dài không dừng · ☐ Tua / tạm dừng / 2× / toàn màn hình ·
+☐ Chuyển bài không F5 · ☐ Tắt lồng tiếng: âm thanh gốc trở lại, biểu tượng loa của tab không bị tắt ·
+☐ (Google) Xem lại bài: không tăng yêu cầu TTS. Nếu lỗi: popup → "Chạy chẩn đoán" (mục `dubbing`).
 
 ## 3b. Trợ lý học tập (v3.5.0)
 

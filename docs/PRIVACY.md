@@ -23,6 +23,15 @@
   provider you configured, under the same consent and host-permission rules as subtitles; notes are
   saved in `chrome.storage.local` on this computer. Text-only lessons are translated only after you
   opt in (setting) or click "Dịch bài này"; the page's DOM is not rewritten. No new permissions.
+- **AI dubbing (v4.0.0):**
+  - Off until you enable it. The new `tts` permission is used only for on-device Chrome TTS
+    voices, which send no data.
+  - Google Cloud TTS receives the Vietnamese sentence text only after you tick its own consent
+    box and grant the host permission. It uses its own API key, stored like the other keys
+    (`storage.local`/`session`, worker-only).
+  - The original audio is changed only on the lesson's media element. The tab is muted only as
+    a fallback, and its previous state is restored.
+  - Synthesized audio is cached locally in IndexedDB (bounded, prunable from the dashboard).
 - **Local data:** translations are cached in IndexedDB (auto-pruned after 45 days of non-use, capped
   at 60 000 entries; "Xóa cache" clears everything). Tab status is kept in `storage.session` and is
   removed when the tab closes.

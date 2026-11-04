@@ -1,12 +1,14 @@
 # Testing report
 
-Run on 2026-11-04 (v3.5.1), Node 22, Chromium (Playwright 1.63 build), Linux.
+Run on 2026-11-04 (v4.0.0), Node 22, Chromium (Playwright 1.63 build), Linux.
 
 ```
 npm run typecheck   → 0 errors
-npm test            → 22 files, 314 tests passed
-npm run test:e2e    → 31/31 passed (built extension loaded in Chromium, mock pages)
+npm test            → 24 files, 361 tests passed
+npm run test:e2e    → 33/33 passed (built extension loaded in Chromium, mock pages)
 ```
+
+Dubbing performance (simulated and E2E): see [DUBBING.md](DUBBING.md#measured-results).
 
 **First real-Skool evidence (user diagnostic, v3.1.1, 2026-11-04):** Skool Native `<video>` lives in an
 **open shadow root**; it exposes an English `subtitles` TextTrack ("English CC", `en`) that starts
@@ -69,6 +71,8 @@ with a logged-in Skool account.
 
 | 32 | **Skool Native automatic CC activation** (real report: every new lesson needed CC → English by hand) | `cc-bootstrap.test` uses fake players modelling each state. **C:** no track until CC → English is picked in the menu → menu opened once, English chosen once, menu closed, Vietnamese shown, English rendering hidden. **D:** the player reverts `hidden` → escalates to the player menu, playback position kept. **A:** `hidden` works → no UI interaction. media-chrome request event. A CC toggle is pressed exactly once. Captions already on → nothing clicked (never turned off). Cue batches every 60 s → translated to the end of a 10-min lesson. 2× with seeks. Fullscreen does not re-run activation. SPA lesson switch → new bootstrap, old player untouched. Rapid A→B→C → only C activated. No CC control → FAILED with a reason. Player ignores synthetic clicks → FAILED after ≤ 2 attempts. Controls removed → bounded. Repeated track events → no re-click. Not opted in → nothing touched + one-time question. Later opt-in → activates without reload. Manual selection → picked up and logged as `external` | ✓ mock Skool page whose shadow-DOM player creates its English track only through its CC menu: just `play()`, Vietnamese appears without any CC click; exactly 1 CC + 1 English click; menu closed; mode `showing` with native text hidden; diagnostics show `native-ui` and contain no caption text; next lesson (SPA, new player) is also automatic |
 
+| 33 | **Phase 4: AI Vietnamese dubbing** | `tts.test`: vi voice detection and order, **no Vietnamese voice → error, nothing spoken in another language**, speak options and token-tagged events, Google request format and own key, consent and permission required, cost by tier, dedupe and persistent cache reuse, retry transient / not permanent, cache key coverage, LRU, tab-mute record and restore, crash recovery, evicted clip reloaded. `dubbing.test`: deterministic speech units (nothing spoken before translation); every sentence once, in order, no overlap; speech longer than its slot → speed-up ≤ 1.35× then bounded skip; seek forward/back with cached audio reused; rapid seeks; pause/resume (exact for cloud, restart for chrome.tts); 1.5× and 2×; untranslated sentence skipped; sustained failure → onFatal; lost end events → bounded timeout; dispose → no orphaned audio; element muting with exact restore and mix share, user override, tab fallback, attribute recovery; session: no voice → not muted, token isolation, failure restore/recovery, no captions; controller: enable/disable, original mode, lesson switch, Audio Mode exclusivity, subtitles toggle; simulated 20-min performance table | ✓ no-voice path (headless Chromium has no vi voice): original not muted. ✓ Mock 20-min lesson through the real offscreen player: video muted, **tab not muted**, speech starts 0.6 s after Play; seek/rapid seek/pause/1.5×/2×/fullscreen keep speaking; lesson switch without F5 restores the old video and dubs the new one; disabling restores the audio; measurements printed |
+
 ### Measured scheduling performance (simulated)
 `tests/unit/api-speed.test.ts` — 10-minute lesson, cues every 2.5 s, only ~90 s exposed initially, the
 rest in 90 s chunks; API latency on the same simulated clock as playback. These are **simulation**
@@ -117,6 +121,20 @@ See also the Vietnamese checklist in [HUONG-DAN-CAI-DAT.md](HUONG-DAN-CAI-DAT.md
 
 Record failures with the popup status text, the provider, and the service-worker console
 (`chrome://extensions` → "service worker" → Inspect).
+
+### AI dubbing checklist (v4.0.0, real Skool)
+
+| Check | Chrome TTS | Google Cloud TTS |
+|---|---|---|
+| Popup lists Vietnamese voices (or the clear "no Vietnamese voice" message) | ☐ | ☐ |
+| Enable → Play: English instructor silent, video keeps playing, Vietnamese voice in sync | ☐ | ☐ |
+| Long lesson (20–60 min): voice never stops; dashboard TTS section counts characters/requests | ☐ | ☐ |
+| Seek ±, rapid seeks, pause/resume, 1.5×/2×, fullscreen: no overlapping or old speech | ☐ | ☐ |
+| Next lesson without F5: old speech stops at once, new lesson dubbed | ☐ | ☐ |
+| Disable → original audio back at the same volume; the tab is not muted (tab icon) | ☐ | ☐ |
+| Mix mode: original audible at the chosen share | ☐ | ☐ |
+| Revisit a lesson: no new TTS requests (cache hit rate rises) | — | ☐ |
+| Wrong/missing Cloud TTS key → clear error, original audio restored | — | ☐ |
 
 ### Auto CC checklist (v3.5.1, real Skool, "Tự bật phụ đề tiếng Anh" opted in)
 

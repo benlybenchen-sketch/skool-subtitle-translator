@@ -1,5 +1,50 @@
 # Changelog
 
+## 4.0.0 — Phase 4: AI Vietnamese Dubbing (Lồng tiếng Việt)
+Off until the user enables it. Full details, measurements and costs: `docs/DUBBING.md`.
+
+- **4A — TTS engine.**
+  - Chrome TTS with vi / vi-VN voice detection; it never substitutes another language and gives
+    a clear error when the OS has no Vietnamese voice.
+  - Google Cloud Text-to-Speech (REST, MP3, its own API key, remote-TTS consent, host
+    permission).
+  - Mock provider; `CloudTts` interface for future providers.
+  - Background service: cloud requests deduplicated, bounded retries, 15 s timeout.
+  - Persistent IndexedDB audio cache (key = config version, provider, voice, format, rate,
+    lesson, text; 80 MB LRU, 30 days).
+  - Separate TTS usage ledger.
+  - New permission: `tts`.
+- **4B — Original audio.**
+  - Mutes or mixes the lesson `<video>` itself; tab-level mute is only a fallback and records
+    and restores the user's tab state.
+  - The user's state is stored on the element and recovered after an unexpected restart.
+  - User volume changes are respected.
+- **4C — Synchronisation.**
+  - Deterministic speech units; the video clock is authoritative.
+  - One utterance at a time, speed fitted to the slot (≤ 1.35×), bounded late policy
+    (skip / delay).
+  - 30–90 s cloud prefetch.
+  - Handles play / pause / resume / seek / rate / ended / fullscreen / lesson switch, with a
+    session token and lost-event timeout.
+- **4D — UI.**
+  - Popup "Lồng tiếng Việt": enable, listening mode, provider, gender / voice, speed 0.8–1.5×,
+    voice and original volume, subtitles toggle, live status and error.
+  - Settings section 7.
+  - VI control toggle.
+- **4E — Statistics and cost.**
+  - Dashboard TTS section, separate from translation: characters, requests, latency, cache hit
+    rate, estimated cost, buffer, sync delay.
+  - Short prefetch window after seeks.
+- **4F — Robustness.**
+  - Never trapped in silence: no voice → no muting; sustained failure → original audio
+    restored, recovers when speech works again.
+  - Offscreen events over a Port.
+  - Evicted clips reloaded from the cache.
+  - Offscreen document kept per dubbing tab.
+- **4G — Tests.**
+  - Unit tests and a simulated 20-minute performance table.
+  - E2E with a mock 20-minute Skool lesson through the real offscreen player.
+
 ## 3.5.1 — Automatic English caption activation for Skool Native
 - New `CaptionBootstrap` (src/players/captionBootstrap.ts), one per lesson video, with the state
   machine WAITING_FOR_PLAYER → PLAYER_READY → ACTIVATING_ENGLISH → VERIFYING_CAPTIONS →

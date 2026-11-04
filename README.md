@@ -14,6 +14,8 @@ Chrome extension (Manifest V3) that translates English lesson videos inside **Sk
   exports, user-triggered grounded **AI Study Notes**, and translation of **text-only lessons** with
   formatting preserved (Original / Vietnamese / Bilingual). See [CHANGELOG.md](CHANGELOG.md).
 
+- **AI Vietnamese Dubbing (v4.0.0, opt-in):** speaks the Vietnamese translation with Chrome TTS or Google Cloud TTS in sync with the video and mutes the English instructor (media element, not the tab). See [docs/DUBBING.md](docs/DUBBING.md).
+
 > 🇻🇳 Hướng dẫn cài đặt tiếng Việt: **[docs/HUONG-DAN-CAI-DAT.md](docs/HUONG-DAN-CAI-DAT.md)**
 
 | Document | Content |
@@ -23,6 +25,7 @@ Chrome extension (Manifest V3) that translates English lesson videos inside **Sk
 | [docs/TESTING-REPORT.md](docs/TESTING-REPORT.md) | What is tested automatically, results, and the manual test checklist |
 | [docs/LIMITATIONS.md](docs/LIMITATIONS.md) | Known limitations (honest list) |
 | [docs/PRIVACY.md](docs/PRIVACY.md) | Privacy & security model |
+| [docs/DUBBING.md](docs/DUBBING.md) | AI Vietnamese dubbing: architecture, voice providers, measured performance, costs, limitations |
 
 ## Quick start
 
@@ -34,7 +37,7 @@ npm install
 npm run package
 ```
 
-This builds `dist/` (the installable, unpacked extension) and `release/skool-vi-subtitles-v3.5.1.zip`.
+This builds `dist/` (the installable, unpacked extension) and `release/skool-vi-subtitles-v4.0.0.zip`.
 A prebuilt ZIP is committed under `release/`.
 
 Load it: `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select `dist/`
@@ -78,6 +81,8 @@ src/
   audio/        offscreen document, AudioWorklet, VAD chunker, WAV encoder
   speech/       STT backends (OpenAI-compatible Whisper API, local server, mock), live segment assembler
   overlay/      Shadow-DOM subtitle overlay, native-fullscreen TextTrack fallback
+  dubbing/      AI dubbing: speech units, synchronised scheduler, original-audio control, session
+  tts/          TTS providers (Chrome TTS voices, Google Cloud TTS, mock), audio cache, TTS ledger
   transcript/   unified transcript model (view over the timeline) + SRT/VTT/TXT/MD export
   notes/        AI Study Notes: schema/validation, hierarchical generation, Markdown/TXT rendering
   text/         text-only lessons: article detection, markup serialisation, clone-based translator
