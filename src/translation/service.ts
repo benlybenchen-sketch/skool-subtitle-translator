@@ -98,6 +98,7 @@ export class TranslationService {
   readonly metrics = new Metrics();
   readonly queue: TranslationQueue;
   private currentModel = '';
+  private writesSincePrune = 0;
 
   constructor(private readonly deps: ServiceDeps) {
     this.queue = new TranslationQueue({
@@ -187,6 +188,12 @@ export class TranslationService {
         }
       }
       this.deps.cache.putMany(toCache).catch(() => undefined);
+      // Bounded cleanup during long sessions too (not only on install/startup).
+      this.writesSincePrune += toCache.length;
+      if (this.writesSincePrune >= 500) {
+        this.writesSincePrune = 0;
+        this.deps.cache.prune().catch(() => undefined);
+      }
     }
     return units.map((u) => results.get(u.id)!);
   }

@@ -66,6 +66,8 @@ export const DEFAULT_SETTINGS: Settings = {
   consent: { remoteTranslation: false, remoteAudio: false },
   glossary: DEFAULT_GLOSSARY,
   contextWindow: 3,
+  translationMode: 'balanced',
+  modeModels: {},
   pretranslateAll: true,
   autoStart: true,
   autoEnableCaptions: false,
@@ -88,6 +90,7 @@ export function mergeSettings(stored: Partial<Settings> | undefined): Settings {
     ...s,
     provider: { ...DEFAULT_SETTINGS.provider, ...(s.provider ?? {}) },
     providerProfiles: { ...(s.providerProfiles ?? {}) },
+    modeModels: { ...(s.modeModels ?? {}) },
     stt: { ...DEFAULT_SETTINGS.stt, ...(s.stt ?? {}) },
     consent: { ...DEFAULT_SETTINGS.consent, ...(s.consent ?? {}) },
   };

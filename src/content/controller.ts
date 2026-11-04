@@ -11,6 +11,7 @@ import { Timeline } from '../subtitles/timeline';
 import { DomCaptionSource, ManualSource, TextTrackSource, findEnglishTrack, type TimedSource } from '../subtitles/sources';
 import { TranslationScheduler, type SchedulerOptions, type TranslateBridge } from './scheduler';
 import { hash53 } from '../shared/hash';
+import { modeProfile } from '../translation/modes';
 
 export interface ControllerBridge extends TranslateBridge {
   reportStatus(status: Omit<FrameStatus, 'frameId'>): void;
@@ -83,6 +84,19 @@ export class SubtitleController {
   constructor(private readonly env: ControllerEnv) {
     this.settings = env.settings;
     this.paused = !env.settings.autoStart;
+  }
+
+  /** Scheduler tuning from the translation mode (FAST / BALANCED / QUALITY). */
+  private schedulerTuning(): Partial<SchedulerOptions> {
+    const p = modeProfile(this.settings.translationMode);
+    return {
+      pretranslateAll: this.settings.pretranslateAll,
+      firstBatchSize: p.firstBatchSize,
+      batchSize: p.batchSize,
+      backgroundBatchSize: p.backgroundBatchSize,
+      lookAhead: p.lookAheadSec,
+      contextSize: p.contextSize,
+    };
   }
 
   /** Track lifecycle log of the active TextTrack source (diagnostics only). */
@@ -243,6 +257,9 @@ export class SubtitleController {
       this.rebuildTimeline(this.lastCues, false);
     }
     if (translationChanged) this.error = undefined;
+    if (prev.translationMode !== next.translationMode || prev.pretranslateAll !== next.pretranslateAll) {
+      this.scheduler?.updateOptions({ ...this.schedulerTuning(), ...this.env.schedulerOptions });
+    }
     this.scheduler?.setEnabled(next.enabled && !this.paused && !this.audioActive);
     if (!prev.autoEnableCaptions && next.autoEnableCaptions && this.captionsOff && this.target && this.target.kind !== 'iframe') {
       this.stopSources();
@@ -713,7 +730,7 @@ export class SubtitleController {
           this.error = msg;
           this.queueStatus();
         },
-        { pretranslateAll: this.settings.pretranslateAll, ...this.env.schedulerOptions },
+        { ...this.schedulerTuning(), ...this.env.schedulerOptions },
       );
       this.scheduler.setEnabled(this.settings.enabled && !this.audioActive && !this.paused);
     } else {

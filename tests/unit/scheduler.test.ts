@@ -187,10 +187,10 @@ describe('priority tiers (speed-first pretranslation)', () => {
     return { tl, s, sent, drain, releaseAll: () => release.splice(0).forEach((f) => f()) };
   };
 
-  it('first request is a small P1 batch at the playhead (fast first subtitle)', () => {
+  it('first request is a small P0 batch at the playhead (fast first subtitle)', () => {
     const { s, sent } = mk();
     s.setPlayhead(0);
-    expect(sent[0].priority).toBe(1);
+    expect(sent[0].priority).toBe(0);
     expect(sent[0].texts).toEqual(['line 0', 'line 1', 'line 2', 'line 3']); // firstBatchSize 4
   });
 
@@ -201,7 +201,7 @@ describe('priority tiers (speed-first pretranslation)', () => {
     // nothing played yet, but every cue starting within 90 s is already translated
     expect(tl.units.filter((u) => u.start <= 90).every((u) => u.status === 'done')).toBe(true);
     expect(tl.units.some((u) => u.start > 90 && u.status === 'done')).toBe(false);
-    expect(sent.map((x) => x.priority).slice(0, 3)).toEqual([1, 2, 3]); // 0–19 s, 20–69 s, 70 s+
+    expect(sent.map((x) => x.priority).slice(0, 3)).toEqual([0, 2, 3]); // P0 0–19 s (covers the 15 s P1 window), P2 20–65 s, P3 70 s+
     expect(s.aheadCoverage()).toBe(1);
   });
 
@@ -238,7 +238,7 @@ describe('priority tiers (speed-first pretranslation)', () => {
     releaseAll(); // in-flight results for 0 s are kept, not cancelled
     await flush();
     const afterSeek = sent.slice(2);
-    expect(afterSeek[0].priority).toBe(1);
+    expect(afterSeek[0].priority).toBe(0);
     expect(afterSeek[0].texts[0]).toBe('line 39'); // unit at 195–199 s (look-behind 3 s)
   });
 
@@ -296,5 +296,50 @@ describe('quota protection', () => {
     s.setPlayhead(100);
     for (let i = 0; i < 10; i++) await flush();
     expect(sent.filter((x) => x.p === 4).length).toBeGreaterThan(p4After); // resumes after the pause
+  });
+});
+
+describe('Phase 2A: P0–P3 tiers, modes, playback-rate urgency', () => {
+  const tiers = (opts = {}, playhead = 100, rate = 1) => {
+    const tl = new Timeline(units(120, 2.5)); // a cue every 2.5 s
+    const s = new TranslationScheduler(tl, 'v', mkBridge(), () => undefined, () => undefined, { pretranslateAll: false, ...opts });
+    s.setPlayhead(playhead, rate);
+    return (start: number) => s.priorityOf(tl.units.find((u) => u.start === start)!);
+  };
+
+  it('P0 current cue, P1 0–15 s, P2 15–60 s, P3 rest of the lookahead, P4 beyond', () => {
+    const p = tiers();
+    expect(p(100)).toBe(0); // on screen now
+    expect(p(110)).toBe(1);
+    expect(p(140)).toBe(2);
+    expect(p(185)).toBe(3);
+    expect(p(195)).toBe(4); // beyond the 90 s lookahead → background only
+  });
+
+  it('2× playback doubles the time windows (more urgency per wall-clock second)', () => {
+    const p = tiers({}, 100, 2);
+    expect(p(125)).toBe(1); // 25 s ahead at 2× = 12.5 s of wall time
+    expect(p(215)).toBe(2);
+  });
+
+  it('FAST (45 s lookahead) caps P2 at the lookahead; QUALITY (120 s) extends P3', async () => {
+    const { MODE_PROFILES } = await import('../../src/translation/modes');
+    const fast = tiers({ lookAhead: MODE_PROFILES.fast.lookAheadSec });
+    expect(fast(140)).toBe(2);
+    expect(fast(150)).toBe(4); // 50 s ahead > 45 s FAST horizon
+    const quality = tiers({ lookAhead: MODE_PROFILES.quality.lookAheadSec });
+    expect(quality(215)).toBe(3);
+  });
+
+  it('mode switch re-tunes a running scheduler without losing translations', async () => {
+    const tl = new Timeline(units(100, 5));
+    const s = new TranslationScheduler(tl, 'v', mkBridge(), () => undefined, () => undefined, { pretranslateAll: false, lookAhead: 45 });
+    s.setPlayhead(0);
+    await new Promise((r) => setTimeout(r, 10));
+    const doneFast = tl.counts().done;
+    s.updateOptions({ lookAhead: 120 });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(tl.counts().done).toBeGreaterThan(doneFast);
+    expect(tl.units[0].vi).toBe('vi line 0');
   });
 });

@@ -19,12 +19,16 @@ export interface SchedulerOptions {
   contextSize: number;
   /** Seconds behind the playhead still worth translating (just-missed lines). */
   lookBehind: number;
-  /** P1 window: segments needed right now (s, scaled by playback rate). */
+  /** P0: the cue needed right now (or starting within this many seconds). */
   nowWindow: number;
-  /** P2 window (s). */
+  /** P1 window: upcoming 0–15 s (scaled by playback rate). */
   urgentWindow: number;
-  /** P3 prefetch window (s). */
+  /** P2 window: upcoming 15–60 s. */
+  nearWindow: number;
+  /** P3: remaining prefetch lookahead (mode-dependent: 45 / 90 / 120 s). */
   lookAhead: number;
+  /** Non-urgent batches smaller than half a batch wait until their first cue is this close (s). */
+  minLeadSec: number;
   /** P4: translate the remaining accessible transcript in the background. */
   pretranslateAll: boolean;
   /** Request slots P4 may use, so urgent work always finds a free slot. */
@@ -51,9 +55,11 @@ export const DEFAULT_SCHEDULER: SchedulerOptions = {
   batchChars: 2400,
   contextSize: 3,
   lookBehind: 3,
-  nowWindow: 4,
-  urgentWindow: 30,
+  nowWindow: 2,
+  urgentWindow: 15,
+  nearWindow: 60,
   lookAhead: 90,
+  minLeadSec: 20,
   pretranslateAll: true,
   maxBackgroundInFlight: 1,
   maxAttempts: 4,
@@ -67,7 +73,8 @@ export const DEFAULT_SCHEDULER: SchedulerOptions = {
   clearTimer: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
 };
 
-export type Priority = 1 | 2 | 3 | 4;
+/** P0 current cue · P1 0–15 s · P2 15–60 s · P3 rest of the lookahead · P4 background transcript. */
+export type Priority = 0 | 1 | 2 | 3 | 4;
 
 /**
  * Content-side translation scheduler with four priority tiers relative to the playhead:
@@ -146,6 +153,12 @@ export class TranslationScheduler {
       if (u.status === 'done') done++;
     }
     return total ? done / total : 1;
+  }
+
+  /** Apply new tuning (e.g. translation mode changed) without losing any state. */
+  updateOptions(opts: Partial<SchedulerOptions>): void {
+    Object.assign(this.o, opts);
+    this.pump();
   }
 
   setTimeline(tl: Timeline): void {
@@ -248,8 +261,9 @@ export class TranslationScheduler {
   priorityOf(u: TimedUnit): Priority {
     const r = Math.max(1, this.rate);
     const t = this.playhead;
-    if (u.start <= t + this.o.nowWindow * r && u.end > t - this.o.lookBehind) return 1;
-    if (u.start <= t + this.o.urgentWindow * r && u.end > t) return 2;
+    if (u.start <= t + this.o.nowWindow * r && u.end > t - this.o.lookBehind) return 0;
+    if (u.start <= t + this.o.urgentWindow * r && u.end > t) return 1;
+    if (u.start <= t + Math.min(this.o.nearWindow, this.o.lookAhead) * r && u.end > t) return 2;
     if (u.start <= t + this.o.lookAhead * r && u.end > t) return 3;
     return 4;
   }
@@ -303,7 +317,7 @@ export class TranslationScheduler {
       if (Number.isFinite(earliestRetry)) this.armRetry(earliestRetry - now);
       return null;
     }
-    const size = priority <= 2 && this.coldStart() ? this.o.firstBatchSize : priority >= 3 ? Math.max(this.o.batchSize, this.o.backgroundBatchSize) : this.o.batchSize;
+    const size = priority <= 1 && this.coldStart() ? this.o.firstBatchSize : priority >= 3 ? Math.max(this.o.batchSize, this.o.backgroundBatchSize) : this.o.batchSize;
     const batch: TimedUnit[] = [];
     let chars = 0;
     for (let i = first; i < units.length && batch.length < size; i++) {
@@ -313,6 +327,15 @@ export class TranslationScheduler {
       if (batch.length && chars + u.text.length > this.o.batchChars) break;
       batch.push(u);
       chars += u.text.length;
+    }
+    // Batching hysteresis: non-urgent work waits until it can fill at least half a batch, so a
+    // rolling window does not send one newly-entering cue per request (each request repeats the
+    // system prompt). Sent anyway when it gets close (< minLeadSec) or no more cues follow it.
+    const lastIdx = units.indexOf(batch[batch.length - 1]);
+    const moreFollow = lastIdx < units.length - 1;
+    const lead = (batch[0].start - this.playhead) / Math.max(1, this.rate);
+    if (priority >= 2 && batch.length < Math.ceil(size / 2) && moreFollow && lead > this.o.minLeadSec) {
+      return null; // the next playhead update re-evaluates (no timer, no polling)
     }
     const context = units.slice(Math.max(0, first - this.o.contextSize), first).map((u) => u.text);
     return { units: batch, context, priority };

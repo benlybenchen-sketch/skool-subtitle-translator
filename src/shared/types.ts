@@ -77,7 +77,14 @@ export interface Settings {
   glossary: string;
   /** Number of preceding segments sent as context. */
   contextWindow: number;
-  /** After the 90 s prefetch window is covered, translate the rest of an accessible transcript in the background. */
+  /** FAST / BALANCED / QUALITY scheduling profile (see translation/modes.ts). */
+  translationMode: 'fast' | 'balanced' | 'quality';
+  /**
+   * Optional model per mode and provider (e.g. a faster model for FAST). Empty = keep the provider's
+   * model. Only ever set by the user — modes never switch models on their own.
+   */
+  modeModels: Partial<Record<'fast' | 'balanced' | 'quality', Partial<Record<string, string>>>>;
+  /** After the prefetch window is covered, translate the rest of an accessible transcript in the background. */
   pretranslateAll: boolean;
   /** Merge short caption fragments into sentence-sized units before translating. */
   mergeFragments: boolean;
