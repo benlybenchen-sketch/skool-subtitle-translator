@@ -463,10 +463,10 @@ await test('Seek regression: player disables CC on seek → Vietnamese subtitles
   await p.close();
 });
 
-await test('CC off + auto-enable not opted in: nothing changed; one click on "Tự bật phụ đề tiếng Anh" starts translation', async () => {
+await test('CC off, not opted in: VI panel asks ONCE (auto-expanded); "Đồng ý" → translation starts, persisted, never asked again', async () => {
   await setup.evaluate(async () => {
     const { settings } = await chrome.storage.sync.get('settings');
-    await chrome.storage.sync.set({ settings: { ...settings, autoEnableCaptions: false } });
+    await chrome.storage.sync.set({ settings: { ...settings, autoEnableCaptions: false, autoEnableCaptionsAsked: false } });
   });
   const p = await context.newPage();
   await p.goto('https://www.skool.com/test-group/classroom/course6?md=optin');
@@ -474,17 +474,26 @@ await test('CC off + auto-enable not opted in: nothing changed; one click on "T�
   await p.waitForTimeout(800);
   const before = await p.evaluate(() => ({ mode: document.querySelector('video').textTracks[0].mode, overlay: document.querySelector('[data-sst-overlay]')?.shadowRoot?.querySelector('.vi')?.textContent ?? '' }));
   assert(before.mode === 'disabled', `track mode changed without opt-in: ${before.mode}`);
-  await p.evaluate(() => document.querySelector('[data-sst-panel]').shadowRoot.querySelector('.pill').click());
-  const btn = await waitFor(() => p.evaluate(() => !!document.querySelector('[data-sst-panel]').shadowRoot.querySelector('[data-a="autocc"]')), 4000, 'opt-in button');
-  assert(btn, 'opt-in button missing');
-  await p.evaluate(() => document.querySelector('[data-sst-panel]').shadowRoot.querySelector('[data-a="autocc"]').click());
+  // no click on the pill: the one-time question must be visible by itself
+  const btn = await waitFor(() => p.evaluate(() => !!document.querySelector('[data-sst-panel]').shadowRoot.querySelector('[data-a="consent-yes"]')), 4000, 'one-time consent card');
+  assert(btn, 'consent card missing');
+  await p.evaluate(() => document.querySelector('[data-sst-panel]').shadowRoot.querySelector('[data-a="consent-yes"]').click());
   await p.evaluate(() => { const v = document.querySelector('video'); v.currentTime = 2; });
   await waitFor(async () => (await overlayText(p)) === '[VI] Welcome back to the course.', 8000, 'translation after opt-in');
   const mode = await p.evaluate(() => document.querySelector('video').textTracks[0].mode);
   assert(mode === 'hidden', `expected hidden (no duplicate English rendering), got ${mode}`);
-  const persisted = await setup.evaluate(async () => (await chrome.storage.sync.get('settings')).settings.autoEnableCaptions);
-  assert(persisted === true, 'opt-in not persisted');
+  const persisted = await setup.evaluate(async () => (await chrome.storage.sync.get('settings')).settings);
+  assert(persisted.autoEnableCaptions === true && persisted.autoEnableCaptionsAsked === true, 'opt-in not persisted');
   await p.close();
+  // next lesson in a fresh tab: CC off again, but no question and no CC click needed
+  const p2 = await context.newPage();
+  await p2.goto('https://www.skool.com/test-group/classroom/course6?md=optin-next');
+  await p2.waitForSelector('video');
+  await p2.evaluate(() => { const v = document.querySelector('video'); v.currentTime = 2; });
+  await waitFor(async () => (await overlayText(p2)) === '[VI] Welcome back to the course.', 8000, 'auto translation on next lesson');
+  const asked = await p2.evaluate(() => !!document.querySelector('[data-sst-panel]').shadowRoot.querySelector('[data-a="consent-yes"]'));
+  assert(!asked, 'asked again');
+  await p2.close();
 });
 
 await test('Continuous: 12-min lesson, cues delivered in chunks via new tracks — translation never stops (16× playback)', async () => {

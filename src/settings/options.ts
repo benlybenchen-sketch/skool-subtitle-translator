@@ -71,6 +71,7 @@ function read(): Settings {
     autoStart: $('auto-start').checked,
     autoInitOnNavigation: $('auto-nav').checked,
     autoEnableCaptions: $('auto-cc').checked,
+    autoEnableCaptionsAsked: current.autoEnableCaptionsAsked || $('auto-cc').checked !== current.autoEnableCaptions || $('auto-cc').checked,
     sourceLanguage: 'en',
     targetLanguage: 'vi',
     glossary: $<HTMLTextAreaElement>('glossary').value,

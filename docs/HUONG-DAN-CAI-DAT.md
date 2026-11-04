@@ -6,7 +6,7 @@ Tiện ích Chrome này dịch video bài học tiếng Anh trên **Skool** sang
 
 **Cách A — dùng tệp ZIP có sẵn**
 
-1. Tải tệp `release/skool-vi-subtitles-v2.1.0.zip` từ repository GitHub.
+1. Tải tệp `release/skool-vi-subtitles-v3.0.0.zip` từ repository GitHub.
 2. Giải nén vào một thư mục cố định (ví dụ `Documents/skool-vi-subtitles`). Đừng xóa thư mục này sau khi cài.
 3. Mở Chrome, gõ `chrome://extensions` vào thanh địa chỉ.
 4. Bật **Developer mode / Chế độ dành cho nhà phát triển** (góc trên bên phải).
@@ -108,6 +108,17 @@ Audio Mode thu **chỉ âm thanh của tab hiện tại**, sau khi bạn tự b�
 
 Lưu ý: Audio Mode phải được bắt đầu từ **popup của tiện ích** (yêu cầu bảo mật của Chrome về thao tác người dùng).
 Tiện ích không bao giờ tự thu âm thanh và không tải lên toàn bộ video.
+
+### Kiểm chứng trên Skool thật (v3.0.0)
+
+1. Mở bài học có phụ đề tiếng Anh, **để CC tắt**. Nút VI tự mở và hỏi một lần **"Tự bật phụ đề tiếng Anh?"** → **Đồng ý**.
+2. Bấm Play, **không bấm CC**. Xem ít nhất 5 phút (hoặc tới hết bài): phụ đề Việt phải liên tục.
+3. Chuyển sang bài kế tiếp trong Classroom, **không F5**, bấm Play: phụ đề Việt tự chạy, không hỏi lại.
+4. Quay lại bài cũ: phụ đề hiện ngay (cache), popup "Tỷ lệ trúng cache" tăng.
+5. Nếu bất kỳ bước nào thất bại: ngay lúc đó mở popup → "Chạy chẩn đoán" → "Sao chép chẩn đoán" và gửi lại.
+   Mục `subtitles.health`, `textTracks`, `trackLog`, `recoveries` cho biết lỗi ở đâu. Nếu `textTrackCount` là 0
+   khi CC tắt, nghĩa là trình phát Skool chỉ tạo phụ đề khi bấm CC — khi đó tiện ích **không thể** tự bật
+   mà không can thiệp vào nút của trình phát, và cần tích hợp riêng dựa trên bằng chứng đó.
 
 ### Tự động bật phụ đề tiếng Anh & chuyển bài học
 

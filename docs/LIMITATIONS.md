@@ -20,7 +20,13 @@ boundaries. In that situation:
   fullscreen the overlay only shows if the fullscreen element is in the accessible DOM.
 - Use popup → **"Chạy chẩn đoán"** and share the result when reporting issues.
 
-## Automatic caption activation
+## Automatic caption activation (v3.0.0)
+- The one-time question appears automatically in the VI panel the first time a disabled English
+  track blocks translation; the answer is persisted (Settings → 5 can change it later).
+- Activation can only work if the player exposes its English `TextTrack` while CC is off. Whether
+  Skool does this has **not** been verified; diagnostics (`textTrackCount`, `trackLog`) show it.
+
+## Automatic caption activation (details)
 - Only works when the player exposes an English `TextTrack` *before* CC is clicked. If the Skool
   player creates its track only when its CC menu is used, the extension cannot (and does not try
   to) click player controls: the popup says no track exists yet, and translation starts the moment

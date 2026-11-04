@@ -61,8 +61,10 @@ function bridge() {
   return b;
 }
 
-const mkController = (br: ControllerBridge) =>
-  new SubtitleController({
+const live: SubtitleController[] = [];
+afterEach(() => live.splice(0).forEach((c) => c.destroy()));
+const mkController = (br: ControllerBridge) => {
+  const c = new SubtitleController({
     doc: document,
     isTop: true,
     adapter: skoolNativeAdapter,
@@ -72,6 +74,9 @@ const mkController = (br: ControllerBridge) =>
     raf: () => 0,
     cancelRaf: () => undefined,
   });
+  live.push(c);
+  return c;
+};
 
 describe('Skool page without an accessible <video>', () => {
   it('ignores Stripe iframes, finds no video, and picks a player-shaped anchor', () => {

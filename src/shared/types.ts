@@ -85,6 +85,8 @@ export interface Settings {
    * (no native rendering). Off by default — the user's CC choice is otherwise left untouched.
    */
   autoEnableCaptions: boolean;
+  /** The one-time "auto-enable English captions?" question was answered (yes or no). */
+  autoEnableCaptionsAsked: boolean;
   /** Re-initialise translation automatically after Skool SPA lesson changes. */
   autoInitOnNavigation: boolean;
   /** Source subtitle language (BCP-47 prefix). Only English is supported by the prompt today. */

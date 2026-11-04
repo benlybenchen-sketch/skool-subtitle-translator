@@ -60,6 +60,7 @@ function setup(track: FakeTrack, opts: { delayMs?: number; autoEnableCaptions?: 
     cancelRaf: () => undefined,
   });
   c.setTarget({ kind: 'video', el: video, provider: 'skool-native', area: 1 });
+  controllers.push(c);
   return { c, video, br, box };
 }
 
@@ -74,7 +75,9 @@ function seek(video: FakeVideo, t: number, playerWork?: () => void) {
   video.dispatchEvent(new Event('timeupdate'));
 }
 
+const controllers: SubtitleController[] = [];
 afterEach(() => {
+  controllers.splice(0).forEach((c) => c.destroy()); // no stale overlays/frames leaking into the next test
   Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => null });
 });
 

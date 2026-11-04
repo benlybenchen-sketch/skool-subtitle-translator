@@ -299,3 +299,19 @@ describe('Skool SPA lesson navigation (no F5)', () => {
     expect(vi(c)).toBe('VI(B line 0.)');
   });
 });
+
+describe('navigation race (real-Skool report: switching lessons "sometimes" needed F5)', () => {
+  it('old <video> still mounted at navigation, new one appears during the settle wait → stays on the NEW video', async () => {
+    const { c, box, life } = mount({ autoEnableCaptions: true });
+    await tick();
+    goto(life, 'lessonB'); // old element still in the DOM → controller waits (navSettleMs)
+    await new Promise((r) => setTimeout(r, 10));
+    box.innerHTML = '';
+    const v2 = makeVideo(document, { src: 'https://video.skool.com/b.m3u8', tracks: [lessonTrack('B')] });
+    box.append(v2); // new lesson player mounts a moment later
+    await new Promise((r) => setTimeout(r, 120)); // past the settle timeout of the stale wait
+    await tick();
+    v2._setTime(1);
+    expect(vi(c)).toBe('VI(B line 0.)');
+  });
+});

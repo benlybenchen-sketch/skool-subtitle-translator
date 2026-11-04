@@ -55,10 +55,13 @@ function setup(opts: { settings?: Partial<Settings>; tracks?: FakeTrack[]; delay
     cancelRaf: () => undefined,
   });
   const target: Target = { kind: 'video', el: video, provider: 'skool-native', area: 960 * 540 };
+  live.push(c);
   return { c, video, track, br, target, settings };
 }
 
 const overlayText = (c: SubtitleController) => c.currentOverlay!.text;
+const live: SubtitleController[] = [];
+afterEach(() => live.splice(0).forEach((c) => c.destroy()));
 
 describe('Caption Mode (TextTrack)', () => {
   it('reads English cues, translates and renders synchronized Vietnamese', async () => {

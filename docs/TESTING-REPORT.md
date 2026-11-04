@@ -4,7 +4,7 @@ Run on 2026-11-03, Node 22, Chromium (Playwright 1.63 build), Linux.
 
 ```
 npm run typecheck   → 0 errors
-npm test            → 13 files, 184 tests passed
+npm test            → 14 files, 188 tests passed
 npm run test:e2e    → 21/21 passed (built extension loaded in Chromium, mock pages)
 ```
 
@@ -45,6 +45,8 @@ with a logged-in Skool account.
 | 22 | **Automatic captions & lesson switching** (real-Skool reports: CC had to be clicked; F5 needed after changing lesson) | `lifecycle.test` (disabled track untouched without opt-in + reported; auto-start when the user turns CC on; opt-in → `hidden`, translated before playback; player reverting the activation re-applied max 2×; async cues; auto-start off; A→B with the same `<video>` reused; late source swap never mixes lessons; switch with request in flight; rapid A→B→C→D; return to cached lesson with 0 provider calls; Back/Forward; element replaced; old element ignored; settings untouched; seek + fullscreen after switching; auto-init off). 8 navigation tests fail with the pre-fix wiring | ✓ same-element lesson switch with delayed source swap auto-translates without F5; opt-out leaves the track `disabled`, one click on the panel opt-in → `hidden` + translation, setting persisted |
 
 | 23 | **Continuous translation for whole lessons** (real-Skool report: Vietnamese stopped after 1–2 min, resumed after toggling CC) | `continuous.test` — 20-min lesson, only 36 cues (~90 s) exposed initially, rest delivered in chunks: appended silently / with `cuechange` / **new TextTrack per chunk keeping the old one** / player disabling the track; 2×; rate-limit burst; one fatal-classified error; slow responses; seek + fullscreen in a long session; player that stops providing cues → reported, nothing invented. Before the fix the new-track and fatal-error cases failed (stuck at 36 cues / stopped permanently) | ✓ 12-min lesson at 16×, new track per 90 s chunk with stale old track: all 72 cues discovered, translated to the end, diagnostics contain no caption text |
+
+| 24 | **V3 acceptance: open → Play → Vietnamese to the end → next lesson, no CC click, no F5** | `multi-lesson.test` — Lesson A: 20 min, English track starts disabled, user never clicks CC, one-time consent in the VI panel, cues in 90 s chunks, track replaced mid-lesson, slow + flaky API → continuous to the end, health `completed` only with full duration coverage; Lesson B: SPA switch, new player + track appear asynchronously → automatic, no question; Lesson C: back to A → 0 provider calls; 60-min lesson at 2× with fullscreen + seek; "Không" respected. `lifecycle.test` navigation-race regression | ✓ consent card visible without opening the panel; "Đồng ý" → translation, persisted; next lesson in a new tab translated automatically with CC off and no question |
 
 Additional: VAD chunker (pauses, forced cuts, noise/clicks, flush), WAV encoding/resampling, live
 segment assembly (fragment merge, overlap removal, hallucination filter), STT ordering under

@@ -15,6 +15,7 @@ const CSS = `
 .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0; }
 .title { font-weight: 700; } .muted { color: #59636e; font-size: 12px; }
 .err { color: #b42318; font-size: 12px; margin-top: 6px; }
+.consent { border: 1px solid #1f6feb; border-radius: 8px; padding: 8px; margin: 6px 0; }
 button.b { border: 1px solid #d0d7de; background: #f6f8fa; border-radius: 6px; padding: 4px 8px; cursor: pointer; font: inherit; }
 button.b.on { background: #1f6feb; color: #fff; border-color: #1f6feb; }
 button.x { border: 0; background: none; cursor: pointer; font-size: 16px; color: #59636e; }
@@ -118,8 +119,14 @@ export class ControlPanel {
     return { line: `Không có phụ đề truy cập được (${best.provider ? adapterById(best.provider).label : 'video'}). Dùng Audio Mode từ biểu tượng tiện ích.`, error: err };
   }
 
+  /** Show the one-time caption question when a disabled English track blocks translation. */
+  private needsCaptionConsent(): boolean {
+    return !!this.status?.frames.some((f) => f.captionsOff) && !this.settings.autoEnableCaptions && !this.settings.autoEnableCaptionsAsked;
+  }
+
   private render(): void {
     const s = this.settings;
+    if (this.needsCaptionConsent()) this.collapsed = false; // ask once, visibly
     const rec = !!this.status?.audio.active;
     const { line, error } = this.summary();
     const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -128,6 +135,8 @@ export class ControlPanel {
         ? `<button class="pill ${s.enabled ? '' : 'off'} ${rec ? 'rec' : ''}" data-a="open" title="Phụ đề tiếng Việt"><span class="dot"></span>VI ${rec ? '• REC' : ''}</button>`
         : `<div class="card" role="dialog" aria-label="Phụ đề tiếng Việt">
           <div class="row"><span class="title">Phụ đề tiếng Việt</span><button class="x" data-a="close" aria-label="Thu gọn">×</button></div>
+          ${this.needsCaptionConsent() ? `<div class="consent"><b>Tự bật phụ đề tiếng Anh?</b><div class="muted">Video có phụ đề tiếng Anh nhưng CC đang tắt. Cho phép tiện ích tự chuyển phụ đề tiếng Anh sang chế độ ẩn ở mọi bài học để dịch tự động (không hiện chữ Anh gốc, không bấm nút CC). Chỉ hỏi một lần.</div>
+            <div class="row"><button class="b on" data-a="consent-yes">Đồng ý</button><button class="b" data-a="consent-no">Không</button></div></div>` : ''}
           <div class="muted">${esc(line)}</div>
           ${error ? `<div class="err">${esc(error)}</div>` : ''}
           <div class="row"><span>Dịch</span><button class="b ${s.enabled ? 'on' : ''}" data-a="toggle">${s.enabled ? 'BẬT' : 'TẮT'}</button></div>
@@ -181,7 +190,11 @@ export class ControlPanel {
         this.startSession();
         break;
       case 'autocc':
-        this.update({ autoEnableCaptions: true }); // explicit user opt-in, persisted
+      case 'consent-yes':
+        this.update({ autoEnableCaptions: true, autoEnableCaptionsAsked: true }); // explicit opt-in, persisted
+        break;
+      case 'consent-no':
+        this.update({ autoEnableCaptionsAsked: true });
         break;
     }
     this.render();

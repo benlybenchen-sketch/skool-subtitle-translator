@@ -68,6 +68,7 @@ export const DEFAULT_SETTINGS: Settings = {
   pretranslateAll: true,
   autoStart: true,
   autoEnableCaptions: false,
+  autoEnableCaptionsAsked: false,
   autoInitOnNavigation: true,
   sourceLanguage: 'en',
   targetLanguage: 'vi',

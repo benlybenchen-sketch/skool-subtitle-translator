@@ -263,8 +263,10 @@ chrome.tabs.onUpdated.addListener((tabId, info) => {
   }
 });
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details) => {
   void cache.prune().catch(() => undefined);
+  // First install only: open Settings once so provider, consent and automation are set up once.
+  if (details.reason === 'install') void chrome.runtime.openOptionsPage();
 });
 chrome.runtime.onStartup.addListener(() => {
   void cache.prune().catch(() => undefined);

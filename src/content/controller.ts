@@ -163,7 +163,7 @@ export class SubtitleController {
         const el = target.el;
         const go = () => {
           cleanup();
-          if (token === this.navToken) this.setTarget(target, anchor);
+          if (token === this.navToken && el.isConnected) this.setTarget(target, anchor);
         };
         const evs = ['emptied', 'loadstart', 'loadedmetadata'];
         const timer = setTimeout(go, this.env.navSettleMs ?? 2000);
@@ -349,6 +349,7 @@ export class SubtitleController {
       this.native.disable();
       this.native = null;
     }
+    if (content?.vi) this.lastDisplayAt = Date.now();
     ov.show(content);
   };
 
@@ -459,6 +460,15 @@ export class SubtitleController {
   private stallRediscoveries = 0;
   private stallReenables = 0;
   private static readonly STALL_NOTICE_PREFIX = 'Trình phát ngừng cung cấp phụ đề mới';
+  private lastDisplayAt: number | null = null;
+  private untranslatedSince: number | null = null;
+  private readonly recoveries: { atSec: number; kind: string; outcome: string }[] = [];
+
+  private logRecovery(kind: string, outcome: string): void {
+    const media = this.target && this.target.kind !== 'iframe' ? this.target.el : null;
+    this.recoveries.push({ atSec: Math.round(media?.currentTime ?? 0), kind, outcome });
+    if (this.recoveries.length > 20) this.recoveries.shift();
+  }
 
   /**
    * Low-overhead self-healing (runs on timeupdate, at most every 2 s; no timers):
@@ -476,6 +486,17 @@ export class SubtitleController {
     if (!src || video.paused || !this.settings.enabled) return;
     const end = src.latestCueEnd;
     const t = video.currentTime;
+    // Processing failure (not a silent gap): an English cue is on screen but its Vietnamese
+    // translation has not arrived for > 4 s → re-anchor scheduling at the playhead.
+    const active = this.timeline?.activeAt(t);
+    if (active && !active.vi) {
+      if (this.untranslatedSince === null) this.untranslatedSince = now;
+      else if (now - this.untranslatedSince > 4000) {
+        this.untranslatedSince = now;
+        this.scheduler?.setPlayhead(t, video.playbackRate);
+        this.logRecovery('untranslated-active-cue', `status=${active.status}, rescheduled`);
+      }
+    } else this.untranslatedSince = null;
     const nearEnd = Number.isFinite(video.duration) && video.duration > 0 && t > video.duration - 5;
     if (end > 0 && t > end + 10 && !nearEnd) {
       if (this.stallSince === null) {
@@ -486,7 +507,9 @@ export class SubtitleController {
         const reenable = this.stallRediscoveries === 0 && this.stallReenables < 5;
         if (reenable && src.track.mode === 'disabled') this.stallReenables++;
         this.stallRediscoveries++;
+        const before = src.storedCues;
         src.rediscover(`playback ${Math.round(t)}s > last cue ${Math.round(end)}s`, reenable);
+        this.logRecovery('cues-exhausted', src.storedCues > before ? `found ${src.storedCues - before} new cues` : `no new cues (mode=${src.track.mode})`);
       }
       if (now - this.stallSince > 30_000 && !this.notice?.startsWith(SubtitleController.STALL_NOTICE_PREFIX)) {
         const mm = `${Math.floor(end / 60)}:${String(Math.floor(end % 60)).padStart(2, '0')}`;
@@ -511,7 +534,34 @@ export class SubtitleController {
     const latestCueEnd = src ? src.latestCueEnd : this.timeline?.units.at(-1)?.end ?? 0;
     const duration = media && Number.isFinite(media.duration) ? media.duration : null;
     const r1 = (x: number) => Math.round(x * 10) / 10;
+    const allTracks: { kind: string; language: string; mode: string; cues: number | null }[] = [];
+    const tl = media?.textTracks;
+    for (let i = 0; i < (tl?.length ?? 0); i++) {
+      const t = tl![i];
+      allTracks.push({ kind: t.kind, language: t.language, mode: t.mode, cues: t.cues ? t.cues.length : null });
+    }
+    const counts = this.timeline?.counts();
+    const complete = duration !== null && latestCueEnd >= duration - 15;
+    const health = !sch
+      ? 'no-captions'
+      : sch.fatal
+        ? 'api-error-backoff'
+        : this.stallSince
+          ? 'stalled-no-new-cues'
+          : complete && counts && counts.done === counts.total
+            ? 'completed'
+            : 'running';
     return {
+      /** Privacy-safe lesson identity (hash of route + lesson id). */
+      lessonId: this.videoKey ? hash53(this.videoKey) : null,
+      videoDetected: media ? (this.target!.kind === 'video' ? 'video' : 'media') : this.target ? 'iframe' : 'none',
+      textTrackCount: allTracks.length,
+      textTracks: allTracks,
+      health,
+      prefetchCoverage90s: this.scheduler ? Math.round(this.scheduler.aheadCoverage() * 100) / 100 : null,
+      lastVietnameseShownAgoSec: this.lastDisplayAt ? Math.round((now - this.lastDisplayAt) / 1000) : null,
+      autoEnableCaptions: this.settings.autoEnableCaptions,
+      recoveries: [...this.recoveries],
       currentTimeSec: media ? r1(media.currentTime) : null,
       durationSec: duration !== null ? r1(duration) : null,
       paused: media?.paused ?? null,
@@ -779,6 +829,8 @@ export class SubtitleController {
     this.captionsOff = false;
     this.stallSince = null;
     this.stallReenables = 0;
+    this.untranslatedSince = null;
+    this.recoveries.length = 0;
   }
 
   private queueStatus(): void {
