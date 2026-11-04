@@ -288,6 +288,76 @@ await test('Loom-style iframe: content script runs inside the embed and renders 
   await p.close();
 });
 
+const learnRoot = (p) => p.evaluate(() => {
+  const r = document.querySelector('[data-sst-learning]')?.shadowRoot;
+  return r ? { rows: [...r.querySelectorAll('.row')].map((x) => x.textContent), cov: r.querySelector('.body > div')?.textContent ?? '' } : null;
+});
+
+await test('Transcript panel: opened from the VI control, rows EN/VI, search, seek, local SRT export', async () => {
+  const p = await context.newPage();
+  await p.goto('https://www.skool.com/test-group/classroom/course20?md=lesson1');
+  await p.waitForSelector('video');
+  await p.evaluate(() => document.querySelector('video').play());
+  await seek(p, 2);
+  await waitFor(async () => (await overlayText(p)) === '[VI] Welcome back to the course.', 8000, 'overlay');
+  await p.evaluate(() => {
+    const r = document.querySelector('[data-sst-panel]').shadowRoot;
+    r.querySelector('.pill').click();
+    r.querySelector('[data-a="transcript"]').click();
+  });
+  const st = await waitFor(async () => {
+    const s = await learnRoot(p);
+    return s && s.rows.some((t) => t.includes('[VI] Welcome back to the course.')) ? s : null;
+  }, 5000, 'transcript rows');
+  assert(st.rows.some((t) => t.includes('Welcome back to the course.')), 'English text missing');
+  await p.evaluate(() => {
+    const r = document.querySelector('[data-sst-learning]').shadowRoot;
+    const s = r.querySelector('input[type=search]');
+    s.value = 'zzz-not-there';
+    s.dispatchEvent(new Event('input'));
+  });
+  assert((await learnRoot(p)).rows.length === 0, 'search filter not applied');
+  await p.evaluate(() => {
+    const r = document.querySelector('[data-sst-learning]').shadowRoot;
+    const s = r.querySelector('input[type=search]');
+    s.value = '';
+    s.dispatchEvent(new Event('input'));
+    r.querySelectorAll('.row .t')[1]?.click();
+  });
+  const t = await p.evaluate(() => document.querySelector('video').currentTime);
+  assert(t > 2.5, `timestamp click did not seek (t=${t})`);
+  await p.evaluate(() => [...document.querySelector('[data-sst-learning]').shadowRoot.querySelectorAll('.tab')].find((b) => b.textContent === 'Xuất').click());
+  const [dl] = await Promise.all([
+    p.waitForEvent('download', { timeout: 5000 }),
+    p.evaluate(() => document.querySelector('[data-sst-learning]').shadowRoot.querySelector('button.primary').click()),
+  ]);
+  const name = dl.suggestedFilename();
+  assert(/\.srt$/.test(name) && /-vi(-PARTIAL)?\.srt$/.test(name), `bad file name ${name}`);
+  const body = readFileSync(await dl.path(), 'utf8');
+  assert(/^\uFEFF?1\n00:00:\d\d,\d{3} --> 00:00:\d\d,\d{3}\n\[VI\] /.test(body), `bad SRT: ${JSON.stringify(body.slice(0, 80))}`);
+  await p.close();
+});
+
+await test('Transcript panel in the top frame reads captions from a player iframe (relay)', async () => {
+  const p = await context.newPage();
+  await p.goto('https://www.skool.com/test-group/classroom/course21?md=loomlesson');
+  const frame = await waitFor(async () => p.frames().find((f) => f.url().includes('loom.com/embed')), 5000, 'loom frame');
+  await frame.waitForSelector('video');
+  await frame.evaluate(() => document.querySelector('video').play());
+  await seek(frame, 2);
+  await waitFor(async () => (await overlayText(frame)) === '[VI] Welcome back to the course.', 8000, 'iframe overlay');
+  await p.evaluate(() => {
+    const r = document.querySelector('[data-sst-panel]').shadowRoot;
+    r.querySelector('.pill').click();
+    r.querySelector('[data-a="transcript"]').click();
+  });
+  await waitFor(async () => {
+    const s = await learnRoot(p);
+    return s && s.rows.some((t) => t.includes('[VI] Welcome back to the course.'));
+  }, 6000, 'relayed transcript rows');
+  await p.close();
+});
+
 await test('Loom page opened outside Skool: extension stays inactive', async () => {
   const p = await context.newPage();
   await p.goto('https://www.loom.com/embed/standalone');

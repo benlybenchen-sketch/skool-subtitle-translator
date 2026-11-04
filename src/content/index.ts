@@ -8,6 +8,8 @@ import { createLessonLifecycle } from './lifecycle';
 import { collectDiagnostics } from './diagnostics';
 import { SubtitleController, type ControllerBridge } from './controller';
 import { ControlPanel } from './panel';
+import { LearningPanel, type PanelTab } from './learningPanel';
+import { createVideoSource } from './learningSource';
 
 const GUARD = '__sstContentScript__';
 
@@ -55,6 +57,7 @@ async function main(): Promise<void> {
   const controller = new SubtitleController({ doc: document, isTop, adapter, bridge, settings });
   const detector = new VideoDetector(document, adapter);
   let panel: ControlPanel | null = null;
+  let learning: LearningPanel | null = null;
 
   const lifecycle = createLessonLifecycle(window, controller, detector);
   const nav = lifecycle.nav;
@@ -67,9 +70,13 @@ async function main(): Promise<void> {
       (patch) => void saveSettings(patch).catch(orphaned),
       () => void sendToBackground({ type: 'audio:stop' }).catch(() => undefined),
       () => void sendToBackground({ type: 'session:start' }).catch(() => undefined),
+      (tab) => learning?.toggle(tab),
     );
     if (settings.showPanel) panel.mount();
     controller.onOverlayContainerChange((el) => panel?.follow(el));
+    // Transcript / notes / export drawer — opened only by the user (VI control or popup).
+    const source = createVideoSource(document, controller, (op) => sendToBackground({ type: 'learning:remote', op }, { retries: 1 }));
+    learning = new LearningPanel(document, source);
   }
 
   const offSettings = onSettingsChanged((s) => {
@@ -110,6 +117,22 @@ async function main(): Promise<void> {
       case 'session:start':
         controller.startSession();
         break;
+      case 'learning:open':
+        learning?.show(msg.tab as PanelTab);
+        break;
+      case 'learning:op': {
+        const op = msg.op;
+        if (op.kind === 'get') {
+          sendResponse(controller.transcript(op.title));
+          return;
+        }
+        if (op.kind === 'seek') {
+          sendResponse({ ok: controller.seek(op.sec) });
+          return;
+        }
+        controller.completeTranslations(Math.min(op.timeoutMs, 300_000)).then(sendResponse, () => sendResponse(null));
+        return true; // async response
+      }
     }
     sendResponse({ ok: true });
   };
@@ -131,6 +154,7 @@ async function main(): Promise<void> {
     safe(() => lifecycle.stop());
     safe(() => controller.destroy());
     safe(() => panel?.destroy());
+    safe(() => learning?.destroy());
     safe(() => offSettings());
     safe(() => chrome.runtime.onMessage.removeListener(onMessage));
     document.removeEventListener('visibilitychange', orphanCheck);

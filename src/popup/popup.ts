@@ -324,6 +324,14 @@ async function init(): Promise<void> {
     void chrome.runtime.openOptionsPage();
   });
   $('diag-btn').addEventListener('click', () => void runDiagnostics());
+  document.querySelectorAll<HTMLButtonElement>('[data-learn]').forEach((b) =>
+    b.addEventListener('click', () => {
+      if (tabId === undefined) return;
+      void sendToBackground({ type: 'learning:open', tabId, tab: b.dataset.learn as 'transcript' | 'notes' | 'export' })
+        .then(() => window.close())
+        .catch(() => undefined);
+    }),
+  );
   $('diag-copy').addEventListener('click', () => void navigator.clipboard.writeText($('diag-out').textContent ?? ''));
   onSettingsChanged(() => void checkHealth());
   await Promise.all([refresh(), checkHealth()]);

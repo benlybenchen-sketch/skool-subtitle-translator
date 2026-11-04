@@ -228,6 +228,20 @@ async function handle(msg: BackgroundRequest, sender: chrome.runtime.MessageSend
       await Promise.all([0, ...st.frames.map((f) => f.frameId)].map((f) => sendToFrame(tabId, f, { type: 'session:start' })));
       return { ok: true };
     }
+    case 'learning:remote': {
+      // Only the Skool tab's own top frame may ask; forwarded to the frame that owns the video.
+      if (tabId === undefined || frameId !== 0) return { ok: false };
+      const primary = registry.primaryFrame(tabId);
+      if (primary === null || primary === 0) return { ok: false };
+      try {
+        return await chrome.tabs.sendMessage(tabId, { type: 'learning:op', op: msg.op } satisfies ContentMessage, { frameId: primary });
+      } catch {
+        return { ok: false };
+      }
+    }
+    case 'learning:open':
+      await sendToFrame(msg.tabId, 0, { type: 'learning:open', tab: msg.tab });
+      return { ok: true };
     case 'offscreen:ready':
       return { ok: true };
     case 'offscreen:started': {

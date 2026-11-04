@@ -384,6 +384,7 @@ export class TranslationScheduler {
       const r = byId.get(u.id);
       if (r?.vi) {
         u.vi = r.vi;
+        (u as TimedUnit & { cached?: boolean }).cached = !!r.cached;
         u.status = 'done';
         this.retryAt.delete(u.id);
         if (this.firstResultAt === null) this.firstResultAt = this.o.now();

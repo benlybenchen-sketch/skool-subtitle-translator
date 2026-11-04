@@ -12,6 +12,7 @@ import { DomCaptionSource, ManualSource, TextTrackSource, findEnglishTrack, type
 import { TranslationScheduler, type SchedulerOptions, type TranslateBridge } from './scheduler';
 import { hash53 } from '../shared/hash';
 import { modeProfile } from '../translation/modes';
+import { buildTranscript, type Transcript } from '../transcript/model';
 
 export interface ControllerBridge extends TranslateBridge {
   reportStatus(status: Omit<FrameStatus, 'frameId'>): void;
@@ -84,6 +85,65 @@ export class SubtitleController {
   constructor(private readonly env: ControllerEnv) {
     this.settings = env.settings;
     this.paused = !env.settings.autoStart;
+  }
+
+  private readonly activeListeners = new Set<(id: string | null) => void>();
+  private lastActiveId: string | null = null;
+
+  /** Notified when the segment under the playhead changes (transcript highlight). */
+  onActiveSegment(cb: (id: string | null) => void): () => void {
+    this.activeListeners.add(cb);
+    return () => this.activeListeners.delete(cb);
+  }
+
+  /** Transcript of the current lesson, built from data already loaded/translated (no API call). */
+  transcript(title: string): Transcript | null {
+    if (!this.timeline || !this.videoKey) return null;
+    const media = this.target && this.target.kind !== 'iframe' ? this.target.el : null;
+    const src = this.timed instanceof TextTrackSource ? this.timed : null;
+    return buildTranscript({
+      lessonId: hash53(this.videoKey),
+      title,
+      units: this.timeline.units,
+      source: this.captionSource ?? 'texttrack',
+      fullTranscript: !!src?.fullTranscript || this.captionSource === 'manual',
+      durationSec: media && Number.isFinite(media.duration) ? media.duration : null,
+      version: hash53,
+    });
+  }
+
+  /** Seek the lesson video (transcript / notes timestamps). */
+  seek(sec: number): boolean {
+    const media = this.target && this.target.kind !== 'iframe' ? this.target.el : null;
+    if (!media || !Number.isFinite(sec)) return false;
+    media.currentTime = Math.max(0, sec);
+    return true;
+  }
+
+  /**
+   * User-initiated: translate every currently accessible segment (e.g. before exporting).
+   * Temporarily enables background pretranslation; bounded by a timeout; reuses the cache.
+   */
+  async completeTranslations(timeoutMs = 180_000, onProgress?: (done: number, total: number) => void): Promise<{ done: number; total: number }> {
+    const sch = this.scheduler;
+    const tl = () => this.timeline?.counts() ?? { total: 0, done: 0, failed: 0 };
+    if (!sch) return { done: 0, total: 0 };
+    sch.updateOptions({ pretranslateAll: true });
+    sch.resume();
+    const t0 = Date.now();
+    await new Promise<void>((resolve) => {
+      const iv = setInterval(() => {
+        const c = tl();
+        onProgress?.(c.done, c.total);
+        if (c.done + c.failed >= c.total || Date.now() - t0 > timeoutMs || this.scheduler !== sch) {
+          clearInterval(iv);
+          resolve();
+        }
+      }, 500);
+    });
+    if (this.scheduler === sch) sch.updateOptions({ pretranslateAll: this.settings.pretranslateAll });
+    const c = tl();
+    return { done: c.done, total: c.total };
   }
 
   /** Scheduler tuning from the translation mode (FAST / BALANCED / QUALITY). */
@@ -338,6 +398,11 @@ export class SubtitleController {
         range = [video.currentTime, video.currentTime + 5];
       } else if (this.timeline) {
         const u = this.timeline.activeAt(video.currentTime);
+        const aid = u?.id ?? null;
+        if (aid !== this.lastActiveId) {
+          this.lastActiveId = aid;
+          for (const l of this.activeListeners) l(aid);
+        }
         if (u && !u.vi && u.status !== 'error' && !this.missed.has(u.id) && this.settings.enabled) {
           // Visible before its translation arrived → a missed deadline (measured, reported).
           this.missed.add(u.id);

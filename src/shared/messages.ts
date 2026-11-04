@@ -32,6 +32,9 @@ export type BackgroundRequest =
   | { type: 'diag:run'; tabId: number }
   | { type: 'backend:check' }
   | { type: 'session:start' }
+  // Learning assistant: the top frame's panel reaches the lesson video's frame through the background.
+  | { type: 'learning:remote'; op: LearningOp }
+  | { type: 'learning:open'; tabId: number; tab: 'transcript' | 'notes' | 'export' }
   | { type: 'usage:get' }
   | { type: 'usage:reset' }
   | { type: 'pricing:set'; rows: import('../translation/pricing').PriceRow[] | null }
@@ -69,7 +72,15 @@ export type ContentMessage =
   | { type: 'tab:status:changed'; status: TabStatus }
   | { type: 'diag:collect' }
   | { type: 'nav:check' }
-  | { type: 'session:start' };
+  | { type: 'session:start' }
+  | { type: 'learning:op'; op: LearningOp }
+  | { type: 'learning:open'; tab: 'transcript' | 'notes' | 'export' };
+
+/** Operations on the lesson transcript held by the frame that owns the video. */
+export type LearningOp =
+  | { kind: 'get'; title: string }
+  | { kind: 'seek'; sec: number }
+  | { kind: 'complete'; timeoutMs: number };
 
 /** Messages sent from the background to the offscreen document. */
 export type OffscreenMessage =

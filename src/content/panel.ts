@@ -42,6 +42,7 @@ export class ControlPanel {
     private readonly update: (patch: Partial<Settings>) => void,
     private readonly stopAudio: () => void,
     private readonly startSession: () => void = () => undefined,
+    private readonly openLearning: (tab: 'transcript' | 'notes' | 'export') => void = () => undefined,
   ) {
     this.settings = settings;
     this.host = doc.createElement('div');
@@ -146,6 +147,9 @@ export class ControlPanel {
           <div class="row"><span>Cỡ chữ</span><span>
             <button class="b" data-a="smaller" aria-label="Nhỏ hơn">A−</button>
             <button class="b" data-a="bigger" aria-label="Lớn hơn">A+</button></span></div>
+          <div class="row"><button class="b" data-a="transcript" title="Bản ghi phụ đề Anh/Việt, tìm kiếm, tua theo mốc thời gian">📄 Bản ghi</button>
+            <button class="b" data-a="notes" title="Ghi chú học tập do AI tạo (chỉ khi bạn bấm Tạo)">🧠 Ghi chú AI</button>
+            <button class="b" data-a="export" title="Tải SRT/VTT/TXT/MD về máy">⬇ Xuất</button></div>
           ${rec ? `<div class="row"><span>Audio Mode</span><button class="b" data-a="stop">Dừng ghi</button></div>` : ''}
           ${this.status?.frames.some((f) => f.mode === 'paused') ? `<div class="row"><span>Bài học này</span><button class="b on" data-a="start">Bắt đầu dịch</button></div>` : ''}
           ${this.status?.frames.some((f) => f.captionsOff) && !s.autoEnableCaptions ? `<div class="row"><span class="muted">CC đang tắt</span><button class="b" data-a="autocc" title="Chuyển track tiếng Anh sang chế độ ẩn để đọc phụ đề (không hiện phụ đề Anh gốc)">Tự bật phụ đề tiếng Anh</button></div>` : ''}
@@ -188,6 +192,11 @@ export class ControlPanel {
         break;
       case 'start':
         this.startSession();
+        break;
+      case 'transcript':
+      case 'notes':
+      case 'export':
+        this.openLearning(a);
         break;
       case 'autocc':
       case 'consent-yes':
