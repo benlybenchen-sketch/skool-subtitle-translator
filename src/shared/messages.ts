@@ -51,6 +51,13 @@ export type BackgroundRequest =
   | { type: 'audio:stop'; tabId?: number }
   | { type: 'manual:cues'; tabId: number; cues: Cue[]; label: string }
   // from the offscreen document
+  // Local lesson store (Phase 5: instant transcript, offline study)
+  | { type: 'lesson:get'; lessonId: string }
+  | { type: 'lesson:put'; record: Partial<import('../transcript/store').LessonRecord> & { lessonId: string } }
+  | { type: 'lesson:list' }
+  | { type: 'lesson:delete'; lessonId: string }
+  | { type: 'lesson:clear'; includeOffline: boolean }
+  | { type: 'lesson:usage' }
   // AI Vietnamese dubbing (Phase 4)
   | { type: 'dub:voices'; provider: import('./types').TtsProviderKind }
   | { type: 'dub:speak'; token: string; segId: string; text: string; voice: string; rate: number; volume: number }
@@ -103,7 +110,8 @@ export type ContentMessage =
 export type LearningOp =
   | { kind: 'get'; title: string }
   | { kind: 'seek'; sec: number }
-  | { kind: 'complete'; timeoutMs: number };
+  | { kind: 'complete'; timeoutMs: number }
+  | { kind: 'acquire' };
 
 /** Messages sent from the background to the offscreen document. */
 export type OffscreenMessage =

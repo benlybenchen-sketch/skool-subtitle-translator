@@ -292,7 +292,8 @@ await test('Floating control panel is injected and collapsible', async () => {
   assert(label?.includes('VI'), 'panel pill missing');
 });
 
-await test('Translation cache: re-visiting a lesson hits IndexedDB', async () => {
+await test('Translation cache: re-visiting a lesson makes no new translation requests (lesson store / IndexedDB cache)', async () => {
+  const before = await setup.evaluate(() => chrome.runtime.sendMessage({ type: 'metrics:get' }));
   const p2 = await context.newPage();
   await p2.goto('https://www.skool.com/test-group/classroom/course1?md=lesson1');
   await p2.waitForSelector('video');
@@ -301,7 +302,11 @@ await test('Translation cache: re-visiting a lesson hits IndexedDB', async () =>
   await waitFor(async () => (await overlayText(p2)) === '[VI] Welcome back to the course.', 8000, 'cached overlay');
   const m = await sw.evaluate(() => new Promise((r) => chrome.runtime.sendMessage({ type: 'metrics:get' }).then(r).catch(() => r(null))));
   const stats = await setup.evaluate(() => chrome.runtime.sendMessage({ type: 'metrics:get' }));
-  assert(stats.cacheHits > 0, `expected cache hits, got ${JSON.stringify(stats)}`);
+  // v5: translations of a saved lesson are restored from the lesson store before any request;
+  // anything still requested must be served by the IndexedDB translation cache.
+  assert(stats.requests === before.requests, `revisit sent new API requests: ${JSON.stringify(before)} → ${JSON.stringify(stats)}`);
+  const lessons = await setup.evaluate(() => chrome.runtime.sendMessage({ type: 'lesson:list' }));
+  assert(lessons.lessons.length > 0, 'lesson transcript not saved locally');
   void m;
   await p2.close();
 });

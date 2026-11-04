@@ -56,7 +56,7 @@ export function readTrackCues(track: TextTrack): Cue[] {
 }
 
 export interface TimedSource {
-  readonly kind: 'texttrack' | 'manual';
+  readonly kind: 'texttrack' | 'manual' | 'cache';
   readonly label: string;
   start(onCues: (cues: Cue[]) => void, onState?: (s: TrackState) => void): void;
   stop(): void;
@@ -169,6 +169,18 @@ export class TextTrackSource implements TimedSource {
 
   get label(): string {
     return this.track.label || this.track.language || 'English';
+  }
+
+  /** Add cues known from elsewhere (saved transcript / verified caption file). `complete` = whole lesson. */
+  seed(cues: Cue[], complete: boolean): void {
+    let added = 0;
+    for (const c of cues) if (!this.store.has(c.id)) (this.store.set(c.id, c), added++);
+    if (complete) this.fullTranscript = true;
+    this.note(`seeded ${added} cues${complete ? ' (complete transcript)' : ''}`);
+    if (added && this.onCues) {
+      this.lastDiscoveryAt = this.now();
+      this.onCues([...this.store.values()]);
+    }
   }
 
   get trackState(): TrackState {
@@ -397,6 +409,19 @@ export class TextTrackSource implements TimedSource {
 }
 
 /** Cues imported by the user from a .vtt/.srt file. */
+/** Transcript restored from the local lesson store (or a verified complete caption file) while no player track exists. */
+export class CachedSource implements TimedSource {
+  readonly kind = 'cache' as const;
+  constructor(
+    private readonly cues: Cue[],
+    readonly label: string,
+  ) {}
+  start(onCues: (cues: Cue[]) => void): void {
+    onCues(this.cues);
+  }
+  stop(): void {}
+}
+
 export class ManualSource implements TimedSource {
   readonly kind = 'manual' as const;
   constructor(

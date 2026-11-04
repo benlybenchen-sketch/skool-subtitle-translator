@@ -65,6 +65,11 @@ async function main(): Promise<void> {
     bridge,
     settings,
     dubSend: (m) => sendToBackground(m, { retries: 1 }),
+    lessonStore: {
+      get: async (lessonId) => (await sendToBackground<{ record: import('../transcript/store').LessonRecord | null }>({ type: 'lesson:get', lessonId }, { retries: 2 })).record,
+      put: (record) => sendToBackground({ type: 'lesson:put', record }, { retries: 2 }),
+    },
+    lessonTitle: () => (isTop ? lessonTitle(document) : document.title),
   });
   // A previous page in this tab may have muted the tab for dubbing and died: restore it.
   if (isTop) sendToBackground({ type: 'dub:recover' }, { retries: 0 }).catch(() => undefined);
@@ -208,6 +213,10 @@ async function main(): Promise<void> {
         if (op.kind === 'get') {
           sendResponse(controller.transcript(op.title));
           return;
+        }
+        if (op.kind === 'acquire') {
+          controller.acquireFromPlayer().then(() => sendResponse({ ok: true }), () => sendResponse({ ok: false }));
+          return true;
         }
         if (op.kind === 'seek') {
           sendResponse({ ok: controller.seek(op.sec) });

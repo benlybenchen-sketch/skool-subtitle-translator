@@ -141,6 +141,8 @@ export interface Settings {
   /** Display of translated text lessons (switchable without new API calls). */
   textDisplayMode: TextDisplayMode;
   dubbing: DubbingSettings;
+  /** Opt-in: read the complete English captions from the player's public HLS subtitle playlist (never signed/tokenised playback). */
+  fullTranscriptFromPlayer: boolean;
   /** Source subtitle language (BCP-47 prefix). Only English is supported by the prompt today. */
   sourceLanguage: 'en';
   /** Target language. Only Vietnamese is supported today. */
@@ -152,7 +154,7 @@ export interface Settings {
 }
 
 export type CaptionState = 'searching' | 'available' | 'unavailable';
-export type CaptionSourceKind = 'texttrack' | 'dom' | 'manual' | 'live';
+export type CaptionSourceKind = 'texttrack' | 'dom' | 'manual' | 'live' | 'cache';
 export type ActiveMode = 'off' | 'paused' | 'idle' | 'caption' | 'audio' | 'waiting-audio';
 
 /** What one frame (top Skool page or an embedded player iframe) reports. */

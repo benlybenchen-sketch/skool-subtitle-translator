@@ -215,6 +215,7 @@ function fill(s: Settings, sttKey?: string): void {
   $('auto-nav').checked = s.autoInitOnNavigation;
   $('auto-cc').checked = s.autoEnableCaptions;
   $('auto-text').checked = s.autoTranslateTextLessons;
+  $('full-tx').checked = s.fullTranscriptFromPlayer;
   $('d-endpoint').value = s.dubbing.googleEndpoint;
   $('d-lookahead').value = String(s.dubbing.lookaheadSec);
   $('d-speedup').value = String(s.dubbing.maxSpeedup);
@@ -254,6 +255,7 @@ function read(): Settings {
     autoInitOnNavigation: $('auto-nav').checked,
     autoEnableCaptions: $('auto-cc').checked,
     autoTranslateTextLessons: $('auto-text').checked,
+    fullTranscriptFromPlayer: $('full-tx').checked,
     autoEnableCaptionsAsked: current.autoEnableCaptionsAsked || $('auto-cc').checked !== current.autoEnableCaptions || $('auto-cc').checked,
     sourceLanguage: 'en',
     targetLanguage: 'vi',

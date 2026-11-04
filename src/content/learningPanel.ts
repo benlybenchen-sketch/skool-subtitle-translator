@@ -12,6 +12,8 @@ export interface LearningSource {
   completeTranslations?(onProgress: (done: number, total: number) => void): Promise<{ done: number; total: number }>;
   /** Refresh data held elsewhere (player iframe) before the first render. */
   prefetch?(): Promise<void>;
+  /** User-requested: complete English captions from the player's public caption playlist. */
+  acquireFull?(): Promise<void>;
 }
 
 /** AI notes hooks (Milestone 3B); the panel renders whatever the notes view returns. */
@@ -167,11 +169,28 @@ export class LearningPanel {
   }
 
   private coverageLine(t: Transcript | null): HTMLElement {
-    if (!t || t.coverage.state === 'none') return this.el('div', { className: 'warn', textContent: 'Không có phụ đề/nội dung truy cập được cho bài này.' });
+    if (!t || t.coverage.state === 'none') {
+      const box = this.el('div', { className: 'warn', textContent: 'Chưa có bản ghi: phụ đề của bài này chưa truy cập được.' });
+      if (t?.coverage.note) box.append(this.el('div', { className: 'muted', textContent: t.coverage.note }));
+      return box;
+    }
     const c = t.coverage;
-    const span = t.kind === 'video' ? ` · có đến ${fmtClock(c.sourceUntilSec)}${c.durationSec ? ` / ${fmtClock(c.durationSec)}` : ''}` : '';
-    const state = c.state === 'complete' ? 'Đầy đủ' : 'MỘT PHẦN (partial)';
-    return this.el('div', { className: c.state === 'complete' ? 'muted' : 'warn', textContent: `${state}${span} · đã dịch ${c.translated}/${c.segments}${c.failed ? ` · ${c.failed} lỗi` : ''}` });
+    const box = this.el('div', {});
+    if (t.kind === 'video') {
+      // Coverage by real timestamps vs the video duration (never "100 %" for the first minutes only).
+      const pct = c.durationSec ? Math.min(100, Math.round((c.sourceUntilSec / c.durationSec) * 100)) : null;
+      const en = c.state === 'complete' ? `Tiếng Anh: đầy đủ (${c.segments} câu${c.sourceLabel ? ` · ${c.sourceLabel}` : ''})` : `Tiếng Anh: MỘT PHẦN — có đến ${fmtClock(c.sourceUntilSec)}${c.durationSec ? ` / ${fmtClock(c.durationSec)} (≈${pct}% thời lượng)` : ''}${c.sourceLabel ? ` · ${c.sourceLabel}` : ''}`;
+      box.append(this.el('div', { className: c.state === 'complete' ? 'muted' : 'warn', textContent: en }));
+    } else box.append(this.el('div', { className: 'muted', textContent: `Bài viết: ${c.segments} đoạn` }));
+    const viDone = c.translated >= c.segments && c.state === 'complete';
+    box.append(
+      this.el('div', {
+        className: viDone ? 'muted' : 'warn',
+        textContent: viDone ? `Tiếng Việt: hoàn tất (${c.translated}/${c.segments})` : `Tiếng Việt: đang dịch ${c.translated}/${c.segments}${c.state !== 'complete' ? ' (của phần đã có)' : ''}${c.failed ? ` · ${c.failed} lỗi` : ''}`,
+      }),
+    );
+    if (c.note) box.append(this.el('div', { className: 'muted', textContent: c.note }));
+    return box;
   }
 
   private renderTranscript(body: HTMLElement, t: Transcript | null): void {
@@ -183,7 +202,30 @@ export class LearningPanel {
     });
     const copyAll = this.el('button', { className: 'b', textContent: 'Sao chép tất cả', onclick: () => void navigator.clipboard.writeText(this.plain(t?.segments ?? [])) });
     const list = this.el('div', {});
-    body.append(this.coverageLine(t), this.el('div', { className: 'bar' }, langBtn('vi', 'VI'), langBtn('bi', 'EN+VI'), langBtn('en', 'EN'), copyAll), this.el('div', { className: 'bar' }, search), list);
+    const actions = this.el('div', { className: 'bar' });
+    if (t && t.kind === 'video' && t.coverage.state !== 'complete' && this.source.acquireFull)
+      actions.append(
+        this.el('button', {
+          className: 'b',
+          textContent: 'Tải toàn bộ phụ đề từ trình phát',
+          title: 'Chỉ dùng playlist phụ đề công khai mà trình phát dùng (không dùng liên kết có chữ ký). Thời gian được kiểm tra khớp với trình phát trước khi dùng.',
+          onclick: async () => {
+            await this.source.acquireFull!();
+            this.shownVersion = '';
+            this.render();
+          },
+        }),
+      );
+    if (t && t.coverage.translated < t.coverage.segments && this.source.completeTranslations)
+      actions.append(
+        this.el('button', {
+          className: 'b',
+          textContent: 'Dịch toàn bộ ngay',
+          title: 'Mặc định: dịch phần sắp phát trước rồi dịch phần còn lại ở nền. Nút này dịch toàn bộ bản ghi hiện có ngay (dùng cache, không gửi lại câu đã dịch).',
+          onclick: () => void this.source.completeTranslations!(() => this.refresh()).then(() => this.render()),
+        }),
+      );
+    body.append(this.coverageLine(t), actions, this.el('div', { className: 'bar' }, langBtn('vi', 'VI'), langBtn('bi', 'EN+VI'), langBtn('en', 'EN'), copyAll), this.el('div', { className: 'bar' }, search), list);
     this.fillRows(list, t);
   }
 

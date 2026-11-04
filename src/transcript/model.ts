@@ -36,6 +36,10 @@ export interface TranscriptCoverage {
   segments: number;
   translated: number;
   failed: number;
+  /** Where the English transcript came from (for the UI). */
+  sourceLabel?: string;
+  /** Limitation / access note (e.g. signed playback → progressive only). */
+  note?: string;
 }
 
 export interface Transcript {
@@ -57,6 +61,8 @@ export function buildTranscript(args: {
   fullTranscript: boolean;
   durationSec: number | null;
   version: (s: string) => string;
+  sourceLabel?: string;
+  note?: string;
 }): Transcript {
   const segments: TranscriptSegment[] = args.units.map((u) => ({
     id: u.id,
@@ -85,6 +91,8 @@ export function buildTranscript(args: {
       segments: segments.length,
       translated: segments.filter((s) => !!s.vi).length,
       failed: segments.filter((s) => s.status === 'error').length,
+      sourceLabel: args.sourceLabel,
+      note: args.note,
     },
     version: args.version(segments.map((s) => `${s.id}:${s.vi ? 1 : 0}`).join('|')),
   };

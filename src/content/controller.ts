@@ -11,6 +11,9 @@ import { Timeline } from '../subtitles/timeline';
 import { DomCaptionSource, ManualSource, TextTrackSource, findEnglishTrack, type TimedSource } from '../subtitles/sources';
 import { CaptionBootstrap, type BootstrapState } from '../players/captionBootstrap';
 import { DubbingSession, type DubSend } from '../dubbing/session';
+import { CachedSource } from '../subtitles/sources';
+import { fetchHlsCaptions, findPlaylist, verifyAlignment, type HlsCaptionResult } from '../subtitles/hlsCaptions';
+import type { LessonRecord } from '../transcript/store';
 import { TranslationScheduler, type SchedulerOptions, type TranslateBridge } from './scheduler';
 import { hash53 } from '../shared/hash';
 import { modeProfile } from '../translation/modes';
@@ -28,6 +31,11 @@ export interface ControllerEnv {
   settings: Settings;
   /** Grace period to wait for late text tracks before declaring "no captions". */
   captionGraceMs?: number;
+  /** Local lesson store (background IndexedDB): instant transcript on reopen + resumable translation. */
+  lessonStore?: { get(lessonId: string): Promise<LessonRecord | null>; put(r: Partial<LessonRecord> & { lessonId: string }): Promise<unknown> };
+  /** Lesson title (top frame heading) for saved transcripts. */
+  lessonTitle?: () => string;
+  fetchImpl?: typeof fetch;
   /** Background messaging for AI dubbing (absent → dubbing unavailable in this frame). */
   dubSend?: DubSend;
   dubSchedulerOptions?: Partial<import('../dubbing/scheduler').DubSchedulerOptions>;
@@ -60,6 +68,14 @@ export class SubtitleController {
   private boot: CaptionBootstrap | null = null;
   private bootNotice: string | undefined;
   private bootNeedsConsent = false;
+  /** Cues known from the lesson store / a verified complete caption file (seeded into any source). */
+  private extraCues: Cue[] = [];
+  private extraComplete = false;
+  private extraLabel = '';
+  private cachedVi = new Map<string, string>();
+  private saveTimer: ReturnType<typeof setTimeout> | undefined;
+  private fullState: { status: 'idle' | 'loading' | 'done' | 'signed' | 'none' | 'unverified' | 'error' | 'cached'; note?: string } = { status: 'idle' };
+  private pendingFile: HlsCaptionResult | null = null;
   /** AI Vietnamese dubbing session for the current lesson video (Phase 4). */
   private dub: DubbingSession | null = null;
   private dubKey = '';
@@ -120,10 +136,143 @@ export class SubtitleController {
       title,
       units: this.timeline.units,
       source: this.captionSource ?? 'texttrack',
-      fullTranscript: !!src?.fullTranscript || this.captionSource === 'manual',
+      fullTranscript: !!src?.fullTranscript || this.captionSource === 'manual' || (this.captionSource === 'cache' && this.extraComplete),
+      sourceLabel: this.sourceLabel(src),
+      note: this.fullState.note,
       durationSec: media && Number.isFinite(media.duration) ? media.duration : null,
       version: hash53,
     });
+  }
+
+  private sourceLabel(src: TextTrackSource | null): string {
+    if (this.extraComplete && this.extraLabel) return this.extraLabel;
+    if (src?.fullTranscript) return 'tệp phụ đề của trình phát (đầy đủ)';
+    if (this.captionSource === 'manual') return 'tệp phụ đề bạn nhập';
+    if (this.captionSource === 'cache') return 'bản ghi đã lưu trên máy';
+    return 'phụ đề trình phát (thu dần khi phát)';
+  }
+
+  /** English transcript acquisition state for the UI. */
+  get transcriptAcquisition() {
+    return { ...this.fullState };
+  }
+
+  /** Priority 1: saved transcript; Priority 3 (opt-in): complete public caption playlist; else progressive. */
+  private async restoreLesson(): Promise<void> {
+    const key = this.videoKey;
+    const store = this.env.lessonStore;
+    const t = this.target;
+    if (!key || !t || t.kind === 'iframe') return;
+    const rec = store ? await store.get(hash53(key)).catch(() => null) : null;
+    if (this.videoKey !== key) return;
+    if (rec?.cues.length) {
+      this.cachedVi = new Map(rec.units.filter((u) => u.vi).map((u) => [`${u.id}|${u.en}`, u.vi!]));
+      if (rec.complete) this.extraLabel = `bản ghi đã lưu (${rec.source})`;
+      this.fullState = { status: rec.complete ? 'cached' : 'idle', note: rec.complete ? undefined : 'Bản ghi đã lưu chưa đầy đủ — tiếp tục thu thêm khi phát.' };
+      this.seed(rec.cues, rec.complete);
+    }
+    if (!rec?.complete && this.settings.fullTranscriptFromPlayer) await this.acquireFromPlayer();
+    this.queueStatus();
+  }
+
+  /** User-triggered (or opted-in) complete transcript from the player's public HLS subtitle rendition. */
+  async acquireFromPlayer(): Promise<void> {
+    const key = this.videoKey;
+    const t = this.target;
+    if (!key || !t || t.kind === 'iframe' || this.fullState.status === 'loading') return;
+    const found = findPlaylist(t.el);
+    if (found.kind === 'none') {
+      this.fullState = { status: 'none', note: 'Trình phát không công bố playlist phụ đề công khai — phụ đề được thu dần khi phát.' };
+      return void this.queueStatus();
+    }
+    if (found.kind === 'signed') {
+      this.fullState = { status: 'signed', note: 'Video dùng liên kết phát có chữ ký (kiểm soát truy cập) — tiện ích không dùng token đó để tải toàn bộ phụ đề; phụ đề được thu dần khi phát.' };
+      return void this.queueStatus();
+    }
+    this.fullState = { status: 'loading', note: 'Đang tải toàn bộ phụ đề tiếng Anh từ playlist công khai của trình phát…' };
+    this.queueStatus();
+    try {
+      const r = await fetchHlsCaptions(found.url, { lang: this.settings.sourceLanguage, fetchImpl: this.env.fetchImpl });
+      if (this.videoKey !== key) return;
+      this.pendingFile = r;
+      this.tryApplyFile();
+    } catch (e) {
+      if (this.videoKey !== key) return;
+      this.fullState = { status: 'error', note: `Không tải được toàn bộ phụ đề (${(e as Error).message}) — tiếp tục thu dần khi phát.` };
+    }
+    this.queueStatus();
+  }
+
+  /** Use a downloaded caption file only after its timing matches cues the player delivered. */
+  private tryApplyFile(): void {
+    const r = this.pendingFile;
+    if (!r) return;
+    const player = this.lastCues.filter((c) => !this.extraCues.includes(c));
+    const v = verifyAlignment(r.cues, player);
+    if (!v.ok) {
+      this.fullState =
+        v.matches < 3
+          ? { status: 'unverified', note: `Đã tải ${r.cues.length} câu phụ đề; đang chờ vài câu từ trình phát để kiểm tra khớp thời gian trước khi dùng.` }
+          : { status: 'error', note: 'Thời gian trong tệp phụ đề không khớp với trình phát — không dùng (thu dần khi phát).' };
+      if (v.matches >= 3) this.pendingFile = null;
+      return;
+    }
+    this.pendingFile = null;
+    const cues = v.offset ? r.cues.map((c) => ({ ...c, start: c.start + v.offset, end: c.end + v.offset })) : r.cues;
+    this.extraLabel = r.complete ? 'playlist phụ đề công khai của trình phát (đầy đủ)' : 'playlist phụ đề công khai (một phần)';
+    this.fullState = r.complete ? { status: 'done' } : { status: 'done', note: `Playlist phụ đề chưa đầy đủ (${r.failedSegments} đoạn lỗi) — phần còn lại thu dần khi phát.` };
+    this.seed(cues, r.complete);
+  }
+
+  private seed(cues: Cue[], complete: boolean): void {
+    const ids = new Set(this.extraCues.map((c) => c.id));
+    this.extraCues = [...this.extraCues, ...cues.filter((c) => !ids.has(c.id))];
+    this.extraComplete ||= complete;
+    if (this.timed instanceof TextTrackSource) this.timed.seed(this.extraCues, this.extraComplete);
+    else if (!this.timed && this.target && this.target.kind !== 'iframe') {
+      this.dom?.stop();
+      this.dom = null;
+      clearTimeout(this.graceTimer);
+      this.useTimedSource(new CachedSource(this.extraCues, this.extraLabel || 'Bản ghi đã lưu'), 'cache');
+    } else if (this.captionSource === 'cache') {
+      this.stopSources();
+      this.useTimedSource(new CachedSource(this.extraCues, this.extraLabel || 'Bản ghi đã lưu'), 'cache');
+    }
+  }
+
+  /** Save transcript + translations (debounced; flushed on lesson change). */
+  private scheduleSave(): void {
+    if (!this.env.lessonStore || !this.videoKey) return;
+    clearTimeout(this.saveTimer);
+    this.saveTimer = setTimeout(() => this.saveNow(), 3000);
+  }
+
+  private saveNow(): void {
+    clearTimeout(this.saveTimer);
+    this.saveTimer = undefined;
+    const store = this.env.lessonStore;
+    const key = this.videoKey;
+    if (!store || !key || !this.timeline || !this.lastCues.length) return;
+    const t = this.transcript(this.env.lessonTitle?.() ?? this.env.doc.title);
+    if (!t) return;
+    void store
+      .put({
+        lessonId: hash53(key),
+        title: t.title,
+        kind: 'video',
+        cues: this.lastCues,
+        complete: t.coverage.state === 'complete',
+        source: t.coverage.sourceLabel ?? this.captionSource ?? 'unknown',
+        durationSec: t.coverage.durationSec,
+        sourceUntilSec: t.coverage.sourceUntilSec,
+        units: t.segments.map((s) => ({ id: s.id, start: s.start, end: s.end, en: s.en, vi: s.vi })),
+        provider: this.settings.provider.kind,
+        model: this.settings.provider.model,
+        contentHash: hash53(this.lastCues.map((c) => c.id).join(',')),
+        error: this.error,
+        updatedAt: Date.now(),
+      })
+      .catch(() => undefined);
   }
 
   /** Seek the lesson video (transcript / notes timestamps). */
@@ -288,6 +437,7 @@ export class SubtitleController {
       this.startBootstrap(target.el, target.provider);
       this.attachCaptionSource();
       this.syncDubbing();
+      void this.restoreLesson();
     } else {
       // Cross-origin player iframe: captions (if any) are read by the content
       // script running inside that frame. Here we only host Audio Mode output.
@@ -848,7 +998,12 @@ export class SubtitleController {
     if (choice) {
       const src = new TextTrackSource(video, choice.track, undefined, this.settings.autoEnableCaptions);
       this.useTimedSource(src, 'texttrack');
+      if (this.extraCues.length) src.seed(this.extraCues, this.extraComplete);
       if (choice.uncertain) this.notice = 'Không xác định được ngôn ngữ phụ đề — giả định là tiếng Anh.';
+      return;
+    }
+    if (this.extraCues.length) {
+      this.useTimedSource(new CachedSource(this.extraCues, this.extraLabel || 'Bản ghi đã lưu'), 'cache');
       return;
     }
     // DOM-rendered captions (YouTube CC, or user-provided selectors).
@@ -910,6 +1065,14 @@ export class SubtitleController {
     const units = segmentCues(cues, { merge: this.settings.mergeFragments });
     const prev = resetTranslations ? undefined : this.timeline ?? undefined;
     this.timeline = new Timeline(units, prev);
+    if (this.cachedVi.size)
+      for (const u of this.timeline.units)
+        if (!u.vi) {
+          const vi = this.cachedVi.get(`${u.id}|${u.text}`);
+          if (vi) Object.assign(u, { vi, status: 'done', cached: true });
+        }
+    if (this.pendingFile) this.tryApplyFile();
+    this.scheduleSave();
     const video = this.target && this.target.kind !== 'iframe' ? this.target.el : null;
     if (!this.scheduler || resetTranslations) {
       this.scheduler?.dispose();
@@ -919,6 +1082,7 @@ export class SubtitleController {
         this.env.bridge,
         () => {
           if (this.dub && this.timeline) this.dub.setUnits(this.timeline.units);
+          this.scheduleSave();
           this.render();
           this.queueStatus();
         },
@@ -1026,6 +1190,7 @@ export class SubtitleController {
   }
 
   private teardownTarget(): void {
+    if (this.saveTimer) this.saveNow(); // flush progress of the lesson being left (before sources stop)
     this.stopLoop();
     this.stopSources();
     clearTimeout(this.graceTimer);
@@ -1038,6 +1203,12 @@ export class SubtitleController {
     this.native = null;
     this.boot?.dispose();
     this.boot = null;
+    this.extraCues = [];
+    this.extraComplete = false;
+    this.extraLabel = '';
+    this.cachedVi = new Map();
+    this.pendingFile = null;
+    this.fullState = { status: 'idle' };
     this.dub?.dispose(); // stop speech of this lesson and restore its audio now
     this.dub = null;
     this.dubKey = '';

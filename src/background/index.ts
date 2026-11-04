@@ -11,6 +11,7 @@ import { loadEffectiveGlossary } from '../shared/glossaryStore';
 import { UsageLedger } from './usageLedger';
 import { DEFAULT_PRICES, loadPricing, savePricing } from '../translation/pricing';
 import { NotesManager } from './notesManager';
+import { TranscriptStore } from '../transcript/store';
 import { DubbingService } from './dubbing';
 import { TtsLedger } from '../tts/ttsLedger';
 
@@ -45,6 +46,8 @@ const service = new TranslationService({
   onAccounting: (e, meta) => void ledger.record(e, meta),
   hasEndpointPermission,
 });
+
+const lessons = new TranscriptStore();
 
 /** Tabs with a live dubbing session (keeps the offscreen player open). */
 const dubTabs = new Set<number>();
@@ -286,6 +289,22 @@ async function handle(msg: BackgroundRequest, sender: chrome.runtime.MessageSend
     case 'learning:open':
       await sendToFrame(msg.tabId, 0, { type: 'learning:open', tab: msg.tab });
       return { ok: true };
+    case 'lesson:get':
+      return { record: await lessons.get(msg.lessonId) };
+    case 'lesson:put':
+      await lessons.put(msg.record);
+      return { ok: true };
+    case 'lesson:list':
+      return { lessons: await lessons.list() };
+    case 'lesson:delete':
+      await lessons.delete(msg.lessonId);
+      return { ok: true };
+    case 'lesson:clear':
+      return { removed: await lessons.clear(msg.includeOffline) };
+    case 'lesson:usage': {
+      const est = await navigator.storage?.estimate?.().catch(() => undefined);
+      return { usage: est?.usage ?? null, quota: est?.quota ?? null, lessons: (await lessons.list()).length };
+    }
     case 'dub:voices':
       return dubbing.voices(msg.provider);
     case 'dub:speak':

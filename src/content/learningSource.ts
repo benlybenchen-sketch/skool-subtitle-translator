@@ -17,6 +17,7 @@ export interface VideoTranscriptHost {
   seek(sec: number): boolean;
   onActiveSegment(cb: (id: string | null) => void): () => void;
   completeTranslations(timeoutMs?: number, onProgress?: (done: number, total: number) => void): Promise<{ done: number; total: number }>;
+  acquireFromPlayer(): Promise<void>;
 }
 
 /**
@@ -62,6 +63,11 @@ export function createVideoSource(
       const r = (await remote!({ kind: 'complete', timeoutMs: 180_000 }).catch(() => null)) as { done: number; total: number } | null;
       await refreshRemote();
       return r ?? { done: 0, total: 0 };
+    },
+    async acquireFull() {
+      if (useLocal()) await local.acquireFromPlayer();
+      else await remote!({ kind: 'acquire' }).catch(() => undefined);
+      await refreshRemote();
     },
     refreshRemote,
     prefetch: () => (localT() ? Promise.resolve() : refreshRemote()),
