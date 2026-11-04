@@ -41,3 +41,21 @@ export interface TranslationProvider {
   readonly id: string;
   translateBatch(req: BatchRequest): Promise<Record<string, string>>;
 }
+
+/** Free-form structured generation (AI Study Notes). JSON text is returned. */
+export interface CompleteRequest {
+  system: string;
+  user: string;
+  /** JSON schema of the expected output (strict-mode compatible). */
+  schema: Record<string, unknown>;
+  /** Output token budget. */
+  maxTokens: number;
+  signal: AbortSignal;
+  onUsage?: (u: TokenUsage) => void;
+}
+
+export interface CompletionProvider {
+  complete(req: CompleteRequest): Promise<string>;
+}
+
+export const canComplete = (p: unknown): p is CompletionProvider => typeof (p as CompletionProvider)?.complete === 'function';

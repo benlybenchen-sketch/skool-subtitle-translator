@@ -180,7 +180,7 @@ describe('TranslationQueue', () => {
       if (n === 1) throw new HttpError(429, 'rate limited', 2500);
       return echo(t);
     });
-    const q = new TranslationQueue({ sleep: async (ms) => void sleeps.push(ms), onEvent: (e) => events.push(e.type) });
+    const q = new TranslationQueue({ sleep: async (ms) => void sleeps.push(ms), onEvent: (e) => events.push(e.type), now: () => 1_000_000 });
     const res = await q.translate([{ key: 'a', text: 'A' }], ctx(p));
     expect(res.get('a')?.vi).toBe('vi:A');
     expect(sleeps).toEqual([2500]);

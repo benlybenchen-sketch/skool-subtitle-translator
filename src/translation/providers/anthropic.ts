@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { BatchRequest, TranslationProvider } from '../types';
+import type { BatchRequest, CompleteRequest, TranslationProvider } from '../types';
 import { ConfigError, HttpError, ParseError, parseRetryAfter } from '../errors';
 import { SYSTEM_PROMPT, buildUserPrompt, extractJson, parseTranslations } from '../prompt';
 
@@ -51,6 +51,55 @@ export class AnthropicProvider implements TranslationProvider {
       maxRetries: 0,
       ...(o.fetchImpl ? { fetch: o.fetchImpl } : {}),
     });
+  }
+
+  /** Structured generation (AI Study Notes): same model, strict JSON schema output. */
+  async complete(req: CompleteRequest): Promise<string> {
+    const model = this.o.model;
+    const res = await this.call(
+      {
+        model,
+        max_tokens: req.maxTokens,
+        system: req.system,
+        messages: [{ role: 'user', content: req.user }],
+        output_config: {
+          ...(supportsEffort(model) ? { effort: 'low' as const } : {}),
+          format: { type: 'json_schema', schema: req.schema },
+        },
+        ...(supportsFallbacks(model) ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {}),
+      },
+      req.signal,
+      req.onUsage,
+    );
+    if (res.stop_reason === 'refusal') throw new ParseError('Claude declined this request');
+    return res.content.map((b) => (b.type === 'text' ? b.text : '')).join('');
+  }
+
+  private async call(
+    params: Anthropic.Beta.MessageCreateParamsNonStreaming,
+    signal: AbortSignal,
+    onUsage: CompleteRequest['onUsage'],
+  ): Promise<Anthropic.Beta.BetaMessage> {
+    let res: Anthropic.Beta.BetaMessage;
+    try {
+      res = await this.client.beta.messages.create(params, { signal });
+    } catch (e) {
+      if (e instanceof Anthropic.APIError && typeof e.status === 'number') {
+        const h = e.headers as { get?: (k: string) => string | null } | undefined;
+        const hint = e.status === 401 || e.status === 403 ? ' (check the API key / permissions)' : e.status === 429 ? ' (rate limited)' : '';
+        throw new HttpError(e.status, `Anthropic HTTP ${e.status}${hint}: ${e.message.slice(0, 300)}`, parseRetryAfter(h?.get?.('retry-after') ?? null));
+      }
+      throw e;
+    }
+    const cacheRead = res.usage.cache_read_input_tokens ?? 0;
+    const cacheWrite = res.usage.cache_creation_input_tokens ?? 0;
+    onUsage?.({
+      inputTokens: (res.usage.input_tokens ?? 0) + cacheRead + cacheWrite,
+      outputTokens: res.usage.output_tokens ?? 0,
+      cachedInputTokens: cacheRead || undefined,
+      cacheWriteTokens: cacheWrite || undefined,
+    });
+    return res;
   }
 
   async translateBatch(req: BatchRequest): Promise<Record<string, string>> {

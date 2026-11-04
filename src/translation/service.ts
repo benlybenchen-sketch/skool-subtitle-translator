@@ -8,7 +8,8 @@ import { glossaryVersion, parseGlossary } from './glossary';
 import { supportsThinkingLevel } from './providers/gemini';
 import { estimateCostUsd } from './pricing';
 import { createProvider } from './providers';
-import type { TranslationProvider } from './types';
+import type { CompleteRequest, TranslationProvider } from './types';
+import { canComplete } from './types';
 import { ConfigError, HttpError } from './errors';
 import { effectiveProvider, translationIsRemote } from '../shared/settings';
 import { modeProfile } from './modes';
@@ -209,6 +210,38 @@ export class TranslationService {
       }
     }
     return units.map((u) => results.get(u.id)!);
+  }
+
+  /** Provider/model the next request would use (shown before generating notes). */
+  async activeModel(): Promise<{ provider: string; model: string }> {
+    const s = await this.deps.getSettings();
+    const p = effectiveProvider(s);
+    return { provider: p.kind, model: p.kind === 'mock' ? 'mock' : p.model };
+  }
+
+  /**
+   * One structured generation request with the CURRENT provider/model (never switched),
+   * the same consent + host-permission checks as subtitles, low queue priority and
+   * ledger accounting. Used by AI Study Notes.
+   */
+  async complete(
+    req: Omit<CompleteRequest, 'signal' | 'onUsage'>,
+    o: { signal: AbortSignal; lesson: string; priority?: number },
+  ): Promise<string> {
+    const raw = await this.deps.getSettings();
+    const settings: Settings = { ...raw, provider: effectiveProvider(raw) };
+    await this.checkConfig(settings);
+    const secrets = await this.deps.getSecrets();
+    const provider = this.deps.providerFactory ? this.deps.providerFactory(settings, secrets) : createProvider(settings.provider, secrets);
+    if (!canComplete(provider)) throw new ConfigError('Nhà cung cấp hiện tại không hỗ trợ tạo ghi chú.');
+    const model = settings.provider.kind === 'mock' ? 'mock' : settings.provider.model;
+    const meta = { provider: settings.provider.kind, model, lesson: o.lesson, kind: 'notes' };
+    return this.queue.runTask((signal, onUsage) => provider.complete({ ...req, signal, onUsage }), {
+      priority: o.priority ?? 9,
+      signal: o.signal,
+      meta,
+      estimate: (text) => ({ inputTokens: Math.ceil((req.system.length + req.user.length) / 4), outputTokens: Math.ceil(text.length / 3), estimated: true }),
+    });
   }
 
   cancel(videoKey: string): void {

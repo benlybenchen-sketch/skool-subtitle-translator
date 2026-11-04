@@ -10,6 +10,7 @@ import { checkBackends } from '../translation/health';
 import { loadEffectiveGlossary } from '../shared/glossaryStore';
 import { UsageLedger } from './usageLedger';
 import { DEFAULT_PRICES, loadPricing, savePricing } from '../translation/pricing';
+import { NotesManager } from './notesManager';
 
 /*
  * MV3 service worker. All listeners are registered synchronously at the top
@@ -41,6 +42,13 @@ const service = new TranslationService({
   getGlossaryText: (s) => loadEffectiveGlossary(s.glossary),
   onAccounting: (e, meta) => void ledger.record(e, meta),
   hasEndpointPermission,
+});
+
+const notes = new NotesManager({
+  storage: chrome.storage.local,
+  complete: (req, o) => service.complete(req, o),
+  activeModel: () => service.activeModel(),
+  glossary: async () => loadEffectiveGlossary((await loadSettings()).glossary),
 });
 
 async function sendToFrame(tabId: number, frameId: number | null, msg: ContentMessage): Promise<void> {
@@ -238,6 +246,23 @@ async function handle(msg: BackgroundRequest, sender: chrome.runtime.MessageSend
       } catch {
         return { ok: false };
       }
+    }
+    case 'notes:get':
+      return { record: await notes.get(msg.lessonId), running: notes.isRunning(msg.lessonId) };
+    case 'notes:model':
+      return service.activeModel();
+    case 'notes:cancel':
+      notes.cancel(msg.lessonId);
+      return { ok: true };
+    case 'notes:save':
+      return { record: await notes.saveEdit(msg.lessonId, msg.editedMarkdown) };
+    case 'notes:generate': {
+      if (tabId === undefined) return { ok: false };
+      const lessonId = msg.transcript?.lessonId;
+      const record = await notes.generate(msg.transcript, (done, total) =>
+        void sendToFrame(tabId, 0, { type: 'notes:progress', lessonId, done, total }),
+      );
+      return { record };
     }
     case 'learning:open':
       await sendToFrame(msg.tabId, 0, { type: 'learning:open', tab: msg.tab });

@@ -50,6 +50,7 @@ button.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
 .row:hover .c { opacity: 1; }
 .notes h3 { font-size: 14px; margin: 12px 0 4px; } .notes li { margin: 3px 0; }
 .notes .ref { border: 0; background: #ddf4ff; color: #0969da; border-radius: 4px; padding: 0 4px; margin-left: 4px; cursor: pointer; font: 11px ui-monospace, monospace; }
+.notes .edited { white-space: pre-wrap; }
 textarea.edit { width: 100%; min-height: 320px; font: 12px/1.5 ui-monospace, monospace; box-sizing: border-box; }
 @media (prefers-color-scheme: dark) {
   .drawer { background: #161b22; color: #e6edf3; } header { border-color: #3d444d; }

@@ -10,6 +10,7 @@ import { SubtitleController, type ControllerBridge } from './controller';
 import { ControlPanel } from './panel';
 import { LearningPanel, type PanelTab } from './learningPanel';
 import { createVideoSource } from './learningSource';
+import { AiNotesView } from './notesView';
 
 const GUARD = '__sstContentScript__';
 
@@ -58,6 +59,7 @@ async function main(): Promise<void> {
   const detector = new VideoDetector(document, adapter);
   let panel: ControlPanel | null = null;
   let learning: LearningPanel | null = null;
+  let notesView: AiNotesView | null = null;
 
   const lifecycle = createLessonLifecycle(window, controller, detector);
   const nav = lifecycle.nav;
@@ -76,7 +78,14 @@ async function main(): Promise<void> {
     controller.onOverlayContainerChange((el) => panel?.follow(el));
     // Transcript / notes / export drawer — opened only by the user (VI control or popup).
     const source = createVideoSource(document, controller, (op) => sendToBackground({ type: 'learning:remote', op }, { retries: 1 }));
-    learning = new LearningPanel(document, source);
+    notesView = new AiNotesView(document, {
+      get: (lessonId) => sendToBackground({ type: 'notes:get', lessonId }),
+      generate: (transcript) => sendToBackground({ type: 'notes:generate', transcript }, { retries: 0 }),
+      cancel: (lessonId) => sendToBackground({ type: 'notes:cancel', lessonId }),
+      save: (lessonId, editedMarkdown) => sendToBackground({ type: 'notes:save', lessonId, editedMarkdown }),
+      model: () => sendToBackground({ type: 'notes:model' }),
+    });
+    learning = new LearningPanel(document, source, notesView);
   }
 
   const offSettings = onSettingsChanged((s) => {
@@ -119,6 +128,9 @@ async function main(): Promise<void> {
         break;
       case 'learning:open':
         learning?.show(msg.tab as PanelTab);
+        break;
+      case 'notes:progress':
+        notesView?.onProgress(msg.lessonId, msg.done, msg.total);
         break;
       case 'learning:op': {
         const op = msg.op;

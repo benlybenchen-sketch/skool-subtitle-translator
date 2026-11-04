@@ -1,4 +1,4 @@
-import type { BatchRequest, TranslationProvider } from '../types';
+import type { BatchRequest, CompleteRequest, TranslationProvider } from '../types';
 import { ConfigError, ensureOk } from '../errors';
 import { RESPONSE_SCHEMA, SYSTEM_PROMPT, buildUserPrompt, extractJson, parseTranslations } from '../prompt';
 
@@ -59,5 +59,45 @@ export class GeminiProvider implements TranslationProvider {
     if (data.promptFeedback?.blockReason) throw new ConfigError(`Gemini blocked the request: ${data.promptFeedback.blockReason}`);
     const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
     return parseTranslations(extractJson(text), req.segments.map((s) => s.id));
+  }
+
+  /** Structured generation (AI Study Notes): same model, JSON reply, bounded output. */
+  async complete(req: CompleteRequest): Promise<string> {
+    const f = this.o.fetchImpl ?? fetch;
+    const model = this.o.model.replace(/^models\//, '');
+    const url = `${this.o.endpoint.replace(/\/+$/, '')}/models/${encodeURIComponent(model)}:generateContent`;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (this.o.apiKey) headers['x-goog-api-key'] = this.o.apiKey;
+    const res = await f(url, {
+      method: 'POST',
+      headers,
+      signal: req.signal,
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: req.system }] },
+        contents: [{ role: 'user', parts: [{ text: req.user }] }],
+        generationConfig: {
+          temperature: Math.min(this.o.temperature, 0.4),
+          maxOutputTokens: req.maxTokens,
+          responseMimeType: 'application/json',
+          ...(supportsThinkingLevel(model) ? { thinkingConfig: { thinkingLevel: 'low' } } : {}),
+        },
+      }),
+    });
+    await ensureOk(res, 'Gemini');
+    const data = (await res.json()) as {
+      candidates?: { content?: { parts?: { text?: string }[] } }[];
+      promptFeedback?: { blockReason?: string };
+      usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number; cachedContentTokenCount?: number };
+    };
+    const u = data.usageMetadata;
+    if (u)
+      req.onUsage?.({
+        inputTokens: u.promptTokenCount ?? 0,
+        outputTokens: (u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0),
+        cachedInputTokens: u.cachedContentTokenCount || undefined,
+        reasoningTokens: u.thoughtsTokenCount || undefined,
+      });
+    if (data.promptFeedback?.blockReason) throw new ConfigError(`Gemini blocked the request: ${data.promptFeedback.blockReason}`);
+    return data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
   }
 }

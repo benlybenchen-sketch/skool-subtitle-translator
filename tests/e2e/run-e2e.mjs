@@ -288,6 +288,7 @@ await test('Loom-style iframe: content script runs inside the embed and renders 
   await p.close();
 });
 
+const PARTIAL_BANNER_E2E = 'AI Notes generated from the available transcript only.';
 const learnRoot = (p) => p.evaluate(() => {
   const r = document.querySelector('[data-sst-learning]')?.shadowRoot;
   return r ? { rows: [...r.querySelectorAll('.row')].map((x) => x.textContent), cov: r.querySelector('.body > div')?.textContent ?? '' } : null;
@@ -335,6 +336,44 @@ await test('Transcript panel: opened from the VI control, rows EN/VI, search, se
   assert(/\.srt$/.test(name) && /-vi(-PARTIAL)?\.srt$/.test(name), `bad file name ${name}`);
   const body = readFileSync(await dl.path(), 'utf8');
   assert(/^\uFEFF?1\n00:00:\d\d,\d{3} --> 00:00:\d\d,\d{3}\n\[VI\] /.test(body), `bad SRT: ${JSON.stringify(body.slice(0, 80))}`);
+  await p.close();
+});
+
+await test('AI Study Notes: generated only on click, timestamps seek, saved locally and shown after reload without a new request', async () => {
+  const open = async (p) => {
+    await p.waitForSelector('video');
+    await p.evaluate(() => document.querySelector('video').play());
+    await seek(p, 2);
+    await waitFor(async () => (await overlayText(p)) === '[VI] Welcome back to the course.', 8000, 'overlay');
+    await p.evaluate(() => {
+      const r = document.querySelector('[data-sst-panel]').shadowRoot;
+      r.querySelector('.pill').click();
+      r.querySelector('[data-a="notes"]').click();
+    });
+  };
+  const notesText = (p) => p.evaluate(() => document.querySelector('[data-sst-learning]')?.shadowRoot?.querySelector('.notes')?.textContent ?? '');
+  const p = await context.newPage();
+  await p.goto('https://www.skool.com/test-group/classroom/course22?md=lesson1');
+  await open(p);
+  await waitFor(async () => (await notesText(p)).includes('Tạo ghi chú AI'), 5000, 'generate button');
+  const before = await setup.evaluate(() => chrome.storage.local.get(null).then((all) => Object.keys(all).filter((k) => k.startsWith('notes:')).length));
+  assert(before === 0, 'notes must not be generated automatically');
+  await p.evaluate(() => [...document.querySelector('[data-sst-learning]').shadowRoot.querySelectorAll('.notes button')].find((b) => b.textContent.includes('Tạo ghi chú AI')).click());
+  await waitFor(async () => (await notesText(p)).includes('Điểm cần nhớ'), 8000, 'notes rendered');
+  const txt = await notesText(p);
+  // mock lesson: every cue is loaded up to the video end → complete coverage → no partial banner
+  assert(!txt.includes(PARTIAL_BANNER_E2E), 'complete transcript must not show the partial banner');
+  await p.evaluate(() => document.querySelector('[data-sst-learning]').shadowRoot.querySelectorAll('button.ref')[1]?.click());
+  const t = await p.evaluate(() => document.querySelector('video').currentTime);
+  assert(t > 2.5, `ref click did not seek (t=${t})`);
+  const saved = await setup.evaluate(() => chrome.storage.local.get(null).then((all) => Object.values(all).filter((v) => v && v.notes && v.lessonId)));
+  assert(saved.length === 1 && saved[0].calls >= 1, 'notes not saved locally');
+  const reqBefore = (await setup.evaluate(() => chrome.runtime.sendMessage({ type: 'metrics:get' }))).requests;
+  await p.reload();
+  await open(p);
+  await waitFor(async () => (await notesText(p)).includes('Tạo lại'), 5000, 'saved notes after reload');
+  const reqAfter = (await setup.evaluate(() => chrome.runtime.sendMessage({ type: 'metrics:get' }))).requests;
+  assert(reqAfter === reqBefore, `saved notes must not trigger a request (${reqBefore} → ${reqAfter})`);
   await p.close();
 });
 

@@ -1,4 +1,4 @@
-import type { BatchRequest, TranslationProvider } from '../types';
+import type { BatchRequest, CompleteRequest, TokenUsage, TranslationProvider } from '../types';
 import { ConfigError, ensureOk } from '../errors';
 import { SYSTEM_PROMPT, buildUserPrompt, extractJson, parseTranslations } from '../prompt';
 
@@ -56,5 +56,41 @@ export class OpenAICompatibleProvider implements TranslationProvider {
       });
     const content = data.choices?.[0]?.message?.content ?? '';
     return parseTranslations(extractJson(content), req.segments.map((s) => s.id));
+  }
+
+  /** Structured generation (AI Study Notes): same model, JSON object reply, bounded output. */
+  async complete(req: CompleteRequest): Promise<string> {
+    const f = this.o.fetchImpl ?? fetch;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (this.o.apiKey) headers.Authorization = `Bearer ${this.o.apiKey}`;
+    const res = await f(this.o.endpoint.replace(/\/+$/, '') + '/chat/completions', {
+      method: 'POST',
+      headers,
+      signal: req.signal,
+      body: JSON.stringify({
+        model: this.o.model,
+        temperature: Math.min(this.o.temperature, 0.4),
+        max_tokens: req.maxTokens,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: req.system },
+          { role: 'user', content: req.user },
+        ],
+      }),
+    });
+    await ensureOk(res, 'OpenAI-compatible');
+    const data = (await res.json()) as {
+      choices?: { message?: { content?: string } }[];
+      usage?: { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } };
+    };
+    if (data.usage) {
+      const u: TokenUsage = {
+        inputTokens: data.usage.prompt_tokens ?? 0,
+        outputTokens: data.usage.completion_tokens ?? 0,
+        cachedInputTokens: data.usage.prompt_tokens_details?.cached_tokens || undefined,
+      };
+      req.onUsage?.(u);
+    }
+    return data.choices?.[0]?.message?.content ?? '';
   }
 }

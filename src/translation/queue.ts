@@ -184,6 +184,62 @@ export class TranslationQueue {
     return batches;
   }
 
+  /**
+   * Run one non-translation request (AI Study Notes) through the same slots, cooldown and
+   * accounting as subtitle batches. Use a large priority number so subtitles always win
+   * free slots. Retries transient failures (429 honours the shared cooldown).
+   */
+  async runTask<T>(
+    fn: (signal: AbortSignal, onUsage: (u: TokenUsage) => void) => Promise<T>,
+    o: { priority: number; signal: AbortSignal; meta?: Record<string, string>; timeoutMs?: number; maxRetries?: number; estimate?: (r: T) => TokenUsage },
+  ): Promise<T> {
+    const maxRetries = o.maxRetries ?? 3;
+    for (let attempt = 0; ; attempt++) {
+      if (o.signal.aborted) throw abortError();
+      await this.acquire(o.signal, o.priority);
+      const timeout = new AbortController();
+      const timer = setTimeout(() => timeout.abort(), o.timeoutMs ?? 120_000);
+      const combined = anySignal([o.signal, timeout.signal]);
+      let reported = false;
+      let error: unknown;
+      let result: T | undefined;
+      let ok = false;
+      try {
+        this.opts.onEvent?.({ type: 'request', size: 0 }, o.meta);
+        result = await fn(combined, (usage) => {
+          reported = true;
+          this.opts.onEvent?.({ type: 'usage', usage }, o.meta);
+        });
+        ok = true;
+      } catch (e) {
+        error = timeout.signal.aborted && !o.signal.aborted ? Object.assign(new Error('Request timed out'), { name: 'TimeoutError' }) : e;
+      } finally {
+        clearTimeout(timer);
+        this.release();
+      }
+      if (ok) {
+        if (!reported && o.estimate) this.opts.onEvent?.({ type: 'usage', usage: o.estimate(result as T) }, o.meta);
+        // No 'success' event: notes latency must not skew the subtitle latency statistics.
+        return result as T;
+      }
+      if (o.signal.aborted) throw abortError();
+      const err = error as Error;
+      const retryable = (err instanceof HttpError && err.retryable) || err instanceof ParseError || err.name === 'TimeoutError' || err instanceof TypeError;
+      if (!retryable || err instanceof ConfigError || attempt >= maxRetries) {
+        this.opts.onEvent?.({ type: 'failure', size: 0, reason: err.message }, o.meta);
+        throw err;
+      }
+      let delay = Math.min(this.opts.maxDelayMs, this.opts.baseDelayMs * 2 ** attempt) * (0.75 + this.opts.random() * 0.5);
+      if (err instanceof HttpError && err.status === 429) {
+        if (err.retryAfterMs !== undefined) delay = Math.min(this.opts.maxDelayMs * 3, err.retryAfterMs);
+        this.cooldownUntil = Math.max(this.cooldownUntil, this.opts.now() + delay);
+        this.opts.onEvent?.({ type: 'rate-limited', delayMs: delay }, o.meta);
+      }
+      this.opts.onEvent?.({ type: 'retry', attempt: attempt + 1, delayMs: Math.round(delay), reason: err.message }, o.meta);
+      if (!(err instanceof HttpError && err.status === 429)) await this.opts.sleep(Math.round(delay), o.signal);
+    }
+  }
+
   private async acquire(signal: AbortSignal, priority: number): Promise<void> {
     // Global rate-limit cooldown: waiting here (instead of each batch retrying on its own
     // schedule) stops a 429 storm from burning more quota.

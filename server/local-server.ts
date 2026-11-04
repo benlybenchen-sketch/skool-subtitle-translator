@@ -4,6 +4,7 @@
  * talks to http://127.0.0.1:8787.
  *
  *   POST /translate   { segments:[{id,text}], context:[], glossary:[] } → { translations:[{id,text}] }
+ *   POST /complete    { system, user, schema, maxTokens } → { text, usage }   (AI Study Notes)
  *   POST /transcribe  raw audio/wav body → { text }
  *   GET  /health
  *
@@ -18,7 +19,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { OpenAICompatibleProvider } from '../src/translation/providers/openai';
 import { GeminiProvider } from '../src/translation/providers/gemini';
 import { MockProvider } from '../src/translation/providers/mock';
-import type { TranslationProvider, GlossaryEntry } from '../src/translation/types';
+import type { TranslationProvider, GlossaryEntry, TokenUsage } from '../src/translation/types';
+import { canComplete } from '../src/translation/types';
 import { OpenAICompatibleStt, MockStt } from '../src/speech/backends';
 import type { SttBackend } from '../src/speech/types';
 import { HttpError } from '../src/translation/errors';
@@ -128,6 +130,20 @@ const server = createServer(async (req, res) => {
         signal: ac.signal,
       });
       return send(res, 200, { translations: Object.entries(out).map(([id, text]) => ({ subtitle_id: id, translated_text: text })), usage }, origin);
+    }
+    if (req.method === 'POST' && req.url === '/complete') {
+      const body = JSON.parse((await readBody(req, 2_000_000)).toString('utf8')) as { system?: string; user?: string; schema?: Record<string, unknown>; maxTokens?: number };
+      if (!canComplete(translator)) return send(res, 501, { error: 'Backend does not support /complete' }, origin);
+      let usage: TokenUsage | undefined;
+      const text = await translator.complete({
+        system: String(body.system ?? '').slice(0, 20_000),
+        user: String(body.user ?? '').slice(0, 600_000),
+        schema: body.schema ?? {},
+        maxTokens: Math.min(16_000, Math.max(256, Number(body.maxTokens) || 4000)),
+        signal: ac.signal,
+        onUsage: (u) => (usage = u),
+      });
+      return send(res, 200, { text, usage }, origin);
     }
     if (req.method === 'POST' && req.url === '/transcribe') {
       const wav = await readBody(req, 15_000_000);
