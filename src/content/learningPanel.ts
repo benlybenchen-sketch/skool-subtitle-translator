@@ -26,6 +26,10 @@ export interface OfflineActions {
   save(t: Transcript): Promise<string>;
   zip(t: Transcript): Promise<string>;
   openReader(): void;
+  /** Authorized video download (video lessons): available options or why not. */
+  video?(): { ok: true; count: number } | { ok: false; message: string };
+  offerVideo?(t: Transcript): Promise<string>;
+  ownerRequestText?: string;
 }
 
 export type PanelTab = 'transcript' | 'notes' | 'export';
@@ -329,6 +333,19 @@ export class LearningPanel {
         ),
         omsg,
       );
+      if (isVideo && off.video) {
+        const v = off.video();
+        const dl = this.el('button', {
+          className: 'b',
+          textContent: '🎬 Tải video để xem offline',
+          disabled: !v.ok,
+          title: v.ok ? 'Chỉ tệp video mà bài học/trình phát cho phép tải' : v.message,
+          onclick: run(() => off.offerVideo!(this.source.transcript() ?? t)),
+        });
+        body.append(this.el('div', { className: 'bar' }, dl), this.el('div', { className: 'muted', textContent: v.ok ? `${v.count} tệp video được phép tải.` : v.message }));
+        if (!v.ok && off.ownerRequestText)
+          body.append(this.el('div', { className: 'bar' }, this.el('button', { className: 'b', textContent: 'Sao chép lời xin chủ khóa học bản tải về', onclick: () => void navigator.clipboard.writeText(off.ownerRequestText!).then(() => (omsg.textContent = 'Đã sao chép — dán vào bình luận/tin nhắn cho chủ khóa học.')) })));
+      }
     }
   }
 }

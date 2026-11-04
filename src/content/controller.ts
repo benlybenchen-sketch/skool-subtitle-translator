@@ -152,6 +152,14 @@ export class SubtitleController {
     return 'phụ đề trình phát (thu dần khi phát)';
   }
 
+  /** The lesson's media element in this frame (null for cross-origin player iframes). */
+  get mediaElement(): HTMLMediaElement | null {
+    return this.target && this.target.kind !== 'iframe' ? this.target.el : null;
+  }
+  get targetIsIframe(): boolean {
+    return this.target?.kind === 'iframe';
+  }
+
   /** English transcript acquisition state for the UI. */
   get transcriptAcquisition() {
     return { ...this.fullState };

@@ -60,6 +60,8 @@ export type BackgroundRequest =
   | { type: 'lesson:usage' }
   | { type: 'lesson:pack'; lessonId: string }
   | { type: 'reader:open'; lessonId?: string }
+  | { type: 'video:offer'; lessonId: string; title: string; options: import('../offline/videoDownload').DownloadOption[] }
+  | { type: 'video:offer:get'; lessonId: string }
   // AI Vietnamese dubbing (Phase 4)
   | { type: 'dub:voices'; provider: import('./types').TtsProviderKind }
   | { type: 'dub:speak'; token: string; segId: string; text: string; voice: string; rate: number; volume: number }

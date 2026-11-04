@@ -17,6 +17,7 @@ import type { LearningSource, OfflineActions } from './learningPanel';
 import { notesToMarkdown, type NotesRecord } from '../notes/render';
 import { downloadBytes } from '../transcript/export';
 import { base64ToUint8 } from '../shared/util';
+import { OWNER_REQUEST_TEXT, findAuthorizedDownloads } from '../offline/videoDownload';
 
 const GUARD = '__sstContentScript__';
 
@@ -151,6 +152,18 @@ async function main(): Promise<void> {
       openReader() {
         void sendToBackground({ type: 'reader:open' }).catch(orphaned);
       },
+      video() {
+        const v = findAuthorizedDownloads(document, controller.mediaElement, { title: lessonTitle(document), iframeTarget: controller.targetIsIframe });
+        return v.ok ? { ok: true as const, count: v.options.length } : { ok: false as const, message: v.message };
+      },
+      async offerVideo(t) {
+        const v = findAuthorizedDownloads(document, controller.mediaElement, { title: lessonTitle(document), iframeTarget: controller.targetIsIframe });
+        if (!v.ok) return v.message;
+        await this.save(t);
+        await sendToBackground({ type: 'video:offer', lessonId: t.lessonId, title: t.title, options: v.options });
+        return 'Đã mở trang tải — chọn chất lượng và nơi lưu ở đó.';
+      },
+      ownerRequestText: OWNER_REQUEST_TEXT,
     };
     learning = new LearningPanel(document, source, notesView, offline);
 

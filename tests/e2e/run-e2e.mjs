@@ -113,6 +113,8 @@ await context.route(/^https:\/\/www\.skool\.com\//, (route) => {
   if (u.search.includes('dublesson')) return route.fulfill(serve(readFileSync(join(pages, 'skool-dub.html')), 'text/html'));
   if (u.pathname === '/media/long.vtt') return route.fulfill(serve(LONG_VTT, 'text/vtt'));
   if (u.search.includes('textlesson')) return route.fulfill(serve(TEXT_PAGE, 'text/html'));
+  if (u.pathname === '/media/lesson.mp4') return serveMedia(route, WAV);
+  if (u.search.includes('dlfile')) return route.fulfill(serve('<!doctype html><meta charset="utf-8"><title>Downloadable lesson</title><main><h1>Downloadable lesson</h1><video id="v" controls muted crossorigin="anonymous" src="/media/lesson.mp4" style="width:960px;height:540px"><track kind="captions" srclang="en" label="English" src="/media/lesson.vtt"></video></main>', 'text/html'));
   if (u.search.includes('ccmenu')) return route.fulfill(serve(readFileSync(join(pages, 'skool-ccmenu.html')), 'text/html'));
   const page = u.search.includes('jstrack') ? 'skool-jstrack.html' : u.search.includes('trackfile') ? 'skool-trackfile.html' : u.search.includes('continuous') ? 'skool-continuous.html' : u.search.includes('seekreset') ? 'skool-seek.html' : u.search.includes('novideo') ? 'skool-novideo.html' : u.search.includes('loom') ? 'skool-loom.html' : u.search.includes('nocaptions') ? 'skool-nocaptions.html' : 'skool-native.html';
   return route.fulfill(serve(readFileSync(join(pages, page)), 'text/html'));
@@ -678,6 +680,47 @@ await test('Offline study: save lesson from the panel, ZIP download, offline rea
   reader.on('dialog', (d) => d.accept());
   await reader.evaluate(() => [...document.querySelectorAll('#view button')].find((b) => b.textContent === 'Xóa bài này').click());
   await waitFor(() => reader.evaluate(() => document.getElementById('view').textContent.includes('Đã xóa')), 4000, 'deleted');
+  await reader.close();
+  await p.close();
+});
+
+await test('Authorized video download: offered only for a plain file the player lets the browser download; streaming Skool video → disabled with reason', async () => {
+  const openExport = async (p) => {
+    await p.evaluate(() => {
+      const r = document.querySelector('[data-sst-panel]').shadowRoot;
+      r.querySelector('.pill').click();
+      r.querySelector('[data-a="export"]').click();
+    });
+    return waitFor(() => p.evaluate(() => {
+      const b = [...(document.querySelector('[data-sst-learning]')?.shadowRoot?.querySelectorAll('button') ?? [])].find((x) => x.textContent.includes('Tải video để xem offline'));
+      return b ? { disabled: b.disabled, title: b.title } : null;
+    }), 6000, 'video download button');
+  };
+  const s = await context.newPage();
+  await s.goto('https://www.skool.com/test-group/classroom/course70?md=lesson1');
+  await s.waitForSelector('video');
+  await s.evaluate(() => document.querySelector('video').play());
+  await seek(s, 2);
+  await waitFor(async () => (await overlayText(s)) === '[VI] Welcome back to the course.', 8000, 'overlay');
+  const native = await openExport(s);
+  assert(native.disabled && /không cung cấp tệp video được phép tải|luồng/.test(native.title), `native lesson must be disabled: ${JSON.stringify(native)}`);
+  await s.close();
+  const p = await context.newPage();
+  await p.goto('https://www.skool.com/test-group/classroom/course71?md=dlfile');
+  await p.waitForSelector('video');
+  await p.evaluate(() => document.querySelector('video').play().catch(() => undefined));
+  await waitFor(() => p.evaluate(() => !!document.querySelector('[data-sst-panel]')), 5000, 'panel');
+  await p.waitForTimeout(1500);
+  const offered = await openExport(p);
+  assert(!offered.disabled, `plain file with controls must be offered: ${JSON.stringify(offered)}`);
+  const [reader] = await Promise.all([
+    context.waitForEvent('page', { timeout: 6000 }),
+    p.evaluate(() => [...document.querySelector('[data-sst-learning]').shadowRoot.querySelectorAll('button')].find((x) => x.textContent.includes('Tải video để xem offline')).click()),
+  ]);
+  await reader.waitForLoadState();
+  await waitFor(() => reader.evaluate(() => document.getElementById('dl-card')?.textContent.includes('lesson.mp4') || document.getElementById('dl-card')?.textContent.includes('Downloadable lesson')), 5000, 'download card');
+  const card = await reader.evaluate(() => document.getElementById('dl-card').textContent);
+  assert(/Tải xuống/.test(card) && /tệp của trình phát/.test(card), card);
   await reader.close();
   await p.close();
 });

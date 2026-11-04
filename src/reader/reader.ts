@@ -21,9 +21,70 @@ function fileInput(onchange: (e: Event) => void): HTMLInputElement {
   return i;
 }
 
+// ---- authorized video download (5C) ------------------------------------------------------------
+interface Offer {
+  lessonId: string;
+  title: string;
+  options: { url: string; filename: string; label: string; source: 'owner-link' | 'native-file' }[];
+}
+
+async function showDownload(lessonId: string): Promise<void> {
+  const { offer } = await sendToBackground<{ offer: Offer | null }>({ type: 'video:offer:get', lessonId });
+  const card = $('dl-card');
+  if (!offer) return;
+  card.classList.remove('hidden');
+  const msg = el('div', { className: 'hint' });
+  const progress = el('div', { className: 'hint' });
+  const start = async (o: Offer['options'][number]) => {
+    // permission asked only now, on this click; the user picks the destination (save dialog)
+    const ok = await chrome.permissions.request({ permissions: ['downloads'] }).catch(() => false);
+    if (!ok || !chrome.downloads) return void (msg.textContent = 'Chưa được cấp quyền quản lý tải xuống — không tải.');
+    let id: number;
+    try {
+      id = await chrome.downloads.download({ url: o.url, filename: o.filename, saveAs: true, conflictAction: 'uniquify' });
+    } catch (e) {
+      return void (msg.textContent = `Không bắt đầu tải được: ${(e as Error).message}`);
+    }
+    msg.textContent = 'Đang tải…';
+    const tick = async () => {
+      const [d] = await chrome.downloads.search({ id });
+      if (!d) return;
+      const mb = (b: number) => (b / 1048576).toFixed(1);
+      progress.textContent = `${d.state === 'complete' ? 'Hoàn tất' : d.state === 'interrupted' ? `Bị gián đoạn (${d.error ?? 'lỗi'})` : 'Đang tải'} · ${mb(d.bytesReceived)}${d.totalBytes > 0 ? ` / ${mb(d.totalBytes)}` : ''} MB`;
+      if (d.state === 'complete') {
+        await sendToBackground({
+          type: 'lesson:put',
+          record: { lessonId: offer.lessonId, title: offer.title, video: { filename: d.filename.split(/[\\/]/).pop() ?? o.filename, downloadId: id, sizeBytes: d.fileSize || d.totalBytes, savedAt: Date.now(), sourceLabel: o.source === 'owner-link' ? 'tệp do khóa học cung cấp' : 'tệp video của trình phát (trình duyệt cho phép tải)' } },
+        });
+        msg.textContent = 'Đã lưu video trên máy. Mở bài trong thư viện và chọn tệp để xem kèm phụ đề tiếng Việt.';
+        full.delete(offer.lessonId);
+        await refresh();
+        return;
+      }
+      if (d.state === 'interrupted') {
+        // Chrome keeps partial data only as an incomplete download; never presented as a finished file
+        if (d.canResume) card.append(el('button', { textContent: 'Tiếp tục tải', onclick: () => void chrome.downloads.resume(id).then(() => setTimeout(tick, 500)) }));
+        return;
+      }
+      setTimeout(tick, 700);
+    };
+    void tick();
+  };
+  card.replaceChildren(
+    el('h2', { textContent: `🎬 Tải video: ${offer.title}` }),
+    el('div', { className: 'hint', textContent: 'Chỉ các tệp mà bài học/trình phát cho phép tải. Bạn chọn thư mục lưu. Tiện ích không tự tải và không giữ bản sao video.' }),
+    ...offer.options.map((o) =>
+      el('div', { className: 'row' }, el('button', { className: 'primary', textContent: 'Tải xuống', onclick: () => void start(o) }), el('span', { textContent: `${o.label} — ${o.filename}` }), el('span', { className: 'badge', textContent: o.source === 'owner-link' ? 'khóa học cung cấp' : 'tệp của trình phát' })),
+    ),
+    msg,
+    progress,
+  );
+}
+
 let lessons: LessonSummary[] = [];
 const full = new Map<string, LessonRecord>();
-let current: string | null = decodeURIComponent(location.hash.slice(1)) || null;
+const hash = decodeURIComponent(location.hash.slice(1));
+let current: string | null = hash.startsWith('dl=') ? hash.slice(3) : hash || null;
 let lang: 'vi' | 'bi' | 'en' = 'bi';
 let videoUrl: string | null = null;
 
@@ -174,3 +235,4 @@ $('clear-auto').addEventListener('click', async () => {
   await refresh();
 });
 void refresh();
+if (hash.startsWith('dl=')) void showDownload(hash.slice(3));

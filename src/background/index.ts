@@ -310,6 +310,14 @@ async function handle(msg: BackgroundRequest, sender: chrome.runtime.MessageSend
       const pack = buildStudyPack(rec, glossary);
       return { name: pack.name, files: pack.files, base64: arrayBufferToBase64(pack.bytes.slice().buffer as ArrayBuffer) };
     }
+    case 'video:offer':
+      // Only URLs the page itself offered (owner links / plain files with browser download); the
+      // user starts the download on the extension page (permission prompt + save dialog).
+      await chrome.storage.session.set({ [`dlOffer:${msg.lessonId}`]: { lessonId: msg.lessonId, title: msg.title, options: msg.options.filter((o) => /^https:\/\//.test(o.url)).slice(0, 10) } });
+      await chrome.tabs.create({ url: chrome.runtime.getURL(`reader/reader.html#dl=${encodeURIComponent(msg.lessonId)}`) });
+      return { ok: true };
+    case 'video:offer:get':
+      return { offer: (await chrome.storage.session.get(`dlOffer:${msg.lessonId}`))[`dlOffer:${msg.lessonId}`] ?? null };
     case 'reader:open':
       await chrome.tabs.create({ url: chrome.runtime.getURL(`reader/reader.html${msg.lessonId ? `#${encodeURIComponent(msg.lessonId)}` : ''}`) });
       return { ok: true };
