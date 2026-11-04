@@ -36,6 +36,38 @@ const LONG_VTT = 'WEBVTT\n\n' + Array.from({ length: 24 }, (_, i) => {
   const ts = (s) => new Date(s * 1000).toISOString().slice(11, 23);
   return `${ts(i * 30)} --> ${ts(i * 30 + 20)}\nLesson cue number ${i}.\n`;
 }).join('\n');
+// Untouched HLS-style lesson: 30 min, 450 cues in 180 WebVTT segments, served from a CDN host with a page-issued token.
+const HLS_N = 450;
+let HLS30_WAV = null;
+const hlsTs = (s) => new Date(s * 1000).toISOString().slice(11, 23);
+const HLS_PAGE = `<!doctype html><meta charset="utf-8"><title>Untouched HLS lesson</title><main><h1>Untouched HLS lesson</h1>
+<video id="v" muted playsinline style="width:960px;height:540px"></video></main>
+<script>
+  // Mock player initialisation (like hls.js): attaches media and loads the manifest — no playback.
+  const v = document.getElementById('v');
+  v.src = '/media/hls30.wav';
+  const tr = v.addTextTrack('subtitles', 'English CC', 'en'); // empty until fragments are buffered
+  fetch('https://stream.cdn-mock.test/v/LESSON.m3u8?token=page-issued').then((r) => r.text()).then(() => (window.manifestLoaded = true));
+</script>`;
+function hlsRoute(route) {
+  const u = new URL(route.request().url());
+  if (u.pathname === '/v/LESSON.m3u8') return route.fulfill(serve('#EXTM3U\n#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="s",NAME="English CC",LANGUAGE="en",URI="subs/en.m3u8?token=t"\n#EXT-X-STREAM-INF:BANDWIDTH=1,SUBTITLES="s"\nv720.m3u8?token=t\n', 'application/vnd.apple.mpegurl'));
+  if (u.pathname === '/v/subs/en.m3u8') return route.fulfill(serve('#EXTM3U\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-TARGETDURATION:10\n' + Array.from({ length: 180 }, (_, i) => `#EXTINF:10.0,\nseg${i}.vtt?token=t`).join('\n') + '\n#EXT-X-ENDLIST\n', 'application/vnd.apple.mpegurl'));
+  const m = /seg(\d+)\.vtt$/.exec(u.pathname);
+  if (m) {
+    const k = Number(m[1]);
+    const body = ['WEBVTT', 'X-TIMESTAMP-MAP=MPEGTS:900000,LOCAL:00:00:00.000', ''];
+    for (let i = 0; i < HLS_N; i++) {
+      const s = i * 4 + 0.5;
+      if (s + 3 < k * 10 || s >= k * 10 + 10) continue;
+      body.push(`${hlsTs(s)} --> ${hlsTs(s + 3)}`, `Untouched lesson sentence ${i}.`, '');
+    }
+    return route.fulfill(serve(body.join('\n'), 'text/vtt'));
+  }
+  hlsRoute.videoRequests = (hlsRoute.videoRequests ?? 0) + 1; // video/audio playlists or segments
+  return route.fulfill({ status: 404, body: '' });
+}
+
 // 20-minute dubbing lesson: a sentence every 4 s (300 cues)
 const DUB_WAV = wav(1200, 4000);
 const dubVtt = (tag) => 'WEBVTT\n\n' + Array.from({ length: 300 }, (_, i) => {
@@ -107,18 +139,21 @@ await context.route(/^https:\/\/www\.skool\.com\//, (route) => {
   if (u.pathname === '/media/lesson.vtt') return route.fulfill(serve(readFileSync(join(fixtures, 'lesson.vtt')), 'text/vtt'));
   if (u.pathname === '/media/lesson2.vtt') return route.fulfill(serve(VTT2, 'text/vtt'));
   if (u.pathname === '/media/long.wav') return serveMedia(route, LONG_WAV);
+  if (u.pathname === '/media/hls30.wav') return serveMedia(route, (HLS30_WAV ??= wav(1800, 2000)));
   if (u.pathname === '/media/dub20.wav' || u.pathname === '/media/dub20b.wav') return serveMedia(route, DUB_WAV);
   if (u.pathname === '/media/dub20.vtt') return route.fulfill(serve(DUB_VTT, 'text/vtt'));
   if (u.pathname === '/media/dub20b.vtt') return route.fulfill(serve(DUB_VTT_B, 'text/vtt'));
   if (u.search.includes('dublesson')) return route.fulfill(serve(readFileSync(join(pages, 'skool-dub.html')), 'text/html'));
   if (u.pathname === '/media/long.vtt') return route.fulfill(serve(LONG_VTT, 'text/vtt'));
   if (u.search.includes('textlesson')) return route.fulfill(serve(TEXT_PAGE, 'text/html'));
+  if (u.search.includes('hlsuntouched')) return route.fulfill(serve(HLS_PAGE, 'text/html'));
   if (u.pathname === '/media/lesson.mp4') return serveMedia(route, WAV);
   if (u.search.includes('dlfile')) return route.fulfill(serve('<!doctype html><meta charset="utf-8"><title>Downloadable lesson</title><main><h1>Downloadable lesson</h1><video id="v" controls muted crossorigin="anonymous" src="/media/lesson.mp4" style="width:960px;height:540px"><track kind="captions" srclang="en" label="English" src="/media/lesson.vtt"></video></main>', 'text/html'));
   if (u.search.includes('ccmenu')) return route.fulfill(serve(readFileSync(join(pages, 'skool-ccmenu.html')), 'text/html'));
   const page = u.search.includes('jstrack') ? 'skool-jstrack.html' : u.search.includes('trackfile') ? 'skool-trackfile.html' : u.search.includes('continuous') ? 'skool-continuous.html' : u.search.includes('seekreset') ? 'skool-seek.html' : u.search.includes('novideo') ? 'skool-novideo.html' : u.search.includes('loom') ? 'skool-loom.html' : u.search.includes('nocaptions') ? 'skool-nocaptions.html' : 'skool-native.html';
   return route.fulfill(serve(readFileSync(join(pages, page)), 'text/html'));
 });
+await context.route(/^https:\/\/stream\.cdn-mock\.test\//, hlsRoute);
 await context.route(/^https:\/\/js\.stripe\.com\//, (route) => route.fulfill(serve('<!doctype html><title>stripe mock</title>', 'text/html')));
 await context.route(/^https:\/\/www\.loom\.com\//, (route) => {
   const u = new URL(route.request().url());
@@ -722,6 +757,41 @@ await test('Authorized video download: offered only for a plain file the player 
   const card = await reader.evaluate(() => document.getElementById('dl-card').textContent);
   assert(/Tải xuống/.test(card) && /tệp của trình phát/.test(card), card);
   await reader.close();
+  await p.close();
+});
+
+await test('Full transcript WITHOUT playback: untouched 30-min HLS lesson at 00:00 → complete English source (all segments), whole lesson translated, "Tải toàn bộ bản dịch" SRT matches the source; playhead never moves', async () => {
+  const p = await context.newPage();
+  await p.goto('https://www.skool.com/test-group/classroom/course80?md=hlsuntouched');
+  await waitFor(() => p.evaluate(() => window.manifestLoaded === true), 5000, 'player manifest load');
+  await waitFor(() => p.evaluate(() => !!document.querySelector('[data-sst-panel]')?.shadowRoot?.querySelector('.pill')), 5000, 'panel');
+  await p.evaluate(() => {
+    const r = document.querySelector('[data-sst-panel]').shadowRoot;
+    r.querySelector('.pill').click();
+    r.querySelector('[data-a="transcript"]').click();
+  });
+  const panelText = () => p.evaluate(() => document.querySelector('[data-sst-learning]')?.shadowRoot?.textContent ?? '');
+  await waitFor(async () => (await panelText()).includes('Tiếng Anh: đầy đủ'), 15000, 'complete English source');
+  await waitFor(async () => (await panelText()).includes(`Bản dịch đầy đủ: ${HLS_N}/${HLS_N}`), 20000, 'whole lesson translated');
+  const state = await p.evaluate(() => ({ t: document.querySelector('video').currentTime, paused: document.querySelector('video').paused }));
+  assert(state.t === 0 && state.paused, `playhead moved or video played: ${JSON.stringify(state)}`);
+  assert(!hlsRoute.videoRequests, `video/audio resources requested: ${hlsRoute.videoRequests}`);
+  const [dl] = await Promise.all([
+    p.waitForEvent('download', { timeout: 6000 }),
+    p.evaluate(() => [...document.querySelector('[data-sst-learning]').shadowRoot.querySelectorAll('button')].find((b) => b.textContent.includes('Tải toàn bộ bản dịch')).click()),
+  ]);
+  assert(!/PARTIAL/.test(dl.suggestedFilename()) && /-vi\.srt$/.test(dl.suggestedFilename()), dl.suggestedFilename());
+  const srt = readFileSync(await dl.path(), 'utf8');
+  const blocks = srt.replace(/^\uFEFF/, '').trim().split(/\n\n/);
+  assert(blocks.length === HLS_N, `SRT has ${blocks.length} cues, source has ${HLS_N}`);
+  assert(blocks[HLS_N - 1].includes(`[VI] Untouched lesson sentence ${HLS_N - 1}.`) && blocks[HLS_N - 1].includes(`${hlsTs((HLS_N - 1) * 4 + 0.5).replace('.', ',')} -->`), blocks[HLS_N - 1]);
+  const d = await setup.evaluate(async () => {
+    const [t] = await chrome.tabs.query({ url: '*://www.skool.com/*course80*' });
+    return chrome.runtime.sendMessage({ type: 'diag:run', tabId: t.id });
+  });
+  const ft = d.frames.find((f) => f.report?.subtitles?.fullTranscript)?.report.subtitles.fullTranscript;
+  assert(ft?.evidence?.complete && ft.evidence.expectedSegments === 180 && ft.evidence.retrievedSegments === 180, JSON.stringify(ft?.evidence));
+  assert(!JSON.stringify(d).includes('page-issued') && !JSON.stringify(d).includes('token='), 'signed URL leaked into diagnostics');
   await p.close();
 });
 

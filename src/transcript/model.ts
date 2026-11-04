@@ -77,8 +77,10 @@ export function buildTranscript(args: {
   }));
   const last = segments.reduce((m, s) => Math.max(m, s.end), 0);
   const d = args.durationSec && Number.isFinite(args.durationSec) ? args.durationSec : null;
-  // Never "complete" just because every currently loaded cue was processed.
-  const state: CoverageState = !segments.length ? 'none' : args.fullTranscript || (d !== null && last >= d - 15) ? 'complete' : 'partial';
+  // Completeness comes only from source-level evidence (whole caption file / complete VOD subtitle
+  // playlist). Never from the last cue being near the end (silence at the end is normal) or counts.
+  void d;
+  const state: CoverageState = !segments.length ? 'none' : args.fullTranscript ? 'complete' : 'partial';
   return {
     lessonId: args.lessonId,
     title: args.title,

@@ -1,5 +1,66 @@
 # Changelog
 
+## 5.1.0 — Full transcript without playback or seeking (critical fix)
+
+### Root cause (v5.0.0)
+1. HLS players add subtitle cues to `TextTrack.cues` only for the WebVTT fragments they buffer
+   around `currentTime`. The extension read `TextTrack.cues`, so the transcript grew only while
+   the video played or was seeked. This is the 23:32 / 25:15 PARTIAL case.
+2. The playback-independent path:
+   - was opt-in (off by default);
+   - only looked for a `playback-id` attribute or a non-blob `.m3u8` `src`. Skool's MSE player
+     exposes `blob:`, so nothing was found;
+   - refused every playlist that carried a token, including the one the player itself had loaded.
+3. "Complete" could also be inferred from the last cue being within 15 s of the end. That
+   heuristic is removed.
+
+### Fix
+- **`FullTranscriptAcquisitionService`** (`src/subtitles/fullTranscript.ts`). Runs automatically
+  when a lesson opens (setting on by default), with no play, no seek and no playhead change.
+  Source order:
+  1. **A** — saved transcript with source-level evidence.
+  2. **B** — a complete `<track>` file (browser-loaded, or fetched).
+  3. **C** — a standalone WebVTT/SRT file the page loaded.
+  4. **D** — the HLS master or subtitle playlist **the page's player already loaded for this
+     viewer**, found through the Resource Timing API (same document). The whole English VOD
+     subtitle rendition is read:
+     - only playlists and subtitle segments are requested, never video or audio;
+     - X-TIMESTAMP-MAP is applied, discontinuities are tracked, overlapping/duplicate cues are
+       merged, and each failed segment is retried once.
+  5. **E** — honest fallback: the exact limitation, progressive cues kept. The extension never
+     simulates seeking.
+- **SPA safety:**
+  - only resources loaded after the current lesson began are used;
+  - a source already used for one lesson is never applied to another;
+  - a PerformanceObserver picks up a playlist the player loads later (bounded number of
+    attempts).
+- **Completeness validator.** COMPLETE only when:
+  - the source is a whole caption file, or a VOD playlist with ENDLIST and all listed segments
+    retrieved;
+  - and the cue times fit inside the media.
+
+  The following are no longer accepted as proof of completeness: last-cue-near-the-end, cue
+  counts, duration thresholds. Silence at the end does not make a transcript partial.
+- **Timing.** The standard HLS timestamp map is used. When the player has delivered cues, they
+  must match (≥ 3 matches, consistent offset corrected). Playlists with discontinuities wait for
+  that verification.
+- **Whole-lesson translation.** Starts automatically once the source is complete:
+  playback-first order, background for the rest, deduplicated, saved incrementally, resumes
+  after a restart.
+- **"⬇ Tải toàn bộ bản dịch"** in Bản ghi and Xuất:
+  - formats: VI SRT / VTT / TXT / MD, bilingual TXT / MD / SRT;
+  - enabled only when the source is complete and every segment is translated;
+  - otherwise shows "Đang dịch toàn bài: X/Y đoạn" or "Chưa thể tải bản đầy đủ — nguồn phụ đề
+    chưa hoàn chỉnh.";
+  - a separate "Xuất bản hiện có (PARTIAL)". File names get `-PARTIAL` also when Vietnamese is
+    incomplete.
+- **Lesson store** keeps the evidence. Records saved by ≤ 5.0.0 are not trusted as complete.
+- **Diagnostics** `subtitles.fullTranscript`:
+  - strategy, and candidates by kind and host (no URLs or tokens);
+  - expected/retrieved/missing segments, ENDLIST, discontinuities;
+  - first/last cue, cue and translated counts;
+  - error category.
+
 ## 5.0.0 — Phase 5: instant full transcript, offline learning, Gemini TTS
 
 ### 5A — Instant full transcript

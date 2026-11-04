@@ -1,11 +1,11 @@
 # Testing report
 
-Run on 2026-11-04 (v5.0.0), Node 22, Chromium (Playwright 1.63 build), Linux.
+Run on 2026-11-04 (v5.1.0), Node 22, Chromium (Playwright 1.63 build), Linux.
 
 ```
 npm run typecheck   → 0 errors
-npm test            → 28 files, 396 passed + 1 opt-in real-API test skipped
-npm run test:e2e    → 35/35 passed (built extension loaded in Chromium, mock pages)
+npm test            → 29 files, 405 passed + 1 opt-in real-API test skipped
+npm run test:e2e    → 36/36 passed (built extension loaded in Chromium, mock pages)
 ```
 
 Dubbing performance (simulated and E2E): see [DUBBING.md](DUBBING.md#measured-results).
@@ -78,6 +78,8 @@ with a logged-in Skool account.
 | 36 | **Phase 5C: authorized video download** | `video-download.test`: MSE/HLS → stream, nodownload, plain file + controls → offered, no controls → not offered, owner links in content (nav/http ignored), iframe player → explained, safe names | ✓ streaming Skool lesson → button disabled with reason; plain file → download card opened on the extension page (the permission prompt and real download need a human) |
 | 37 | **Phase 5D: Gemini TTS** | `gemini-tts.test`: reuses the Gemini translation key; Interactions schema; Flash-Lite default / Flash quality; style in speech_metadata with 400 fallback; WAV / L16 PCM / malformed decoding; response shapes; missing key / consent / permission; 429 retry and quota exhaustion; cache reuse vs model/style/voice changes; tokens + cost separate from translation; estimated tokens labelled; session voice, playback rate, mute/restore. Opt-in real API test (skipped by default) | Gemini TTS not exercised in E2E (no key / network). The mock-TTS dubbing E2E covers the shared scheduler, offscreen player, mute/restore and lesson switching |
 
+| 38 | **v5.1.0: full transcript without playback** | `full-transcript.test`. **Untouched 45-min / 900-cue lesson at 00:00:** complete via the page-loaded playlist, 270/270 segments, `play()` never called, 0 `currentTime` writes, no video/audio requests, whole lesson translated once, Vietnamese SRT = 900 cues with source timing, saved with evidence. Also covered: silence at the end → COMPLETE; failed segment → PARTIAL with the missing index; no ENDLIST → not complete; discontinuity without player cues → not complete; no English rendition; 403 / CORS → reported; nothing loaded yet → honest fallback, then acquisition once the playlist appears; standalone WebVTT; segment names never mistaken for files; cached lesson with evidence → 0 network / 0 translation requests; old records without evidence not trusted; interrupted translation resumes only the remaining 450; consecutive lessons not mixed; SPA filtering of earlier lessons' resources | ✓ **real Chromium**: mock player loads its HLS manifest without playing. Result: complete English source (180/180 segments), whole lesson translated, "Tải toàn bộ bản dịch" SRT has all 450 cues with genuine timing, playhead stays 0 and paused, no video/audio requests, no token in diagnostics. ✓ Regression caught and fixed: an SPA lesson reusing the same `<video>` must not reuse the previous lesson's caption file |
+
 ### Measured scheduling performance (simulated)
 `tests/unit/api-speed.test.ts` — 10-minute lesson, cues every 2.5 s, only ~90 s exposed initially, the
 rest in 90 s chunks; API latency on the same simulated clock as playback. These are **simulation**
@@ -126,6 +128,18 @@ See also the Vietnamese checklist in [HUONG-DAN-CAI-DAT.md](HUONG-DAN-CAI-DAT.md
 
 Record failures with the popup status text, the provider, and the service-worker console
 (`chrome://extensions` → "service worker" → Inspect).
+
+### v5.1.0 acceptance on real Skool (untouched lesson)
+
+| Step | Result |
+|---|---|
+| Open a 30–45 min Skool Native lesson never played; do not press Play or touch the seek bar | ☐ |
+| VI → Bài học → Bản ghi: "Tiếng Anh: đầy đủ (… playlist phụ đề VOD đầy đủ)" appears, or an exact reason | ☐ |
+| Popup → Chạy chẩn đoán → `subtitles.fullTranscript`: `evidence.complete`, `expectedSegments` = `retrievedSegments` (or the error category) | ☐ |
+| "Tiếng Việt: đang dịch x/y" rises to "Bản dịch đầy đủ: y/y"; the video stays at 00:00 | ☐ |
+| "⬇ Tải toàn bộ bản dịch" → SRT: the last cue time matches the last spoken sentence; open it with the video in VLC and spot-check 5 places | ☐ |
+| Next lesson (no F5): its own transcript, nothing from the previous lesson | ☐ |
+| Reopen after closing Chrome: complete transcript + translation appear instantly | ☐ |
 
 ### Phase 5 checklist (real Skool, 20–45 min lesson)
 

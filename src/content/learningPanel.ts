@@ -205,6 +205,54 @@ export class LearningPanel {
     return box;
   }
 
+  /**
+   * "Tải toàn bộ bản dịch": enabled only when the ENGLISH source is complete (source-level evidence)
+   * and every segment is translated. A clearly labelled PARTIAL export is always separate.
+   */
+  private fullDownload(t: Transcript | null): HTMLElement {
+    const box = this.el('div', { className: 'full' });
+    if (!t || !t.segments.length) return box;
+    const c = t.coverage;
+    const isVideo = t.kind === 'video';
+    const fmt = this.el('select', {});
+    const choices: [string, string][] = isVideo
+      ? [['srt|vi', 'Tiếng Việt — SRT'], ['vtt|vi', 'Tiếng Việt — VTT'], ['txt|vi', 'Tiếng Việt — TXT'], ['md|vi', 'Tiếng Việt — Markdown'], ['txt|bi', 'Song ngữ Anh/Việt — TXT'], ['md|bi', 'Song ngữ Anh/Việt — Markdown'], ['srt|bi', 'Song ngữ — SRT']]
+      : [['txt|vi', 'Tiếng Việt — TXT'], ['md|vi', 'Tiếng Việt — Markdown'], ['txt|bi', 'Song ngữ — TXT'], ['md|bi', 'Song ngữ — Markdown']];
+    for (const [v, l] of choices) fmt.add(new Option(l, v));
+    const msg = this.el('div', { className: 'muted' });
+    const run = (partialOk: boolean) => () => {
+      const cur = this.source.transcript();
+      if (!cur) return;
+      const [f, lang] = fmt.value.split('|') as [ExportFormat, ExportLang];
+      if (!partialOk && !(cur.coverage.state === 'complete' && cur.coverage.translated >= cur.coverage.segments)) return void (msg.textContent = 'Bản dịch chưa đầy đủ.');
+      try {
+        const out = exportTranscript(cur, f, lang);
+        downloadText(this.doc, out.name, out.mime, out.content);
+        msg.textContent = `Đã tải ${out.name}`;
+      } catch (e) {
+        msg.textContent = (e as Error).message;
+      }
+    };
+    const ready = c.state === 'complete' && c.translated >= c.segments;
+    const status = ready
+      ? `Bản dịch đầy đủ: ${c.translated}/${c.segments} đoạn (nguồn phụ đề hoàn chỉnh).`
+      : c.state === 'complete'
+        ? `Đang dịch toàn bài: ${c.translated}/${c.segments} đoạn`
+        : 'Chưa thể tải bản đầy đủ — nguồn phụ đề chưa hoàn chỉnh.';
+    box.append(
+      this.el('div', { className: ready ? 'muted' : 'warn', textContent: status }),
+      this.el(
+        'div',
+        { className: 'bar' },
+        fmt,
+        this.el('button', { className: 'b primary', textContent: '⬇ Tải toàn bộ bản dịch', disabled: !ready, onclick: run(false) }),
+        this.el('button', { className: 'b', textContent: 'Xuất bản hiện có (PARTIAL)', title: 'Chỉ phần đã có / đã dịch; tên tệp có "-PARTIAL" nếu nguồn chưa hoàn chỉnh', disabled: ready, onclick: run(true) }),
+      ),
+      msg,
+    );
+    return box;
+  }
+
   private renderTranscript(body: HTMLElement, t: Transcript | null): void {
     const langBtn = (l: ViewLang, label: string) => this.el('button', { className: 'b' + (this.lang === l ? ' on' : ''), textContent: label, onclick: () => { this.lang = l; this.render(); } });
     const search = this.el('input', { type: 'search', placeholder: 'Tìm từ khóa…', value: this.query });
@@ -237,7 +285,7 @@ export class LearningPanel {
           onclick: () => void this.source.completeTranslations!(() => this.refresh()).then(() => this.render()),
         }),
       );
-    body.append(this.coverageLine(t), actions, this.el('div', { className: 'bar' }, langBtn('vi', 'VI'), langBtn('bi', 'EN+VI'), langBtn('en', 'EN'), copyAll), this.el('div', { className: 'bar' }, search), list);
+    body.append(this.coverageLine(t), this.fullDownload(t), actions, this.el('div', { className: 'bar' }, langBtn('vi', 'VI'), langBtn('bi', 'EN+VI'), langBtn('en', 'EN'), copyAll), this.el('div', { className: 'bar' }, search), list);
     this.fillRows(list, t);
   }
 
@@ -310,6 +358,7 @@ export class LearningPanel {
     });
     body.append(
       this.coverageLine(t),
+      this.fullDownload(t),
       t && t.coverage.state !== 'complete' ? this.el('div', { className: 'warn', textContent: 'Bản xuất sẽ được đánh dấu PARTIAL (tên tệp có "-PARTIAL") vì chỉ gồm phần nội dung truy cập được.' }) : '',
       missing ? this.el('div', { className: 'muted', textContent: `${missing} đoạn chưa dịch: bản tiếng Việt sẽ bỏ qua chúng, bản song ngữ chỉ có tiếng Anh ở các đoạn đó.` }) : '',
       this.el('div', { className: 'bar' }, fmt, lang),

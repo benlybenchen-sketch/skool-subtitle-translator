@@ -97,6 +97,8 @@ export class TextTrackSource implements TimedSource {
   private enforced = false;
   /** Full caption file read from the <track src> (verified complete transcript). */
   fullTranscript = false;
+  /** <track> element of the chosen track: readyState LOADED = the browser parsed the whole file. */
+  private trackEl: HTMLTrackElement | null = null;
   private filesTried = new Set<string>();
   private readonly startedAt: number;
   /** Small ring log of track lifecycle events (shown in diagnostics; no caption text). */
@@ -141,6 +143,7 @@ export class TextTrackSource implements TimedSource {
     let el: HTMLTrackElement | null = null;
     for (const t of this.video.querySelectorAll('track')) if ((t as HTMLTrackElement).track === track) el = t as HTMLTrackElement;
     const src = el?.src;
+    this.trackEl = el;
     if (!el || !src || this.filesTried.has(src) || !/^https?:/.test(src)) return;
     this.filesTried.add(src);
     try {
@@ -372,6 +375,10 @@ export class TextTrackSource implements TimedSource {
       }
     }
     this.setState('ok');
+    if (!this.fullTranscript && this.trackEl && this.trackEl.readyState === 2 && (this.track.cues?.length ?? 0) > 0) {
+      this.fullTranscript = true; // a whole WebVTT file loaded by the browser, not playback-driven fragments
+      this.note('track element LOADED → complete caption file');
+    }
     // 3. Cheap signature over all same-caption tracks; merge new cues into the cumulative store
     //    (dedupe by cue identity = start/end/text, so overlapping tracks never duplicate).
     const sources = this.peerSet.length ? this.peerSet : [this.track];

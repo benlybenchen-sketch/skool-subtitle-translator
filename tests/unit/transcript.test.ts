@@ -26,12 +26,13 @@ function tx(units: TimedUnit[], o: { full?: boolean; duration?: number | null; t
 }
 
 describe('transcript model', () => {
-  it('coverage: partial unless the whole caption file is known or cues reach the end', () => {
+  it('coverage: complete only with source-level evidence (never from the last cue being near the end)', () => {
     const u = [unit('a', 1, 3, 'Hello', 'Xin chào'), unit('b', 4, 6, 'World')];
     expect(tx([]).coverage.state).toBe('none');
     expect(tx(u).coverage.state).toBe('partial');
     expect(tx(u, { duration: 600 }).coverage.state).toBe('partial');
-    expect(tx(u, { duration: 15 }).coverage.state).toBe('complete');
+    expect(tx(u, { duration: 6.5 }).coverage.state).toBe('partial'); // cues reach the end, but no proof of a complete source
+    expect(tx(u, { full: true, duration: 60 }).coverage.state).toBe('complete'); // complete source, silence at the end
     expect(tx(u, { full: true, duration: 600 }).coverage.state).toBe('complete');
     const c = tx(u).coverage;
     expect([c.segments, c.translated, c.sourceUntilSec]).toEqual([2, 1, 6]);
@@ -97,7 +98,8 @@ describe('transcript export', () => {
   });
 
   it('file names: language suffix, PARTIAL marker, unsafe characters removed', () => {
-    expect(exportFileName(t, 'srt', 'vi')).toBe('Bài 1 Giới thiệu-vi.srt');
+    expect(exportFileName(t, 'srt', 'vi')).toBe('Bài 1 Giới thiệu-vi-PARTIAL.srt'); // one segment not translated yet
+    expect(exportFileName(t, 'srt', 'en')).toBe('Bài 1 Giới thiệu-en.srt'); // English source is complete
     const p = tx([unit('a', 1, 2, 'Hi')], { title: 'A/B: "x"?' });
     expect(exportFileName(p, 'srt', 'bi')).toBe('A B x-bilingual-PARTIAL.srt');
     expect(exportTranscript(p, 'md', 'bi').name).toMatch(/-PARTIAL\.md$/);

@@ -1,12 +1,8 @@
 /** Phase 5A: instant full transcript (45-minute lesson, 900 cues), honest partial coverage, cached reopen. */
-import { SubtitleController, type ControllerBridge } from '../../src/content/controller';
-import { skoolNativeAdapter } from '../../src/players/adapters';
-import { DEFAULT_SETTINGS, mergeSettings } from '../../src/shared/settings';
 import { fetchHlsCaptions, findPlaylist, parseMasterSubtitles, parseMediaPlaylist, segmentCues, verifyAlignment } from '../../src/subtitles/hlsCaptions';
-import { TranscriptStore, mergeRecords, type LessonRecord } from '../../src/transcript/store';
+import { TranscriptStore, mergeRecords } from '../../src/transcript/store';
 import { cueId } from '../../src/subtitles/normalize';
-import { hash53 } from '../../src/shared/hash';
-import { FakeCue, FakeTrack, flush, installVTTCue, makeVideo } from './fakes';
+import { installVTTCue } from './fakes';
 
 installVTTCue();
 
@@ -61,7 +57,7 @@ describe('HLS subtitle rendition (RFC 8216)', () => {
     const bad = await fetchHlsCaptions('https://stream.mux.com/abcdefghij12.m3u8', { fetchImpl: hlsServer({ failSegment: 5 }).f });
     expect(bad.complete).toBe(false);
     expect(bad.failedSegments).toBe(1);
-    await expect(fetchHlsCaptions('https://stream.mux.com/abcdefghij12.m3u8', { fetchImpl: hlsServer({ noEnglish: true }).f })).rejects.toThrow(/no English/);
+    expect((await fetchHlsCaptions('https://stream.mux.com/abcdefghij12.m3u8', { fetchImpl: hlsServer({ noEnglish: true }).f })).noEnglish).toBe(true);
   });
 
   it('public vs signed playback: signed/tokenised playlists are never used', () => {
@@ -105,138 +101,3 @@ describe('lesson store', () => {
   });
 });
 
-// ---- controller acceptance ----------------------------------------------------------------------
-
-function memStore(initial?: LessonRecord) {
-  const data = new Map<string, LessonRecord>();
-  if (initial) data.set(initial.lessonId, initial);
-  return {
-    data,
-    async get(id: string) {
-      return data.get(id) ?? null;
-    },
-    async put(r: Partial<LessonRecord> & { lessonId: string }) {
-      data.set(r.lessonId, mergeRecords(data.get(r.lessonId) ?? null, r));
-    },
-  };
-}
-
-function setup(o: { cues: number; mux?: 'public' | 'signed' | null; store?: ReturnType<typeof memStore>; fetchImpl?: typeof fetch; allowFull?: boolean }) {
-  document.body.innerHTML = '';
-  const cues = Array.from({ length: o.cues }, (_, i) => new FakeCue(i * 3 + 0.5, i * 3 + 3, cueText(i)));
-  const track = new FakeTrack('subtitles', 'English', 'en', cues);
-  track.mode = 'showing';
-  const video = makeVideo(document, { tracks: [track], src: 'blob:https://www.skool.com/x' });
-  Object.defineProperty(video, 'duration', { value: DURATION, configurable: true });
-  const host = document.createElement('mux-player');
-  if (o.mux) host.setAttribute('playback-id', 'abcdefghij12');
-  if (o.mux === 'signed') host.setAttribute('playback-token', 'eyJhbGciOi');
-  host.append(video);
-  document.body.append(host);
-  const calls: string[][] = [];
-  const bridge: ControllerBridge = {
-    async translate(_k, units) {
-      calls.push(units.map((u) => u.text));
-      return units.map((u) => ({ id: u.id, vi: `VI(${u.text})` }));
-    },
-    cancel() {},
-    reportStatus() {},
-  };
-  const store = o.store ?? memStore();
-  const c = new SubtitleController({
-    doc: document,
-    isTop: true,
-    adapter: skoolNativeAdapter,
-    bridge,
-    captionGraceMs: 10,
-    raf: () => 0,
-    cancelRaf: () => undefined,
-    lessonStore: store,
-    lessonTitle: () => '45-minute lesson',
-    fetchImpl: o.fetchImpl,
-    settings: mergeSettings({ ...DEFAULT_SETTINGS, autoEnableCaptions: true, fullTranscriptFromPlayer: !!o.allowFull, mergeFragments: false }),
-  });
-  c.setTarget({ kind: 'video', el: video, provider: 'skool-native', area: 960 * 540 });
-  return { c, video, calls, store };
-}
-const settle = async (ms = 40) => {
-  for (let i = 0; i < 6; i++) await flush();
-  await new Promise((r) => setTimeout(r, ms));
-  for (let i = 0; i < 6; i++) await flush();
-};
-const waitFor = async (cond: () => boolean, ms = 4000) => {
-  const t0 = Date.now();
-  while (!cond() && Date.now() - t0 < ms) await settle(20);
-  return cond();
-};
-
-describe('instant full transcript — acceptance', () => {
-  const live: SubtitleController[] = [];
-  afterEach(() => live.splice(0).forEach((c) => c.destroy()));
-
-  it('A: complete public caption playlist → full 45-min English transcript without playback; first cues translated first; result cached', async () => {
-    const hls = hlsServer();
-    const { c, calls, store } = setup({ cues: 40, mux: 'public', fetchImpl: hls.f, allowFull: true });
-    live.push(c);
-    expect(await waitFor(() => (c.transcript('x')?.segments.length ?? 0) >= N)).toBe(true);
-    const t = c.transcript('x')!;
-    expect(t.coverage.state).toBe('complete');
-    expect(t.coverage.sourceLabel).toMatch(/playlist phụ đề công khai/);
-    expect(t.segments).toHaveLength(N); // the 40 player cues and the file merge without duplicates
-    expect(calls[0]).toContain(cueText(0)); // playback-first priority
-    expect(await waitFor(() => (c.transcript('x')!.coverage.translated ?? 0) === N, 8000)).toBe(true);
-    const sent = calls.flat();
-    expect(new Set(sent).size).toBe(sent.length); // no subtitle block sent twice
-    c.destroy(); // flushes the save
-    const rec = store.data.get(hash53((c as any).videoKey ?? '') ) ?? [...store.data.values()][0];
-    expect(rec.complete).toBe(true);
-    expect(rec.translated).toBe(N);
-  }, 20_000);
-
-  it('B: only 40 cues and no complete source → truthful partial transcript, never 100 %', async () => {
-    const { c } = setup({ cues: 40, mux: null, allowFull: true });
-    live.push(c);
-    await settle();
-    await waitFor(() => c.transcript('x')!.coverage.translated === 40);
-    const t = c.transcript('x')!;
-    expect(t.coverage.state).toBe('partial');
-    expect(t.coverage.translated).toBe(40);
-    expect(t.coverage.sourceUntilSec).toBeLessThan(130);
-    expect(t.coverage.note).toMatch(/không công bố playlist phụ đề công khai/);
-  });
-
-  it('B2: signed playback → playlist not touched, limitation stated', async () => {
-    const hls = hlsServer();
-    const { c } = setup({ cues: 40, mux: 'signed', fetchImpl: hls.f, allowFull: true });
-    live.push(c);
-    await settle();
-    expect(hls.requests).toEqual([]);
-    expect(c.transcript('x')!.coverage.note).toMatch(/có chữ ký/);
-    expect(c.transcript('x')!.coverage.state).toBe('partial');
-  });
-
-  it('not permitted (default) → no playlist request at all', async () => {
-    const hls = hlsServer();
-    const { c } = setup({ cues: 40, mux: 'public', fetchImpl: hls.f, allowFull: false });
-    live.push(c);
-    await settle();
-    expect(hls.requests).toEqual([]);
-  });
-
-  it('C: fully cached lesson → complete English + Vietnamese immediately, zero translation requests', async () => {
-    // build a cached record the way a previous visit would have saved it
-    const first = setup({ cues: 40, mux: 'public', fetchImpl: hlsServer().f, allowFull: true });
-    await waitFor(() => first.c.transcript('x')!.coverage.translated === N, 10_000);
-    first.c.destroy();
-    const saved = [...first.store.data.values()][0];
-    expect(saved.complete && saved.translated === N).toBe(true);
-    const again = setup({ cues: 0, mux: null, store: memStore(saved), allowFull: false });
-    live.push(again.c);
-    expect(await waitFor(() => again.c.transcript('x')?.segments.length === N)).toBe(true);
-    const t = again.c.transcript('x')!;
-    expect(t.coverage.state).toBe('complete');
-    expect(t.coverage.translated).toBe(N);
-    await settle(100);
-    expect(again.calls).toEqual([]); // no API calls for a fully cached lesson
-  }, 30_000);
-});

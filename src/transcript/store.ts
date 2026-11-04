@@ -22,8 +22,10 @@ export interface LessonRecord {
   kind: 'video' | 'text';
   /** Source cues as read (ids = cue identity). Empty for text lessons. */
   cues: Cue[];
-  /** The whole lesson's English transcript is known (caption file / complete HLS rendition / cues reach the end). */
+  /** The whole lesson's English transcript is known — only with source-level evidence (see `evidence`). */
   complete: boolean;
+  /** Source-level completeness evidence (no URLs). Records without it are never treated as complete on reopen. */
+  evidence?: import('../subtitles/fullTranscript').TranscriptEvidence;
   /** Where the English transcript came from. */
   source: string;
   durationSec: number | null;
@@ -163,6 +165,7 @@ export function mergeRecords(prev: LessonRecord | null, next: Partial<LessonReco
     savedOffline: next.savedOffline ?? base.savedOffline,
     notesMarkdown: next.notesMarkdown ?? base.notesMarkdown,
     video: next.video ?? base.video,
+    evidence: next.evidence?.complete || !base.evidence?.complete ? next.evidence ?? base.evidence : base.evidence,
     updatedAt: next.updatedAt ?? Date.now(),
   };
 }

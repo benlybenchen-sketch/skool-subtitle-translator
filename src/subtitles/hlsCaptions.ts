@@ -111,9 +111,44 @@ export interface HlsCaptionResult {
   segments: number;
   failedSegments: number;
   label: string;
+  /** Source-level evidence (see fullTranscript.ts). */
+  endList: boolean;
+  playlistType: string | null;
+  expectedSegments: number;
+  retrievedSegments: number;
+  missingSegments: number[];
+  discontinuities: number;
+  /** Sum of #EXTINF durations (s). */
+  playlistDurationSec: number;
+  noEnglish?: boolean;
 }
 
-/** Read the whole English subtitle rendition (bounded: ≤ 2000 segments, 4 in parallel, 10 s timeout each). */
+const MEDIA_SEGMENT = /\.(ts|m4s|mp4|m4a|aac|mp3|fmp4|cmfv|cmfa)(\?|#|$)/i;
+
+export function parseMediaPlaylistFull(text: string, baseUrl: string): { segments: string[]; durations: number[]; ended: boolean; type: string | null; discontinuities: number } {
+  const lines = text.split(/\r?\n/).map((l) => l.trim());
+  const segments: string[] = [];
+  const durations: number[] = [];
+  let pending: number | null = null;
+  let discontinuities = 0;
+  for (const l of lines) {
+    if (l.startsWith('#EXTINF:')) pending = Number(l.slice(8).split(',')[0]) || 0;
+    else if (l === '#EXT-X-DISCONTINUITY') discontinuities++;
+    else if (l && !l.startsWith('#') && pending !== null) {
+      segments.push(new URL(l, baseUrl).href);
+      durations.push(pending);
+      pending = null;
+    }
+  }
+  return { segments, durations, ended: lines.includes('#EXT-X-ENDLIST'), type: lines.find((l) => l.startsWith('#EXT-X-PLAYLIST-TYPE:'))?.slice(21) ?? null, discontinuities };
+}
+
+/**
+ * Read a complete English subtitle rendition. `url` may be a master playlist (the English
+ * SUBTITLES rendition is selected) or directly a subtitle media playlist. Only playlists and
+ * subtitle segments are requested — never video/audio segments. Bounded: ≤ 3000 segments,
+ * 4 in parallel, 10 s timeout and one retry per segment.
+ */
 export async function fetchHlsCaptions(
   url: string,
   o: { lang?: string; fetchImpl?: typeof fetch; maxSegments?: number; signal?: AbortSignal } = {},
@@ -125,41 +160,70 @@ export async function fetchHlsCaptions(
     o.signal?.addEventListener('abort', () => ac.abort(), { once: true });
     try {
       const r = await f(u, { credentials: 'omit', signal: ac.signal });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      if (!r.ok) throw Object.assign(new Error(`HTTP ${r.status}`), { status: r.status });
       return await r.text();
     } finally {
       clearTimeout(t);
     }
   };
-  const master = await get(url);
-  const tag = pickEnglish(parseMasterSubtitles(master, url), o.lang ?? 'en');
-  if (!tag) throw new Error('Playlist has no English subtitle rendition');
-  const media = parseMediaPlaylist(await get(tag.uri), tag.uri);
-  const segs = media.segments.slice(0, o.maxSegments ?? 2000);
+  const first = await get(url);
+  let mediaUrl = url;
+  let mediaText = first;
+  let label = 'English';
+  if (/#EXT-X-STREAM-INF|#EXT-X-MEDIA:/.test(first)) {
+    const tag = pickEnglish(parseMasterSubtitles(first, url), o.lang ?? 'en');
+    if (!tag) {
+      const empty: HlsCaptionResult = { cues: [], complete: false, segments: 0, failedSegments: 0, label: '', endList: false, playlistType: null, expectedSegments: 0, retrievedSegments: 0, missingSegments: [], discontinuities: 0, playlistDurationSec: 0, noEnglish: true };
+      return empty;
+    }
+    label = tag.name || 'English';
+    mediaUrl = tag.uri;
+    mediaText = await get(tag.uri);
+  }
+  const media = parseMediaPlaylistFull(mediaText, mediaUrl);
+  if (media.segments.some((s) => MEDIA_SEGMENT.test(new URL(s).pathname))) throw new Error('Not a subtitle playlist (media segments)');
+  const segs = media.segments.slice(0, o.maxSegments ?? 3000);
   const texts: (string | null)[] = new Array(segs.length).fill(null);
   let next = 0;
-  let failed = 0;
   await Promise.all(
     Array.from({ length: Math.min(4, segs.length) }, async () => {
       while (next < segs.length) {
         const i = next++;
-        try {
-          texts[i] = await get(segs[i]);
-        } catch {
-          failed++;
+        for (let attempt = 0; attempt < 2 && texts[i] === null; attempt++) {
+          try {
+            texts[i] = await get(segs[i]);
+          } catch {
+            /* retried once, then reported as missing */
+          }
         }
       }
     }),
   );
   let base: number | null = null;
   const byId = new Map<string, Cue>();
-  for (const t of texts) {
-    if (t === null) continue;
-    if (base === null) base = /MPEGTS:(\d+)/.exec(t) ? Number(/MPEGTS:(\d+)/.exec(t)![1]) : null;
+  const missing: number[] = [];
+  texts.forEach((t, i) => {
+    if (t === null) return void missing.push(i);
+    if (base === null) base = /MPEGTS[:=](\d+)/.exec(t) ? Number(/MPEGTS[:=](\d+)/.exec(t)![1]) : null;
     for (const c of segmentCues(t, base).cues) byId.set(c.id, c); // cues repeated across segments collapse
-  }
+  });
   const cues = [...byId.values()].sort((a, b) => a.start - b.start);
-  return { cues, complete: media.ended && failed === 0 && segs.length === media.segments.length && cues.length > 0, segments: segs.length, failedSegments: failed, label: tag.name || 'English' };
+  const retrieved = segs.length - missing.length;
+  const complete = media.ended && missing.length === 0 && segs.length === media.segments.length && segs.length > 0;
+  return {
+    cues,
+    complete,
+    segments: segs.length,
+    failedSegments: missing.length,
+    label,
+    endList: media.ended,
+    playlistType: media.type,
+    expectedSegments: media.segments.length,
+    retrievedSegments: retrieved,
+    missingSegments: missing.slice(0, 50),
+    discontinuities: media.discontinuities,
+    playlistDurationSec: Math.round(media.durations.reduce((a, b) => a + b, 0) * 10) / 10,
+  };
 }
 
 /**

@@ -74,7 +74,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoEnableCaptionsAsked: false,
   autoInitOnNavigation: true,
   autoTranslateTextLessons: false,
-  fullTranscriptFromPlayer: false,
+  autoFullTranscript: true,
   dubbing: {
     enabled: false,
     provider: 'chrome',

@@ -6,7 +6,7 @@ Tiện ích Chrome này dịch video bài học tiếng Anh trên **Skool** sang
 
 **Cách A — dùng tệp ZIP có sẵn**
 
-1. Tải tệp `release/skool-vi-subtitles-v5.0.0.zip` từ repository GitHub.
+1. Tải tệp `release/skool-vi-subtitles-v5.1.0.zip` từ repository GitHub.
 2. Giải nén vào một thư mục cố định (ví dụ `Documents/skool-vi-subtitles`). Đừng xóa thư mục này sau khi cài.
 3. Mở Chrome, gõ `chrome://extensions` vào thanh địa chỉ.
 4. Bật **Developer mode / Chế độ dành cho nhà phát triển** (góc trên bên phải).
@@ -123,9 +123,14 @@ Mục **4. Chất lượng dịch** có sẵn danh sách thuật ngữ marketing
 
 **Bản ghi đầy đủ ngay khi mở bài**
 - Bấm VI → **📄 Bản ghi**: phần đã có hiện ngay. Bài đã mở trước đây sẽ hiện **ngay lập tức** cả tiếng Anh lẫn tiếng Việt từ máy, không gọi API.
-- Muốn có toàn bộ phụ đề mà không cần xem hết video: bấm **"Tải toàn bộ phụ đề từ trình phát"**, hoặc bật Cài đặt → mục 5 **"Tự tải toàn bộ phụ đề tiếng Anh khi mở bài"**.
-  - Chỉ hoạt động khi trình phát dùng playlist phụ đề **công khai**.
-  - Video dùng liên kết phát có chữ ký (thường gặp ở khóa học trả phí): tiện ích báo rõ và thu phụ đề dần khi phát. Tiện ích không vượt quyền truy cập.
+- **(v5.1.0) Tự động tải toàn bộ phụ đề khi mở bài — không cần bấm Play, không cần tua.**
+  - Tiện ích đọc playlist / tệp phụ đề mà trình phát đã nạp cho bài (chỉ phụ đề, không tải video/âm thanh), rồi tự dịch cả bài.
+  - Bật/tắt ở Cài đặt → mục 5 (mặc định bật).
+  - Nếu trình phát chỉ nạp danh sách phát khi bấm Play: bấm Play một lần, tiện ích tải toàn bộ ngay, không cần xem hết.
+  - Nếu máy chủ từ chối (403/CORS) hoặc video không có phụ đề tiếng Anh, bảng Bản ghi báo đúng lý do.
+- **⬇ Tải toàn bộ bản dịch** (tab Bản ghi hoặc Xuất): chỉ bật khi nguồn phụ đề hoàn chỉnh và mọi đoạn đã dịch.
+  - Khi đang dịch, hiện "Đang dịch toàn bài: X/Y đoạn".
+  - Nút **"Xuất bản hiện có (PARTIAL)"** tách riêng.
 - Dòng trạng thái luôn tách hai phần:
   - **Tiếng Anh:** đầy đủ, hoặc MỘT PHẦN — có đến mm:ss / tổng thời lượng;
   - **Tiếng Việt:** hoàn tất, hoặc đang dịch x/y.

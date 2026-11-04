@@ -36,8 +36,14 @@
   - Lesson transcripts, translations and offline packs are stored in the extension's local
     IndexedDB and can be deleted in the offline reader. ZIP packs are local downloads; nothing
     is uploaded anywhere.
-  - Full-transcript retrieval uses only public caption playlists, with the user's permission.
-    It never uses playback tokens or signed URLs.
+  - Full-transcript retrieval (v5.1.0) reads only caption resources that the page's own player
+    has already loaded for the current viewer and lesson. Those are its HLS master/subtitle
+    playlist and the WebVTT files listed in it, requested with the same URL the player used.
+    - It never constructs, guesses, signs or extends a URL or token.
+    - It never requests video or audio.
+    - It does not send cookies (`credentials: omit`).
+    - It stops on 401/403/CORS errors.
+    - URLs are never logged or stored (diagnostics keep only the host).
   - Video download uses the optional `downloads` permission, only for files the page itself
     offers, started by the user.
   - Gemini TTS sends Vietnamese sentence text to Google with the user's own Gemini key, after

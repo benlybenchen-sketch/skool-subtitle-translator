@@ -70,7 +70,7 @@ export function makeVideo(doc: Document, opts: { width?: number; height?: number
   let curSrc = opts.src ?? 'https://video.skool.com/lesson-1.mp4?token=abc';
   Object.defineProperties(v, {
     textTracks: { get: () => list },
-    currentTime: { get: () => time, set: (t: number) => (time = t) },
+    currentTime: { get: () => time, set: (t: number) => (time = t), configurable: true },
     paused: { get: () => paused },
     playbackRate: {
       get: () => rate,

@@ -119,7 +119,8 @@ export function exportFileName(t: Transcript, format: ExportFormat, lang: Export
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 80) || 'skool-lesson';
-  const partial = t.coverage.state === 'complete' ? '' : '-PARTIAL';
+  // PARTIAL when the English source is incomplete, or (for VI/bilingual) not every segment is translated
+  const partial = t.coverage.state !== 'complete' || (lang !== 'en' && t.coverage.translated < t.coverage.segments) ? '-PARTIAL' : '';
   return `${base}-${lang === 'bi' ? 'bilingual' : lang}${partial}.${format}`;
 }
 

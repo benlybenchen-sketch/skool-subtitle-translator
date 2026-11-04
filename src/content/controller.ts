@@ -12,7 +12,8 @@ import { DomCaptionSource, ManualSource, TextTrackSource, findEnglishTrack, type
 import { CaptionBootstrap, type BootstrapState } from '../players/captionBootstrap';
 import { DubbingSession, type DubSend } from '../dubbing/session';
 import { CachedSource } from '../subtitles/sources';
-import { fetchHlsCaptions, findPlaylist, verifyAlignment, type HlsCaptionResult } from '../subtitles/hlsCaptions';
+import { verifyAlignment } from '../subtitles/hlsCaptions';
+import { acquireFullTranscript, discoverCaptionSources, type AcquisitionResult, type TranscriptEvidence } from '../subtitles/fullTranscript';
 import type { LessonRecord } from '../transcript/store';
 import { TranslationScheduler, type SchedulerOptions, type TranslateBridge } from './scheduler';
 import { hash53 } from '../shared/hash';
@@ -36,6 +37,8 @@ export interface ControllerEnv {
   /** Lesson title (top frame heading) for saved transcripts. */
   lessonTitle?: () => string;
   fetchImpl?: typeof fetch;
+  /** Resource Timing source (tests); defaults to the page's performance timeline. */
+  perf?: Pick<Performance, 'getEntriesByType'>;
   /** Background messaging for AI dubbing (absent → dubbing unavailable in this frame). */
   dubSend?: DubSend;
   dubSchedulerOptions?: Partial<import('../dubbing/scheduler').DubSchedulerOptions>;
@@ -75,7 +78,9 @@ export class SubtitleController {
   private cachedVi = new Map<string, string>();
   private saveTimer: ReturnType<typeof setTimeout> | undefined;
   private fullState: { status: 'idle' | 'loading' | 'done' | 'signed' | 'none' | 'unverified' | 'error' | 'cached'; note?: string } = { status: 'idle' };
-  private pendingFile: HlsCaptionResult | null = null;
+  private pendingFile: AcquisitionResult | null = null;
+  private evidence: TranscriptEvidence | null = null;
+  private candidateInfo: { kind: string; host: string }[] = [];
   /** AI Vietnamese dubbing session for the current lesson video (Phase 4). */
   private dub: DubbingSession | null = null;
   private dubKey = '';
@@ -138,7 +143,7 @@ export class SubtitleController {
       source: this.captionSource ?? 'texttrack',
       fullTranscript: !!src?.fullTranscript || this.captionSource === 'manual' || (this.captionSource === 'cache' && this.extraComplete),
       sourceLabel: this.sourceLabel(src),
-      note: this.fullState.note,
+      note: this.fullState.note ?? (this.evidence && !this.evidence.complete ? this.evidence.reason : undefined),
       durationSec: media && Number.isFinite(media.duration) ? media.duration : null,
       version: hash53,
     });
@@ -165,7 +170,18 @@ export class SubtitleController {
     return { ...this.fullState };
   }
 
-  /** Priority 1: saved transcript; Priority 3 (opt-in): complete public caption playlist; else progressive. */
+  /** Source-level completeness evidence of the current lesson's English transcript. */
+  get transcriptEvidence(): TranscriptEvidence | null {
+    return this.evidence ? { ...this.evidence } : null;
+  }
+
+  /**
+   * Opening a lesson (no playback needed):
+   *   A. saved transcript with source-level completeness evidence → instant;
+   *   B. complete accessible track file (TextTrackSource reads <track src> / loaded <track>);
+   *   C/D. caption file or VOD subtitle playlist the player already loaded (Resource Timing);
+   *   E. honest fallback: progressive cues + the exact limitation.
+   */
   private async restoreLesson(): Promise<void> {
     const key = this.videoKey;
     const store = this.env.lessonStore;
@@ -173,63 +189,114 @@ export class SubtitleController {
     if (!key || !t || t.kind === 'iframe') return;
     const rec = store ? await store.get(hash53(key)).catch(() => null) : null;
     if (this.videoKey !== key) return;
+    const provenComplete = !!rec?.evidence?.complete; // records without evidence (≤ v5.0.0) are not trusted as complete
     if (rec?.cues.length) {
       this.cachedVi = new Map(rec.units.filter((u) => u.vi).map((u) => [`${u.id}|${u.en}`, u.vi!]));
-      if (rec.complete) this.extraLabel = `bản ghi đã lưu (${rec.source})`;
-      this.fullState = { status: rec.complete ? 'cached' : 'idle', note: rec.complete ? undefined : 'Bản ghi đã lưu chưa đầy đủ — tiếp tục thu thêm khi phát.' };
-      this.seed(rec.cues, rec.complete);
+      if (provenComplete) {
+        this.extraLabel = `bản ghi đầy đủ đã lưu (${rec.source})`;
+        this.evidence = { ...rec.evidence!, sourceType: 'cache', reason: `Bản ghi đầy đủ đã lưu trên máy — ${rec.evidence!.reason}` };
+      }
+      this.fullState = { status: provenComplete ? 'cached' : 'idle' };
+      this.seed(rec.cues, provenComplete);
     }
-    if (!rec?.complete && this.settings.fullTranscriptFromPlayer) await this.acquireFromPlayer();
+    if (!provenComplete && this.settings.autoFullTranscript) await this.acquireFromPlayer();
     this.queueStatus();
   }
 
-  /** User-triggered (or opted-in) complete transcript from the player's public HLS subtitle rendition. */
+  private perfObserver: PerformanceObserver | null = null;
+  /** performance.now() when the current lesson began (SPA navigation); 0 for the first page load. */
+  private lessonPerfStart = 0;
+  /** Caption sources already used for another lesson — never applied to a different lesson. */
+  private readonly usedByOtherLessons = new Set<string>();
+  private acquireAttempts = 0;
+  private acquireTried = new Set<string>();
+  private reacquireTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** Watch for caption playlists/files the player loads later (e.g. when it initialises) — bounded. */
+  private watchResources(): void {
+    if (this.perfObserver || typeof PerformanceObserver === 'undefined') return;
+    try {
+      this.perfObserver = new PerformanceObserver((list) => {
+        if (!list.getEntries().some((e) => /\.(m3u8|vtt|webvtt|srt)(\?|#|$)/i.test(e.name) && !this.acquireTried.has(e.name))) return;
+        clearTimeout(this.reacquireTimer);
+        this.reacquireTimer = setTimeout(() => void this.acquireFromPlayer(), 800);
+      });
+      this.perfObserver.observe({ type: 'resource', buffered: false });
+    } catch {
+      this.perfObserver = null;
+    }
+  }
+
+  /** Complete English transcript independent of playback (never plays, seeks or changes the playhead). */
   async acquireFromPlayer(): Promise<void> {
     const key = this.videoKey;
     const t = this.target;
-    if (!key || !t || t.kind === 'iframe' || this.fullState.status === 'loading') return;
-    const found = findPlaylist(t.el);
-    if (found.kind === 'none') {
-      this.fullState = { status: 'none', note: 'Trình phát không công bố playlist phụ đề công khai — phụ đề được thu dần khi phát.' };
+    if (!key || !t || t.kind === 'iframe' || this.fullState.status === 'loading' || this.evidence?.complete) return;
+    if (this.acquireAttempts >= 6) return;
+    const perf = this.env.perf ?? (typeof performance !== 'undefined' ? performance : undefined);
+    const candidates = discoverCaptionSources(perf, t.el, { since: this.lessonPerfStart, exclude: this.usedByOtherLessons }).filter((c) => !this.acquireTried.has(c.url));
+    this.candidateInfo = [...this.candidateInfo, ...candidates.map((c) => ({ kind: c.kind, host: c.host }))].slice(-10);
+    this.watchResources();
+    if (!candidates.length) {
+      if (!this.evidence || this.evidence.sourceType === 'none')
+        this.evidence = { sourceType: 'none', complete: false, reason: 'Trang chưa nạp playlist hoặc tệp phụ đề nào mà tiện ích đọc được. Nếu trình phát chỉ nạp khi bấm Play, tiện ích sẽ tự tải toàn bộ ngay khi trình phát nạp danh sách phát (không cần xem hết).', uniqueCues: 0, firstCueSec: null, lastCueSec: null, timing: 'unknown', errorCategory: 'none', checkedAt: Date.now() };
+      this.fullState = { status: 'none', note: this.evidence.reason };
       return void this.queueStatus();
     }
-    if (found.kind === 'signed') {
-      this.fullState = { status: 'signed', note: 'Video dùng liên kết phát có chữ ký (kiểm soát truy cập) — tiện ích không dùng token đó để tải toàn bộ phụ đề; phụ đề được thu dần khi phát.' };
-      return void this.queueStatus();
-    }
-    this.fullState = { status: 'loading', note: 'Đang tải toàn bộ phụ đề tiếng Anh từ playlist công khai của trình phát…' };
+    this.acquireAttempts++;
+    for (const c of candidates) this.acquireTried.add(c.url);
+    this.fullState = { status: 'loading', note: 'Đang tải toàn bộ phụ đề tiếng Anh (không cần phát video)…' };
     this.queueStatus();
     try {
-      const r = await fetchHlsCaptions(found.url, { lang: this.settings.sourceLanguage, fetchImpl: this.env.fetchImpl });
+      const media = t.el;
+      const r = await acquireFullTranscript(candidates, { lang: this.settings.sourceLanguage, fetchImpl: this.env.fetchImpl, durationSec: Number.isFinite(media.duration) ? media.duration : null });
       if (this.videoKey !== key) return;
-      this.pendingFile = r;
-      this.tryApplyFile();
+      if (!r.cues.length) {
+        this.evidence = r.evidence;
+        this.fullState = { status: 'error', note: r.evidence.reason };
+      } else {
+        this.pendingFile = r;
+        this.tryApplyFile();
+      }
     } catch (e) {
       if (this.videoKey !== key) return;
-      this.fullState = { status: 'error', note: `Không tải được toàn bộ phụ đề (${(e as Error).message}) — tiếp tục thu dần khi phát.` };
+      this.fullState = { status: 'error', note: `Không tải được toàn bộ phụ đề (${(e as Error).message}).` };
     }
     this.queueStatus();
   }
 
-  /** Use a downloaded caption file only after its timing matches cues the player delivered. */
+  /**
+   * Apply an acquired transcript. Timestamps: standard HLS timestamp map / file times; if the
+   * player has delivered cues, they must match (≥ 3 matches, consistent offset corrected).
+   */
   private tryApplyFile(): void {
     const r = this.pendingFile;
     if (!r) return;
     const player = this.lastCues.filter((c) => !this.extraCues.includes(c));
     const v = verifyAlignment(r.cues, player);
-    if (!v.ok) {
-      this.fullState =
-        v.matches < 3
-          ? { status: 'unverified', note: `Đã tải ${r.cues.length} câu phụ đề; đang chờ vài câu từ trình phát để kiểm tra khớp thời gian trước khi dùng.` }
-          : { status: 'error', note: 'Thời gian trong tệp phụ đề không khớp với trình phát — không dùng (thu dần khi phát).' };
-      if (v.matches >= 3) this.pendingFile = null;
+    const ev = { ...r.evidence };
+    if (v.matches >= 3 && !v.ok) {
+      this.pendingFile = null;
+      this.evidence = { ...ev, complete: false, timing: 'unknown', reason: 'Thời gian trong nguồn phụ đề không khớp với trình phát — không dùng.' };
+      this.fullState = { status: 'error', note: this.evidence.reason };
+      return;
+    }
+    if (ev.timing === 'unknown' && !v.ok) {
+      // e.g. discontinuities: wait for player cues to confirm timing before using it
+      this.evidence = { ...ev, complete: false, reason: `${ev.reason} Đang chờ vài câu từ trình phát để xác nhận mốc thời gian.` };
+      this.fullState = { status: 'unverified', note: this.evidence.reason };
       return;
     }
     this.pendingFile = null;
-    const cues = v.offset ? r.cues.map((c) => ({ ...c, start: c.start + v.offset, end: c.end + v.offset })) : r.cues;
-    this.extraLabel = r.complete ? 'playlist phụ đề công khai của trình phát (đầy đủ)' : 'playlist phụ đề công khai (một phần)';
-    this.fullState = r.complete ? { status: 'done' } : { status: 'done', note: `Playlist phụ đề chưa đầy đủ (${r.failedSegments} đoạn lỗi) — phần còn lại thu dần khi phát.` };
-    this.seed(cues, r.complete);
+    const cues = v.ok && v.offset ? r.cues.map((c) => ({ ...c, start: c.start + v.offset, end: c.end + v.offset })) : r.cues;
+    if (v.ok) ev.timing = 'player-verified';
+    this.evidence = ev;
+    this.extraLabel = ev.complete ? (ev.sourceType === 'caption-file' ? 'tệp phụ đề đầy đủ của bài' : 'playlist phụ đề VOD đầy đủ') : 'nguồn phụ đề (chưa đầy đủ)';
+    this.fullState = ev.complete ? { status: 'done' } : { status: 'done', note: ev.reason };
+    this.seed(cues, ev.complete);
+    // Whole lesson known → translate all of it in the background (playback-first order kept).
+    if (ev.complete) this.scheduler?.updateOptions({ pretranslateAll: true });
+    this.scheduleSave();
   }
 
   private seed(cues: Cue[], complete: boolean): void {
@@ -269,7 +336,8 @@ export class SubtitleController {
         title: t.title,
         kind: 'video',
         cues: this.lastCues,
-        complete: t.coverage.state === 'complete',
+        complete: t.coverage.state === 'complete' && !!this.evidence?.complete,
+        evidence: this.evidence ?? undefined,
         source: t.coverage.sourceLabel ?? this.captionSource ?? 'unknown',
         durationSec: t.coverage.durationSec,
         sourceUntilSec: t.coverage.sourceUntilSec,
@@ -312,7 +380,7 @@ export class SubtitleController {
         }
       }, 500);
     });
-    if (this.scheduler === sch) sch.updateOptions({ pretranslateAll: this.settings.pretranslateAll });
+    if (this.scheduler === sch) sch.updateOptions({ pretranslateAll: this.settings.pretranslateAll || !!this.evidence?.complete });
     const c = tl();
     return { done: c.done, total: c.total };
   }
@@ -321,7 +389,7 @@ export class SubtitleController {
   private schedulerTuning(): Partial<SchedulerOptions> {
     const p = modeProfile(this.settings.translationMode);
     return {
-      pretranslateAll: this.settings.pretranslateAll,
+      pretranslateAll: this.settings.pretranslateAll || !!this.evidence?.complete,
       firstBatchSize: p.firstBatchSize,
       batchSize: p.batchSize,
       backgroundBatchSize: p.backgroundBatchSize,
@@ -527,6 +595,7 @@ export class SubtitleController {
 
   /** Lesson changed (SPA navigation): drop all per-video state. */
   reset(): void {
+    this.lessonPerfStart = typeof performance !== 'undefined' && !this.env.perf ? Math.max(0, performance.now() - 300) : 0;
     const t = this.target;
     this.navPrevEl = t?.el ?? null;
     this.navWaitCleanup?.();
@@ -920,6 +989,16 @@ export class SubtitleController {
     return {
       /** Skool Native caption bootstrap: state machine, methods tried, CC controls seen, track snapshots. */
       captionBootstrap: this.boot?.diagnostics() ?? null,
+      /** Full-transcript acquisition (no URLs): strategy, candidates by kind/host, completeness evidence. */
+      fullTranscript: {
+        auto: this.settings.autoFullTranscript,
+        status: this.fullState.status,
+        candidates: this.candidateInfo,
+        evidence: this.evidence,
+        englishCues: this.lastCues.length,
+        translated: this.timeline?.counts().done ?? 0,
+        units: this.timeline?.counts().total ?? 0,
+      },
       dubbing: this.dub?.diagnostics() ?? null,
       /** Privacy-safe lesson identity (hash of route + lesson id). */
       lessonId: this.videoKey ? hash53(this.videoKey) : null,
@@ -1217,6 +1296,14 @@ export class SubtitleController {
     this.cachedVi = new Map();
     this.pendingFile = null;
     this.fullState = { status: 'idle' };
+    this.evidence = null;
+    this.candidateInfo = [];
+    this.acquireAttempts = 0;
+    for (const u of this.acquireTried) this.usedByOtherLessons.add(u);
+    this.acquireTried = new Set();
+    clearTimeout(this.reacquireTimer);
+    this.perfObserver?.disconnect();
+    this.perfObserver = null;
     this.dub?.dispose(); // stop speech of this lesson and restore its audio now
     this.dub = null;
     this.dubKey = '';

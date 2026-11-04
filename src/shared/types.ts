@@ -148,8 +148,8 @@ export interface Settings {
   /** Display of translated text lessons (switchable without new API calls). */
   textDisplayMode: TextDisplayMode;
   dubbing: DubbingSettings;
-  /** Opt-in: read the complete English captions from the player's public HLS subtitle playlist (never signed/tokenised playback). */
-  fullTranscriptFromPlayer: boolean;
+  /** Automatically read the lesson's complete English captions when it opens (no playback): the caption playlist/file the player already loaded. */
+  autoFullTranscript: boolean;
   /** Source subtitle language (BCP-47 prefix). Only English is supported by the prompt today. */
   sourceLanguage: 'en';
   /** Target language. Only Vietnamese is supported today. */

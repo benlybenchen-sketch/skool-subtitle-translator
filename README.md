@@ -38,7 +38,7 @@ npm install
 npm run package
 ```
 
-This builds `dist/` (the installable, unpacked extension) and `release/skool-vi-subtitles-v5.0.0.zip`.
+This builds `dist/` (the installable, unpacked extension) and `release/skool-vi-subtitles-v5.1.0.zip`.
 A prebuilt ZIP is committed under `release/`.
 
 Load it: `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select `dist/`

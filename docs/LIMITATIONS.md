@@ -21,12 +21,15 @@ boundaries. In that situation:
 - Use popup → **"Chạy chẩn đoán"** and share the result when reporting issues.
 
 ## Phase 5 (v5.0.0) — not yet verified on real Skool
-- **Full transcript before playback:**
-  - Possible when the page exposes a complete caption file, or a *public* HLS subtitle playlist
-    (opt-in). The latter can be checked only once the player has delivered ≥ 3 cues, because
-    timing must be verified first.
-  - Signed/tokenised players (likely for paid courses) stay progressive, and the panel says so.
-  - Whether Skool exposes a public playlist is unknown.
+- **Full transcript before playback (v5.1.0):**
+  - Works when the player has loaded an HLS playlist with an English subtitle rendition, or a
+    whole caption file. This is verified only in mock pages (incl. real Chromium E2E). **Whether
+    the real Skool Native player loads its manifest before Play, and whether its subtitle
+    rendition is readable outside the player (CORS / 403), has not been confirmed.**
+  - If the player loads the manifest only on Play, acquisition starts the moment it does. Still
+    no full playback or seeking is needed, but Play must be pressed once.
+  - Playlists with discontinuities need ≥ 3 player cues to confirm timing.
+  - Live playlists (no ENDLIST) are never marked complete.
 - **Offline:**
   - Text, translations and notes only.
   - Videos only when the page itself offers a file. Skool-hosted lesson video is normally
