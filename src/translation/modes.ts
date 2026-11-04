@@ -32,3 +32,29 @@ export const MODE_LABELS: Record<TranslationMode, string> = {
 export function modeProfile(mode: TranslationMode | undefined): ModeProfile {
   return MODE_PROFILES[mode ?? 'balanced'] ?? MODE_PROFILES.balanced;
 }
+
+import type { Settings } from '../shared/types';
+import { effectiveProvider } from '../shared/settings';
+import { estimateCostUsd } from './pricing';
+
+export interface ModeSwitchCheck {
+  /** Does the new mode use a different model (user-configured per-mode model)? */
+  modelChanges: boolean;
+  from: string;
+  to: string;
+  /** true = more expensive, false = same or cheaper, null = price unknown (treated as needing approval). */
+  pricier: boolean | null;
+  needsApproval: boolean;
+}
+
+/** Never switch to a more expensive (or unknown-price) model without asking the user. */
+export function checkModeSwitch(s: Settings, mode: TranslationMode): ModeSwitchCheck {
+  const from = effectiveProvider(s).model;
+  const to = effectiveProvider({ ...s, translationMode: mode }).model;
+  if (from === to) return { modelChanges: false, from, to, pricier: false, needsApproval: false };
+  const per = (m: string) => estimateCostUsd(m, 1_000_000, 200_000);
+  const a = per(from);
+  const b = per(to);
+  const pricier = a === null || b === null ? null : b > a;
+  return { modelChanges: true, from, to, pricier, needsApproval: pricier !== false };
+}

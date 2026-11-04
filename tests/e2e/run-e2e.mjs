@@ -465,6 +465,32 @@ await test('Settings: Gemini / OpenAI GPT / Anthropic Claude as separate provide
   await o.close();
 });
 
+await test('Glossary editor: add term, presets do not overwrite it, delete, filter; mode selector present', async () => {
+  const o = await context.newPage();
+  await o.goto(`chrome-extension://${extId}/settings/options.html`);
+  await o.waitForSelector('#gl-rows');
+  await o.fill('#gl-term', 'Hook');
+  await o.fill('#gl-vi', 'câu móc của tôi');
+  await o.click('#gl-add');
+  await o.click('#gl-presets button:has-text("Marketing")');
+  const hooks = await o.$$eval('#gl-rows tr', (rows) => rows.map((r) => [...r.querySelectorAll('input')].map((i) => i.value)).filter(([t]) => t.toLowerCase() === 'hook'));
+  assert(hooks.length === 1 && hooks[0][1] === 'câu móc của tôi', `Hook rows: ${JSON.stringify(hooks)}`);
+  const msg = await o.textContent('#gl-msg');
+  assert(/Đã thêm \d+ thuật ngữ/.test(msg ?? ''), `preset message: ${msg}`);
+  await o.fill('#gl-filter', 'Mass Desire');
+  const visible = await o.$$eval('#gl-rows tr', (r) => r.length);
+  assert(visible === 1, `filter rows: ${visible}`);
+  await o.click('#gl-rows tr button');
+  assert((await o.$$eval('#gl-rows tr', (r) => r.length)) === 0, 'delete failed');
+  const modes = await o.$$eval('#mode option', (els) => els.map((e) => e.value).join(','));
+  assert(modes === 'fast,balanced,quality', modes);
+  await o.close();
+  const pop = await context.newPage();
+  await pop.goto(`chrome-extension://${extId}/popup/popup.html`);
+  assert((await pop.$$eval('#transMode option', (els) => els.length)) === 3, 'popup mode selector');
+  await pop.close();
+});
+
 await test('Seek regression: player disables CC on seek → Vietnamese subtitles recover without toggling CC', async () => {
   const before = await setup.evaluate(() => chrome.runtime.sendMessage({ type: 'metrics:get' }));
   const p = await context.newPage();

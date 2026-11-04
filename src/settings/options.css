@@ -19,3 +19,13 @@ button.primary { background: var(--accent); color: #fff; border-color: var(--acc
 pre { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px; white-space: pre-wrap; }
 .hidden { display: none; }
 code { font-size: 12.5px; }
+
+h3 { font-size: 14px; margin: 18px 0 6px; }
+.mm { display: grid; gap: 6px; }
+.row-wrap { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+.row-wrap input[type=text], .row-wrap input[type=search] { width: auto; flex: 1 1 160px; }
+table.gl { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.gl th, table.gl td { border-bottom: 1px solid var(--line); padding: 4px; text-align: left; }
+table.gl input, table.gl select { width: 100%; padding: 3px 5px; }
+.file-btn { border: 1px solid var(--line); border-radius: 6px; padding: 7px 14px; cursor: pointer; }
+.chip { border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; }

@@ -67,13 +67,43 @@
       <section>
         <h2>4. Chất lượng dịch</h2>
         <div class="grid">
-          <label for="ctx">Số câu ngữ cảnh</label><input id="ctx" type="number" min="0" max="8" step="1" />
+          <label for="mode">Chế độ dịch</label>
+          <div>
+            <select id="mode">
+              <option value="fast">Nhanh (FAST) — lô nhỏ, ngữ cảnh ngắn, dịch trước ~45 giây</option>
+              <option value="balanced">Cân bằng (BALANCED, mặc định) — ~8–12 câu/lô, dịch trước ~90 giây</option>
+              <option value="quality">Chất lượng (QUALITY) — ngữ cảnh dài hơn, dịch trước ~120 giây</option>
+            </select>
+            <div class="hint">Chế độ chỉ đổi cách lên lịch và độ dài ngữ cảnh. Model chỉ đổi khi bạn tự nhập dưới đây.</div>
+          </div>
+          <label>Model theo chế độ<br /><small id="mm-provider" class="hint"></small></label>
+          <div class="mm">
+            <input id="mm-fast" type="text" spellcheck="false" placeholder="FAST: (dùng model của nhà cung cấp)" />
+            <input id="mm-balanced" type="text" spellcheck="false" placeholder="BALANCED: (dùng model của nhà cung cấp)" />
+            <input id="mm-quality" type="text" spellcheck="false" placeholder="QUALITY: (dùng model của nhà cung cấp)" />
+          </div>
           <label for="merge">Gộp mảnh câu ngắn</label><input id="merge" type="checkbox" />
           <label for="pretranslate">Dịch trước liên tục (toàn bộ phụ đề có sẵn)</label>
-          <div><input id="pretranslate" type="checkbox" /> <span class="hint">Sau khi đã dịch 90 giây tới, tiếp tục dịch phần còn lại ở chế độ nền (tốn thêm token, nhưng tua/xem lại không phải chờ).</span></div>
+          <div><input id="pretranslate" type="checkbox" /> <span class="hint">Sau khi đã dịch đủ khoảng dịch trước, tiếp tục dịch phần còn lại ở chế độ nền (tốn thêm token, nhưng tua/xem lại không phải chờ).</span></div>
         </div>
-        <label for="glossary">Thuật ngữ (glossary) — mỗi dòng: <code>English =&gt; Tiếng Việt</code>, hoặc chỉ thuật ngữ để giữ nguyên</label>
-        <textarea id="glossary" rows="12" spellcheck="false"></textarea>
+
+        <h3>Thuật ngữ (glossary)</h3>
+        <p class="hint">Mục "Chung" luôn áp dụng; mục theo chủ đề chỉ áp dụng khi chủ đề được bật. Để trống ô tiếng Việt = giữ nguyên thuật ngữ tiếng Anh. Thêm bộ mẫu không ghi đè thuật ngữ bạn đã có.</p>
+        <div class="row-wrap" id="gl-subjects"></div>
+        <div class="row-wrap" id="gl-presets"></div>
+        <div class="row-wrap">
+          <input id="gl-term" type="text" placeholder="Thuật ngữ tiếng Anh" />
+          <input id="gl-vi" type="text" placeholder="Tiếng Việt (để trống = giữ nguyên)" />
+          <select id="gl-subject"></select>
+          <button id="gl-add" type="button">Thêm</button>
+          <input id="gl-filter" type="search" placeholder="Lọc…" />
+        </div>
+        <table class="gl"><thead><tr><th>Thuật ngữ</th><th>Tiếng Việt</th><th>Chủ đề</th><th></th></tr></thead><tbody id="gl-rows"></tbody></table>
+        <div class="row-wrap">
+          <button id="gl-export" type="button">Xuất JSON</button>
+          <label class="file-btn">Nhập JSON<input id="gl-import" type="file" accept="application/json,.json" hidden /></label>
+          <span id="gl-msg" class="hint"></span>
+        </div>
         <label for="dom-sel">Nâng cao: CSS selector của phụ đề hiển thị trong DOM (mỗi dòng một selector, tùy chọn)</label>
         <textarea id="dom-sel" rows="2" spellcheck="false" placeholder=".my-player .caption-text"></textarea>
       </section>

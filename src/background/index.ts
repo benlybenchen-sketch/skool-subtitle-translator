@@ -7,6 +7,7 @@ import { TranslationService } from '../translation/service';
 import { TabRegistry } from './tabRegistry';
 import { AudioSessionManager } from './audioSession';
 import { checkBackends } from '../translation/health';
+import { loadEffectiveGlossary } from '../shared/glossaryStore';
 
 /*
  * MV3 service worker. All listeners are registered synchronously at the top
@@ -34,6 +35,7 @@ const service = new TranslationService({
   cache,
   getSettings: loadSettings,
   getSecrets: loadSecrets,
+  getGlossaryText: (s) => loadEffectiveGlossary(s.glossary),
   hasEndpointPermission,
 });
 

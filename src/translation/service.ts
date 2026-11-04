@@ -10,7 +10,8 @@ import { estimateCostUsd } from './pricing';
 import { createProvider } from './providers';
 import type { TranslationProvider } from './types';
 import { ConfigError, HttpError } from './errors';
-import { translationIsRemote } from '../shared/settings';
+import { effectiveProvider, translationIsRemote } from '../shared/settings';
+import { modeProfile } from './modes';
 import { percentile } from '../shared/util';
 
 export interface ServiceDeps {
@@ -20,6 +21,8 @@ export interface ServiceDeps {
   /** Checks that the extension may contact the endpoint (host permission). */
   hasEndpointPermission?: (endpoint: string) => Promise<boolean>;
   providerFactory?: (s: Settings, secrets: Secrets) => TranslationProvider;
+  /** Effective glossary text (editable glossary store); defaults to settings.glossary. */
+  getGlossaryText?: (s: Settings) => Promise<string>;
   queueOptions?: Partial<QueueOptions>;
 }
 
@@ -129,7 +132,10 @@ export class TranslationService {
   }
 
   async translateUnits(videoKey: string, units: UnitPayload[], context: string[], priority = 2): Promise<UnitResult[]> {
-    const settings = await this.deps.getSettings();
+    const raw = await this.deps.getSettings();
+    // Effective configuration: glossary store + per-mode model override (user-configured only).
+    const glossary = this.deps.getGlossaryText ? await this.deps.getGlossaryText(raw).catch(() => raw.glossary) : raw.glossary;
+    const settings: Settings = { ...raw, glossary, provider: effectiveProvider(raw) };
     this.currentModel = settings.provider.kind === 'mock' ? 'mock' : settings.provider.model;
     try {
       await this.checkConfig(settings);
@@ -169,7 +175,7 @@ export class TranslationService {
         misses.map((m) => ({ key: m.key, text: m.text })),
         {
           provider,
-          context: context.slice(-Math.max(0, settings.contextWindow)),
+          context: context.slice(-Math.max(0, modeProfile(settings.translationMode).contextSize)),
           glossary: parseGlossary(settings.glossary),
           group: videoKey,
           priority,

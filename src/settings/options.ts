@@ -14,6 +14,121 @@ import {
 } from '../shared/settings';
 import type { Settings, SttKind, TranslationProviderKind, TranslationProviderSettings } from '../shared/types';
 import { originPattern } from '../shared/util';
+import {
+  PRESETS,
+  SUBJECTS,
+  SUBJECT_LABELS,
+  addPreset,
+  exportGlossary,
+  importGlossary,
+  loadGlossaryStore,
+  saveGlossaryStore,
+  type GlossaryStore,
+  type GlossarySubject,
+} from '../shared/glossaryStore';
+
+let glossary: GlossaryStore;
+const MODES = ['fast', 'balanced', 'quality'] as const;
+
+function glMsg(t: string): void {
+  $('gl-msg').textContent = t;
+}
+
+/** Glossary editor: subjects, presets, add / edit / delete rows (changes saved with "Lưu"). */
+function renderGlossary(): void {
+  const subj = $('gl-subjects');
+  subj.replaceChildren(
+    ...SUBJECTS.filter((s) => s !== 'global').map((s) => {
+      const l = document.createElement('label');
+      l.className = 'chip';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = glossary.activeSubjects.includes(s);
+      cb.addEventListener('change', () => {
+        glossary.activeSubjects = cb.checked ? [...glossary.activeSubjects, s] : glossary.activeSubjects.filter((x) => x !== s);
+      });
+      l.append(cb, ' ' + SUBJECT_LABELS[s]);
+      return l;
+    }),
+  );
+  $('gl-presets').replaceChildren(
+    ...(Object.keys(PRESETS) as (keyof typeof PRESETS)[]).map((p) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = `+ Bộ mẫu ${SUBJECT_LABELS[p]}`;
+      b.addEventListener('click', () => {
+        const r = addPreset(glossary, p);
+        glossary = r.store;
+        glMsg(`Đã thêm ${r.added} thuật ngữ (bỏ qua thuật ngữ đã có).`);
+        renderGlossary();
+      });
+      return b;
+    }),
+  );
+  const subjSel = $<HTMLSelectElement>('gl-subject');
+  if (!subjSel.options.length) for (const s of SUBJECTS) subjSel.add(new Option(SUBJECT_LABELS[s], s));
+  const filter = $('gl-filter').value.trim().toLowerCase();
+  const rows = glossary.entries
+    .map((entry, i) => ({ entry, i }))
+    .filter(({ entry }) => !filter || entry.term.toLowerCase().includes(filter) || (entry.translation ?? '').toLowerCase().includes(filter));
+  $('gl-rows').replaceChildren(
+    ...rows.map(({ entry, i }) => {
+      const tr = document.createElement('tr');
+      const term = Object.assign(document.createElement('input'), { value: entry.term });
+      term.addEventListener('change', () => (glossary.entries[i].term = term.value.trim() || entry.term));
+      const vi = Object.assign(document.createElement('input'), { value: entry.translation ?? '', placeholder: '(giữ nguyên)' });
+      vi.addEventListener('change', () => (glossary.entries[i].translation = vi.value.trim() || undefined));
+      const sel = document.createElement('select');
+      for (const s of SUBJECTS) sel.add(new Option(SUBJECT_LABELS[s], s, false, s === entry.subject));
+      sel.addEventListener('change', () => (glossary.entries[i].subject = sel.value as GlossarySubject));
+      const del = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Xóa' });
+      del.addEventListener('click', () => {
+        glossary.entries.splice(i, 1);
+        renderGlossary();
+      });
+      for (const el of [term, vi, sel, del]) {
+        const td = document.createElement('td');
+        td.append(el);
+        tr.append(td);
+      }
+      return tr;
+    }),
+  );
+}
+
+function initGlossaryEditor(): void {
+  $('gl-add').addEventListener('click', () => {
+    const term = $('gl-term').value.trim();
+    if (!term) return;
+    if (glossary.entries.some((x) => x.term.toLowerCase() === term.toLowerCase())) {
+      glMsg(`"${term}" đã có — sửa trực tiếp trong bảng.`);
+      return;
+    }
+    glossary.entries.unshift({ term, translation: $('gl-vi').value.trim() || undefined, subject: $<HTMLSelectElement>('gl-subject').value as GlossarySubject });
+    $('gl-term').value = '';
+    $('gl-vi').value = '';
+    glMsg('');
+    renderGlossary();
+  });
+  $('gl-filter').addEventListener('input', renderGlossary);
+  $('gl-export').addEventListener('click', () => {
+    const url = URL.createObjectURL(new Blob([exportGlossary(glossary)], { type: 'application/json' }));
+    Object.assign(document.createElement('a'), { href: url, download: 'skool-vi-glossary.json' }).click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  $<HTMLInputElement>('gl-import').addEventListener('change', async (e) => {
+    const f = (e.target as HTMLInputElement).files?.[0];
+    if (!f) return;
+    try {
+      const r = importGlossary(glossary, await f.text());
+      glossary = r.store;
+      glMsg(`Đã nhập ${r.added} thuật ngữ, bỏ qua ${r.skipped} thuật ngữ trùng.`);
+      renderGlossary();
+    } catch (err) {
+      glMsg((err as Error).message);
+    }
+  });
+}
 
 const $ = <T extends HTMLElement = HTMLInputElement>(id: string) => document.getElementById(id) as unknown as T;
 
@@ -44,7 +159,25 @@ function formProfile(): TranslationProviderSettings {
   };
 }
 
+/** Per-mode model inputs apply to the provider currently shown. */
+let modeModelsDraft: Settings['modeModels'] = {};
+function stashModeModels(kind: TranslationProviderKind): void {
+  for (const m of MODES) {
+    const v = $(`mm-${m}`).value.trim();
+    modeModelsDraft = { ...modeModelsDraft, [m]: { ...(modeModelsDraft[m] ?? {}), [kind]: v || undefined } };
+  }
+}
+function showModeModels(kind: TranslationProviderKind): void {
+  for (const m of MODES) $(`mm-${m}`).value = modeModelsDraft[m]?.[kind] ?? '';
+  $('mm-provider').textContent = `(áp dụng cho ${PROVIDER_PRESETS[kind].label})`;
+}
+function readModeModels(): Settings['modeModels'] {
+  stashModeModels(shownKind);
+  return modeModelsDraft;
+}
+
 function showProvider(kind: TranslationProviderKind): void {
+  if (shownKind) stashModeModels(shownKind);
   shownKind = kind;
   const p = profiles[kind] ?? profileFor(current, kind);
   $<HTMLSelectElement>('p-kind').value = kind;
@@ -54,6 +187,7 @@ function showProvider(kind: TranslationProviderKind): void {
   $('p-temp').toggleAttribute('disabled', kind === 'anthropic');
   $('p-key').value = keys[kind] ?? '';
   $('p-hint').textContent = HINTS[kind];
+  showModeModels(kind);
   markKeys();
 }
 
@@ -74,13 +208,12 @@ function fill(s: Settings, sttKey?: string): void {
   $('s-model').value = s.stt.model;
   $('c-text').checked = s.consent.remoteTranslation;
   $('c-audio').checked = s.consent.remoteAudio;
-  $('ctx').value = String(s.contextWindow);
+  $<HTMLSelectElement>('mode').value = s.translationMode;
   $('merge').checked = s.mergeFragments;
   $('pretranslate').checked = s.pretranslateAll;
   $('auto-start').checked = s.autoStart;
   $('auto-nav').checked = s.autoInitOnNavigation;
   $('auto-cc').checked = s.autoEnableCaptions;
-  $<HTMLTextAreaElement>('glossary').value = s.glossary;
   $<HTMLTextAreaElement>('dom-sel').value = s.customCaptionSelectors;
   $('panel').checked = s.showPanel;
 }
@@ -96,7 +229,8 @@ function read(): Settings {
       model: $('s-model').value.trim(),
     },
     consent: { remoteTranslation: $('c-text').checked, remoteAudio: $('c-audio').checked },
-    contextWindow: Math.max(0, Math.min(8, Number($('ctx').value) || 0)),
+    translationMode: $<HTMLSelectElement>('mode').value as Settings['translationMode'],
+    modeModels: readModeModels(),
     mergeFragments: $('merge').checked,
     pretranslateAll: $('pretranslate').checked,
     autoStart: $('auto-start').checked,
@@ -105,7 +239,6 @@ function read(): Settings {
     autoEnableCaptionsAsked: current.autoEnableCaptionsAsked || $('auto-cc').checked !== current.autoEnableCaptions || $('auto-cc').checked,
     sourceLanguage: 'en',
     targetLanguage: 'vi',
-    glossary: $<HTMLTextAreaElement>('glossary').value,
     customCaptionSelectors: $<HTMLTextAreaElement>('dom-sel').value,
     showPanel: $('panel').checked,
   };
@@ -130,6 +263,7 @@ async function save(): Promise<void> {
     }
   }
   current = await saveSettings(next);
+  await saveGlossaryStore(glossary);
   keys[shownKind] = $('p-key').value.trim() || undefined;
   const translationApiKeys = Object.fromEntries(Object.entries(keys).filter(([, v]) => !!v));
   await saveSecrets({ translationApiKeys, sttApiKey: $('s-key').value.trim() || undefined }, $('k-session').checked);
@@ -156,6 +290,10 @@ async function test(): Promise<void> {
 
 async function init(): Promise<void> {
   current = await loadSettings();
+  modeModelsDraft = structuredClone(current.modeModels ?? {});
+  glossary = await loadGlossaryStore(current.glossary);
+  initGlossaryEditor();
+  renderGlossary();
   const secrets = await loadSecrets();
   const session = await chrome.storage.session.get('secrets');
   $('k-session').checked = !!session.secrets;

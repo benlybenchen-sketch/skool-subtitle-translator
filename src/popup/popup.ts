@@ -3,6 +3,7 @@ import { sendToBackground } from '../shared/messages';
 import { PROVIDER_PRESETS, loadSettings, saveSettings, onSettingsChanged, switchProvider, translationIsRemote } from '../shared/settings';
 import type { FrameStatus, Settings, TabStatus, TranslationProviderKind } from '../shared/types';
 import { originPattern } from '../shared/util';
+import { checkModeSwitch, type TranslationMode } from '../translation/modes';
 import { parseSubtitleFile } from '../subtitles/parse';
 import { adapterById } from '../players/adapters';
 
@@ -42,8 +43,23 @@ function bindSettings(): void {
     shadow.checked = s.shadow;
     const p = s.provider;
     $<HTMLSelectElement>('quickProvider').value = p.kind;
+    $<HTMLSelectElement>('transMode').value = s.translationMode;
     $('st-translator').textContent = `${PROVIDER_PRESETS[p.kind].label}${p.kind !== 'mock' ? ' · ' + p.model : ''}${translationIsRemote(s) ? ' ☁' : ''}`;
   };
+  // Mode switch: a different (user-configured) model that may cost more needs explicit approval.
+  $<HTMLSelectElement>('transMode').addEventListener('change', (e) => {
+    const sel = e.target as HTMLSelectElement;
+    const mode = sel.value as TranslationMode;
+    const c = checkModeSwitch(settings, mode);
+    if (c.needsApproval) {
+      const why = c.pricier === null ? 'chưa rõ giá' : 'đắt hơn';
+      if (!window.confirm(`Chế độ này dùng model "${c.to}" thay cho "${c.from}" (${why}). Tiếp tục?`)) {
+        sel.value = settings.translationMode;
+        return;
+      }
+    }
+    void saveSettings({ translationMode: mode });
+  });
   // One-click provider switch: activates the stored profile + key of the chosen provider.
   $<HTMLSelectElement>('quickProvider').addEventListener('change', async (e) => {
     const kind = (e.target as HTMLSelectElement).value as TranslationProviderKind;

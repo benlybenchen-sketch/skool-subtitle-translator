@@ -174,6 +174,15 @@ export function profileFor(s: Settings, kind: TranslationProviderKind): Translat
   return s.providerProfiles[kind] ?? { kind, endpoint: p.endpoint, model: p.model, temperature: 0.2 };
 }
 
+/**
+ * Provider settings actually used: the provider's own model, unless the USER configured a model
+ * for the current translation mode (modes never pick models on their own).
+ */
+export function effectiveProvider(s: Settings): TranslationProviderSettings {
+  const m = s.modeModels?.[s.translationMode]?.[s.provider.kind]?.trim();
+  return m ? { ...s.provider, model: m } : s.provider;
+}
+
 /** One-click switch: remember the current provider's profile, activate the target's. */
 export function switchProvider(s: Settings, kind: TranslationProviderKind): Settings {
   const providerProfiles = { ...s.providerProfiles, [s.provider.kind]: s.provider };
