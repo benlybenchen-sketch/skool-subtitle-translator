@@ -4,8 +4,8 @@ Run on 2026-11-03, Node 22, Chromium (Playwright 1.63 build), Linux.
 
 ```
 npm run typecheck   → 0 errors
-npm test            → 15 files, 191 tests passed
-npm run test:e2e    → 22/22 passed (built extension loaded in Chromium, mock pages)
+npm test            → 15 files, 192 tests passed
+npm run test:e2e    → 23/23 passed (built extension loaded in Chromium, mock pages)
 ```
 
 **Important:** every automated test uses mocks or mock pages. They prove the extension's own logic and
@@ -49,6 +49,8 @@ with a logged-in Skool account.
 | 24 | **V3 acceptance: open → Play → Vietnamese to the end → next lesson, no CC click, no F5** | `multi-lesson.test` — Lesson A: 20 min, English track starts disabled, user never clicks CC, one-time consent in the VI panel, cues in 90 s chunks, track replaced mid-lesson, slow + flaky API → continuous to the end, health `completed` only with full duration coverage; Lesson B: SPA switch, new player + track appear asynchronously → automatic, no question; Lesson C: back to A → 0 provider calls; 60-min lesson at 2× with fullscreen + seek; "Không" respected. `lifecycle.test` navigation-race regression | ✓ consent card visible without opening the panel; "Đồng ý" → translation, persisted; next lesson in a new tab translated automatically with CC off and no question |
 
 | 25 | **CC off, only 32 cues loaded** (real-Skool diagnostic: "32/32 — CC của trình phát đang tắt") | `cc-off.test` — 20-min Skool Native mock, CC disabled, user never presses CC, 32 cues initially, batches load only while the track is not disabled, player resets the track per batch → all ~430 cues loaded and translated to the end, health `completed`, no duplicate calls, seek + fullscreen from cache, next lesson without F5; CC turned off mid-lesson without opt-in → one-time question offered; player re-disabling every activation → bounded (≤ 4), exact reason + Audio Mode, nothing invented | ✓ CC off, no opt-in, `<track src>`: whole 12-min caption file read, every sampled cue translated, track mode stays `disabled`, URL absent from diagnostics; consent card tested on a JS-created track |
+
+| 26 | **Extension reloaded while a Skool tab is open** (real report: `Uncaught TypeError: Cannot read properties of undefined (reading 'onChanged')` in content.js) | `runtime.test` — unsubscribing with `chrome.storage` gone (fails on the pre-fix code with exactly that TypeError) | ✓ orphaned script removes its panel/overlay without errors (note: this headless harness cannot bring an extension back after `chrome.runtime.reload()`, so it does not reproduce the missing `chrome.storage`; the unit test does) |
 
 Additional: VAD chunker (pauses, forced cuts, noise/clicks, flush), WAV encoding/resampling, live
 segment assembly (fragment merge, overlap removal, hallucination filter), STT ordering under

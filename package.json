@@ -1,6 +1,6 @@
 {
   "name": "skool-vi-subtitle-translator",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "private": true,
   "description": "Chrome extension (MV3) that translates English lesson videos on Skool into Vietnamese subtitles.",
   "type": "module",

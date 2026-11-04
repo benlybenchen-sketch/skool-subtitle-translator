@@ -85,3 +85,14 @@ describe('settings & secrets', () => {
     expect(translationIsRemote(mergeSettings({ provider: { kind: 'openai', endpoint: 'http://127.0.0.1:11434/v1', model: 'x', temperature: 0 } }))).toBe(false);
   });
 });
+
+describe('extension reloaded while a Skool tab is open (orphaned content script)', () => {
+  it('unsubscribing from settings does not throw when chrome.storage is gone', async () => {
+    const { onSettingsChanged } = await import('../../src/shared/settings');
+    const off = onSettingsChanged(() => undefined);
+    const saved = (globalThis as any).chrome.storage;
+    (globalThis as any).chrome.storage = undefined; // what Chrome does to an orphaned script
+    expect(() => off()).not.toThrow();
+    (globalThis as any).chrome.storage = saved;
+  });
+});

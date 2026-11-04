@@ -108,7 +108,14 @@ export function onSettingsChanged(cb: (s: Settings) => void): () => void {
     if (area === 'sync' && changes[SETTINGS_KEY]) cb(mergeSettings(changes[SETTINGS_KEY].newValue));
   };
   chrome.storage.onChanged.addListener(listener);
-  return () => chrome.storage.onChanged.removeListener(listener);
+  return () => {
+    // After the extension is reloaded/updated, an orphaned content script has no chrome.storage.
+    try {
+      chrome.storage?.onChanged?.removeListener(listener);
+    } catch {
+      /* extension context gone */
+    }
+  };
 }
 
 /**

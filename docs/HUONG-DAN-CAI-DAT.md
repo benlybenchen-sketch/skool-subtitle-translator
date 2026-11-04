@@ -6,7 +6,7 @@ Tiện ích Chrome này dịch video bài học tiếng Anh trên **Skool** sang
 
 **Cách A — dùng tệp ZIP có sẵn**
 
-1. Tải tệp `release/skool-vi-subtitles-v3.1.0.zip` từ repository GitHub.
+1. Tải tệp `release/skool-vi-subtitles-v3.1.1.zip` từ repository GitHub.
 2. Giải nén vào một thư mục cố định (ví dụ `Documents/skool-vi-subtitles`). Đừng xóa thư mục này sau khi cài.
 3. Mở Chrome, gõ `chrome://extensions` vào thanh địa chỉ.
 4. Bật **Developer mode / Chế độ dành cho nhà phát triển** (góc trên bên phải).
@@ -108,6 +108,10 @@ Audio Mode thu **chỉ âm thanh của tab hiện tại**, sau khi bạn tự b�
 
 Lưu ý: Audio Mode phải được bắt đầu từ **popup của tiện ích** (yêu cầu bảo mật của Chrome về thao tác người dùng).
 Tiện ích không bao giờ tự thu âm thanh và không tải lên toàn bộ video.
+
+### Sau khi cập nhật/tải lại tiện ích
+Sau khi bấm ⟳ trong `chrome://extensions`, hãy **nhấn F5 trên các tab Skool đang mở**. Chrome không nạp
+tiện ích mới vào tab cũ; bản cũ trên tab đó sẽ tự gỡ bảng VI và phụ đề (từ v3.1.1 không còn báo lỗi).
 
 ### Kiểm chứng trên Skool thật (v3.0.0)
 

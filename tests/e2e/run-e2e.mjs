@@ -552,6 +552,29 @@ await test('CC OFF, no opt-in, <track src> caption file: whole 12-min transcript
   await p.close();
 });
 
+await test('Extension reloaded with a Skool tab open: orphaned content script removes its UI without errors', async () => {
+  const p = await context.newPage();
+  const errors = [];
+  p.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  p.on('pageerror', (e) => errors.push(e.message));
+  await p.goto('https://www.skool.com/test-group/classroom/course12?md=reload');
+  await p.waitForSelector('[data-sst-panel]', { state: 'attached' });
+  // reload the extension (what ⟳ in chrome://extensions does)
+  // (must stay the last extension test: the reload closes extension pages used by earlier tests)
+  await setup.evaluate(() => chrome.runtime.reload()).catch(() => undefined);
+  await new Promise((r) => setTimeout(r, 2000));
+  // orphaned script notices on the next visibility change / failed message
+  await p.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await p.waitForTimeout(300);
+  const left = await p.evaluate(() => document.querySelectorAll('[data-sst-panel], [data-sst-overlay]').length);
+  assert(left === 0, `orphaned UI left on the page: ${left}`);
+  assert(!errors.some((e) => /onChanged|Extension context invalidated|Cannot read properties of undefined/.test(e)), errors.join(' | '));
+  // (After chrome.runtime.reload() an extension loaded via --load-extension does not come back in
+  // this headless harness — ERR_BLOCKED_BY_CLIENT — so "F5 after ⟳" is verified manually; a
+  // normal page load is what every other test exercises.)
+  await p.close();
+});
+
 await test('Local backend server (mock mode): /health, /translate, /transcribe, website origins refused', async () => {
   const { spawn } = await import('node:child_process');
   const srv = spawn(process.execPath, [join(root, 'dist-server/local-server.mjs')], {

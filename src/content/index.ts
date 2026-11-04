@@ -36,14 +36,19 @@ async function main(): Promise<void> {
 
   const bridge: ControllerBridge = {
     async translate(videoKey, units, context, priority) {
-      const res = await sendToBackground<TranslateResponse>({ type: 'translate:units', videoKey, units, context, priority }, { retries: 3 });
-      return res.results;
+      try {
+        const res = await sendToBackground<TranslateResponse>({ type: 'translate:units', videoKey, units, context, priority }, { retries: 3 });
+        return res.results;
+      } catch (e) {
+        orphanCheck();
+        throw e;
+      }
     },
     cancel(videoKey) {
-      sendToBackground({ type: 'translate:cancel', videoKey }, { retries: 0 }).catch(() => undefined);
+      sendToBackground({ type: 'translate:cancel', videoKey }, { retries: 0 }).catch(orphaned);
     },
     reportStatus(status) {
-      sendToBackground({ type: 'frame:status', status }, { retries: 2 }).catch(() => undefined);
+      sendToBackground({ type: 'frame:status', status }, { retries: 2 }).catch(orphaned);
     },
   };
 
@@ -59,7 +64,7 @@ async function main(): Promise<void> {
     panel = new ControlPanel(
       document,
       settings,
-      (patch) => void saveSettings(patch),
+      (patch) => void saveSettings(patch).catch(orphaned),
       () => void sendToBackground({ type: 'audio:stop' }).catch(() => undefined),
       () => void sendToBackground({ type: 'session:start' }).catch(() => undefined),
     );
@@ -109,16 +114,25 @@ async function main(): Promise<void> {
   };
   chrome.runtime.onMessage.addListener(onMessage);
 
-  const teardown = () => {
-    lifecycle.stop();
-    controller.destroy();
-    panel?.destroy();
-    offSettings();
-    try {
-      chrome.runtime.onMessage.removeListener(onMessage);
-    } catch {
-      /* context gone */
-    }
+  // Runs once; every step is guarded because after an extension reload the chrome.* APIs of
+  // this (orphaned) script are gone — the UI must still be removed from the page.
+  let tornDown = false;
+  teardownRef = () => {
+    if (tornDown) return;
+    tornDown = true;
+    const safe = (f: () => void) => {
+      try {
+        f();
+      } catch {
+        /* extension context gone */
+      }
+    };
+    safe(() => lifecycle.stop());
+    safe(() => controller.destroy());
+    safe(() => panel?.destroy());
+    safe(() => offSettings());
+    safe(() => chrome.runtime.onMessage.removeListener(onMessage));
+    document.removeEventListener('visibilitychange', orphanCheck);
     w[GUARD] = false;
   };
 
@@ -128,13 +142,16 @@ async function main(): Promise<void> {
   });
 
   // Extension reloaded/updated → this script is orphaned; clean up our DOM.
-  const orphanCheck = () => {
-    if (isContextInvalidated()) {
-      teardown();
-      document.removeEventListener('visibilitychange', orphanCheck);
-    }
-  };
   document.addEventListener('visibilitychange', orphanCheck);
+}
+
+let teardownRef: (() => void) | null = null;
+/** Called on visibility changes and whenever a message to the extension fails. */
+function orphanCheck(): void {
+  if (isContextInvalidated()) teardownRef?.();
+}
+function orphaned(): void {
+  orphanCheck();
 }
 
 main().catch((e) => {
