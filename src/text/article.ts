@@ -52,13 +52,16 @@ const hasLetters = (s: string) => /\p{L}/u.test(s);
  * Find the article container of a text lesson (semantic scoring, no site-specific selectors).
  * Returns null when there is not enough readable text.
  */
-export function findArticle(doc: Document, opts: { minChars?: number } = {}): Element | null {
+export function findArticle(doc: Document, opts: { minChars?: number; avoid?: Element[] } = {}): Element | null {
   const root = doc.querySelector('main, [role="main"]') ?? doc.body;
   if (!root) return null;
   const memo = new WeakMap<Element, boolean>();
+  const avoid = (opts.avoid ?? []).filter(Boolean);
+  const holdsPlayer = (el: Element) => avoid.some((a) => el === a || el.contains(a));
   const blocks = [...root.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, td, pre, div')].filter((e) => {
     if (e.tagName === 'DIV' && [...e.children].some(isBlockish)) return false; // only leaf divs
     if (e.tagName === 'DIV' && ![...e.childNodes].some((n) => n.nodeType === 3 && (n.textContent ?? '').trim())) return false;
+    if (avoid.some((a) => a.contains(e))) return false; // text inside the video player is not lesson text
     return !excludedChain(e, root.parentElement, memo);
   });
   const len = new Map<Element, number>();
@@ -84,12 +87,19 @@ export function findArticle(doc: Document, opts: { minChars?: number } = {}): El
     for (const [b, L] of len) if (el.contains(b)) t += L;
     return t;
   };
+  // Lessons with a video: the article must never contain the player (the translated view is a
+  // clone — the player must stay untouched). Descend to the text-richest child without it.
+  while (best && holdsPlayer(best)) {
+    const kids: Element[] = [...best.children].filter((k) => !holdsPlayer(k) && textIn(k) > 0);
+    best = kids.sort((a, b) => textIn(b) - textIn(a))[0] ?? null;
+  }
+  if (!best) return null;
   let t = textIn(best);
   // Grow to the wrapper that also holds the lesson heading, as long as it adds little else.
   for (let p = best.parentElement; p && p !== root.parentElement && p !== doc.body; p = p.parentElement) {
     // Never take in interactive UI (buttons, comment forms…): the translated view is a clone,
     // and cloned controls would not work while the originals are hidden.
-    if (excludedChain(p, root.parentElement, memo) || p.querySelector(INTERACTIVE) || [...p.querySelectorAll('[class],[id]')].some((e) => !best!.contains(e) && isExcluded(e))) break;
+    if (holdsPlayer(p) || excludedChain(p, root.parentElement, memo) || p.querySelector(INTERACTIVE) || [...p.querySelectorAll('[class],[id]')].some((e) => !best!.contains(e) && isExcluded(e))) break;
     const pt = textIn(p);
     if (pt > t * 1.35) break;
     best = p;

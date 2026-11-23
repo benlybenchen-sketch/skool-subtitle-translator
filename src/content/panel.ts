@@ -118,6 +118,21 @@ export class ControlPanel {
     this.render();
   }
 
+  /** Written material of a video lesson (below the video): compact controls. */
+  private renderTextBelowVideo(t: TextLessonInfo, esc: (s: string) => string): string {
+    const m = t.mode;
+    const line = !t.started ? 'Tài liệu chữ dưới video: chưa dịch' : `Tài liệu chữ dưới video: đã dịch ${t.done}/${t.total} đoạn${t.translating ? '…' : ''}${t.failed ? ` · ${t.failed} lỗi` : ''}`;
+    return `<div class="muted">${esc(line)}</div>
+      ${t.error ? `<div class="err">${esc(t.error)}</div>` : ''}
+      <div class="row">${
+        !t.started
+          ? `<button class="b on" data-a="text-translate">Dịch phần chữ</button>${t.auto ? '' : `<button class="b" data-a="text-auto" title="Tự dịch phần chữ ở mọi bài">Luôn tự dịch</button>`}`
+          : `<span>Chữ</span><span><button class="b ${m === 'original' ? 'on' : ''}" data-a="text-original">EN</button>
+             <button class="b ${m === 'vi' ? 'on' : ''}" data-a="text-vi">VI</button>
+             <button class="b ${m === 'bilingual' ? 'on' : ''}" data-a="text-bilingual">EN+VI</button></span>`
+      }</div>`;
+  }
+
   private renderText(t: TextLessonInfo, esc: (s: string) => string): string {
     const m = t.mode;
     const line = !t.started
@@ -178,9 +193,9 @@ export class ControlPanel {
           <div class="row"><span class="title">Phụ đề tiếng Việt</span><button class="x" data-a="close" aria-label="Thu gọn">×</button></div>
           ${this.needsCaptionConsent() ? `<div class="consent"><b>Tự bật phụ đề tiếng Anh?</b><div class="muted">Video có phụ đề tiếng Anh nhưng CC đang tắt. Cho phép tiện ích tự bật phụ đề tiếng Anh ở mọi bài học để dịch tự động: chuyển track sang chế độ ẩn, và nếu trình phát Skool chỉ tạo phụ đề qua menu của nó thì tự chọn CC → English một lần mỗi bài (chữ Anh gốc được ẩn). Chỉ hỏi một lần.</div>
             <div class="row"><button class="b on" data-a="consent-yes">Đồng ý</button><button class="b" data-a="consent-no">Không</button></div></div>` : ''}
-          ${this.text ? this.renderText(this.text, esc) : `<div class="muted">${esc(line)}</div>
+          ${this.text && !this.text.withVideo ? this.renderText(this.text, esc) : `<div class="muted">${esc(line)}</div>
           ${error ? `<div class="err">${esc(error)}</div>` : ''}`}
-          ${this.text ? '' : `<div class="row"><span>Dịch</span><button class="b ${s.enabled ? 'on' : ''}" data-a="toggle">${s.enabled ? 'BẬT' : 'TẮT'}</button></div>
+          ${this.text && !this.text.withVideo ? '' : `<div class="row"><span>Dịch</span><button class="b ${s.enabled ? 'on' : ''}" data-a="toggle">${s.enabled ? 'BẬT' : 'TẮT'}</button></div>
           <div class="row"><span>Hiển thị</span><span>
             <button class="b ${s.displayMode === 'vi' ? 'on' : ''}" data-a="vi">VI</button>
             <button class="b ${s.displayMode === 'bilingual' ? 'on' : ''}" data-a="bi">EN+VI</button></span></div>
@@ -193,6 +208,7 @@ export class ControlPanel {
           <div class="row"><button class="b" data-a="transcript" title="Bản ghi phụ đề Anh/Việt, tìm kiếm, tua theo mốc thời gian">📄 Bản ghi</button>
             <button class="b" data-a="notes" title="Ghi chú học tập do AI tạo (chỉ khi bạn bấm Tạo)">🧠 Ghi chú AI</button>
             <button class="b" data-a="export" title="Tải SRT/VTT/TXT/MD về máy">⬇ Xuất</button></div>
+          ${this.text?.withVideo ? this.renderTextBelowVideo(this.text, esc) : ''}
           ${rec ? `<div class="row"><span>Audio Mode</span><button class="b" data-a="stop">Dừng ghi</button></div>` : ''}
           ${this.status?.frames.some((f) => f.mode === 'paused') ? `<div class="row"><span>Bài học này</span><button class="b on" data-a="start">Bắt đầu dịch</button></div>` : ''}
           ${this.status?.frames.some((f) => f.captionsOff) && !s.autoEnableCaptions ? `<div class="row"><span class="muted">CC đang tắt</span><button class="b" data-a="autocc" title="Chuyển track tiếng Anh sang chế độ ẩn để đọc phụ đề (không hiện phụ đề Anh gốc)">Tự bật phụ đề tiếng Anh</button></div>` : ''}`}

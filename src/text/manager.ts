@@ -7,12 +7,16 @@ import { TextLessonTranslator, type TextState, type TextTranslate } from './tran
 export interface TextLessonInfo extends TextState {
   lessonId: string;
   auto: boolean;
+  /** The lesson also has a video: this is the written material below/around it. */
+  withVideo: boolean;
 }
 
 export interface TextManagerDeps {
   settings: () => Settings;
   /** true while the page has (or is loading) a lesson video/player. */
   hasVideo: () => boolean;
+  /** Player elements (light-DOM hosts / iframes) the article must never contain. */
+  players?: () => Element[];
   /** Translate with a lesson-specific cache key (the background adds the markup prompt rules). */
   translate: (videoKey: string, ...a: Parameters<TextTranslate>) => ReturnType<TextTranslate>;
   saveMode: (mode: TextDisplayMode) => void;
@@ -59,7 +63,7 @@ export class TextLessonManager {
 
   info(): TextLessonInfo | null {
     if (!this.translator.attached || !this.key) return null;
-    return { ...this.translator.state(), lessonId: this.lessonId!, auto: this.d.settings().autoTranslateTextLessons };
+    return { ...this.translator.state(), lessonId: this.lessonId!, auto: this.d.settings().autoTranslateTextLessons, withVideo: this.d.hasVideo() };
   }
 
   private notify(): void {
@@ -72,14 +76,14 @@ export class TextLessonManager {
     this.timers = [];
     const url = new URL(this.win.location.href);
     const key = lessonKey(url);
-    if (!isClassroomUrl(url) || !this.d.settings().enabled || this.d.hasVideo()) {
+    if (!isClassroomUrl(url) || !this.d.settings().enabled) {
       this.stop();
       return;
     }
     if (key !== this.key && this.translator.attached) this.stop();
     const attempt = (last: boolean) => {
-      if (this.d.hasVideo()) return this.stop();
-      const art = findArticle(this.win.document);
+      // Text-only lessons AND the written material of video lessons (never the player itself).
+      const art = findArticle(this.win.document, { avoid: this.d.players?.() ?? [] });
       if (!art) {
         if (last) this.stop();
         return;
@@ -95,7 +99,7 @@ export class TextLessonManager {
     this.timers.push(setTimeout(() => attempt(true), (this.d.graceMs ?? 2500) + (this.d.retryMs ?? 3000)));
   }
 
-  /** A video appeared (or the lesson changed): restore the page. */
+  /** The lesson changed (or translation turned off): restore the page. */
   stop(): void {
     if (!this.translator.attached && !this.key) return;
     this.translator.detach();

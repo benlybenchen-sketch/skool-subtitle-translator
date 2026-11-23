@@ -304,14 +304,50 @@ describe('TextLessonManager (detection lifecycle)', () => {
     expect(document.querySelector(`[${TEXT_CLONE_ATTR}]`)).toBeNull();
   });
 
-  it('a lesson with a (loading) video is never treated as text-only', async () => {
-    let video = false;
-    const { m, t } = mk({ video: () => video, settings: { autoTranslateTextLessons: true } });
+  it('video lesson: the written material below the video is translated; the player is never inside the translated view', async () => {
+    // Skool-like video lesson page: player (open shadow root) above a rich-text description
+    document.body.innerHTML = `<main><h1>2.2 - Hero Section Optimization</h1>
+      <div id="player-host" class="styled__VideoWrapper"></div>
+      <div id="desc" class="styled__RichText">
+        <blockquote><p><b>Income Disclaimer</b>: Our course material is provided for educational purposes only and does not guarantee any financial success.</p></blockquote>
+        <h2>Hero Section Optimization</h2>
+        <p>The hero section is everything below the images on mobile. Aesthetics don't matter, the elements do.</p>
+        <p>We'll cover this through the lens of mobile, since 79-80% of your traffic comes from mobile anyway.</p>
+        <h2>Why the hero section matters most</h2>
+        <p>Upwards of <b>70% of your traffic doesn't scroll.</b></p>
+      </div></main>`;
+    const host = document.getElementById('player-host')!;
+    const root = host.attachShadow({ mode: 'open' });
+    const video = document.createElement('video');
+    root.append(video);
+    const t = fakeTranslate();
+    let info: any = null;
+    const m = new TextLessonManager(window, {
+      settings: () => mergeSettings({ ...DEFAULT_SETTINGS, autoTranslateTextLessons: true }),
+      hasVideo: () => true,
+      players: () => [host],
+      translate: (_k, units, ctx, prio) => t.fn(units, ctx, prio),
+      saveMode: () => undefined,
+      onChange: (i) => (info = i),
+      graceMs: 5,
+      retryMs: 5,
+    });
     m.check();
-    video = true; // player mounts during the grace period
-    await tick(30);
-    expect(m.info()).toBeNull();
-    expect(t.calls).toHaveLength(0);
+    await tick(40);
+    expect(info).toMatchObject({ withVideo: true, started: true });
+    expect(m.translator.attached!.id).toBe('desc');
+    const clone = document.querySelector(`[${TEXT_CLONE_ATTR}]`)!;
+    expect(clone.querySelector('h2')!.textContent).toBe('VI: Hero Section Optimization');
+    expect(clone.contains(host)).toBe(false);
+    expect(host.isConnected && !host.hasAttribute(TEXT_HIDDEN_ATTR)).toBe(true); // player untouched, visible
+    expect(t.calls.flatMap((c) => c.texts).some((x) => x.includes('Income Disclaimer'))).toBe(true);
+    m.destroy();
+  });
+
+  it('readability winner containing the player → descends to the text container without it', () => {
+    document.body.innerHTML = `<main><div id="wrap"><div id="ph"><video></video></div><div id="txt"><h2>Title of the lesson</h2><p>${'Long explanation sentence about the offer. '.repeat(6)}</p><p>${'Second paragraph with more teaching. '.repeat(6)}</p></div></div></main>`;
+    const art = findArticle(document, { avoid: [document.getElementById('ph')!] })!;
+    expect(art.id).toBe('txt');
   });
 
   it('SPA navigation text → video lesson restores the page; back to text translates from cache-friendly keys', async () => {

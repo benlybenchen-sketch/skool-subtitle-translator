@@ -1,5 +1,24 @@
 # Changelog
 
+## 5.2.0 — Translate the written material below lesson videos
+- **Real report:** the written material below a lesson video (e.g. "2.2 - Hero Section
+  Optimization": disclaimer, headings, paragraphs) was never translated.
+- **Cause:** the text translator only ran on text-only lessons. It stopped as soon as a video was
+  detected.
+- **Fix:**
+  - The same translator now also handles video lessons.
+  - The detected article never contains the player: video players, embeds and their
+    shadow-DOM hosts are excluded, and detection descends to the text container beside them.
+  - The player is never cloned, hidden or touched.
+- **Behaviour:**
+  - Translation starts automatically when "Tự động dịch phần chữ của bài học" is on. Otherwise use
+    "Dịch phần chữ" in the VI control.
+  - Switching to another video lesson (SPA, no F5) translates the new text.
+  - EN / VI / EN+VI switch instantly.
+  - Video lessons keep their subtitle transcript, notes and exports in the learning panel.
+- **Tests:** unit tests (video lesson layout, player never in the clone, descent) and an E2E test
+  (description translated, subtitles still working, next video lesson translated without F5).
+
 ## 5.1.1 — Fix: thumbnail storyboard text in subtitles
 - **Real report.** Lines such as `ae5a…d5.jpg#xywh=249,1960,249,140 Giờ hãy tưởng tượng…` appeared,
   and some segments stayed in English next to the Vietnamese.

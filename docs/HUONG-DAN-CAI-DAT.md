@@ -6,7 +6,7 @@ Tiện ích Chrome này dịch video bài học tiếng Anh trên **Skool** sang
 
 **Cách A — dùng tệp ZIP có sẵn**
 
-1. Tải tệp `release/skool-vi-subtitles-v5.1.1.zip` từ repository GitHub.
+1. Tải tệp `release/skool-vi-subtitles-v5.2.0.zip` từ repository GitHub.
 2. Giải nén vào một thư mục cố định (ví dụ `Documents/skool-vi-subtitles`). Đừng xóa thư mục này sau khi cài.
 3. Mở Chrome, gõ `chrome://extensions` vào thanh địa chỉ.
 4. Bật **Developer mode / Chế độ dành cho nhà phát triển** (góc trên bên phải).
@@ -223,7 +223,10 @@ Một bảng hiện bên phải trang, có các thẻ:
 - Ghi chú được **lưu trên máy theo từng bài**; mở lại bài (kể cả sau khi tắt Chrome) sẽ hiện ngay,
   không gọi API. Có nút **Tạo lại**, **Sao chép**, **⬇ MD**, **⬇ TXT**, **Sửa** (sửa và lưu bản của bạn).
 
-### Bài học dạng văn bản (không có video)
+### Bài học dạng văn bản và tài liệu chữ dưới video
+
+Từ v5.2.0, phần tài liệu chữ bên dưới video cũng được dịch: nút VI hiện thêm dòng "Tài liệu chữ dưới video" với nút **Dịch phần chữ** và **EN / VI / EN+VI**. Video và phụ đề không bị ảnh hưởng.
+
 
 Ví dụ bài **"READ ME BEFORE YOU GO ON"** chỉ có chữ.
 1. Mở bài: sau ~3 giây nút VI hiện **"Bài học dạng văn bản (chưa dịch)"**.

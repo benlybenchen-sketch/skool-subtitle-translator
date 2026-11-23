@@ -70,6 +70,26 @@ function hlsRoute(route) {
   return route.fulfill({ status: 404, body: '' });
 }
 
+// Video lesson with written material below (Skool lesson layout: player, then rich text).
+const VIDTEXT_PAGE = `<!doctype html><meta charset="utf-8"><title>Video + text lesson</title><main>
+<h1 id="t">2.2 - Hero Section Optimization</h1>
+<div id="player" style="width:960px;height:540px"><video id="v" muted playsinline crossorigin="anonymous" src="/media/lesson.wav" style="width:100%;height:100%"><track kind="captions" srclang="en" label="English" src="/media/lesson.vtt"></video></div>
+<div id="desc" class="styled__RichText">
+  <blockquote><p><b>Income Disclaimer</b>: Our course material is provided for educational purposes only and does not guarantee any financial success.</p></blockquote>
+  <h2>Hero Section Optimization</h2>
+  <p>The hero section is everything below the images on mobile. Aesthetics don't matter, the elements do.</p>
+  <p>We'll cover this through the lens of mobile, since 79-80% of your traffic comes from mobile anyway.</p>
+</div></main>
+<script>
+  window.goNextVideoLesson = () => {
+    history.pushState({}, '', location.pathname + '?md=vidtext2');
+    document.getElementById('t').textContent = '2.3 - Benefit Driven Headline';
+    const v = document.getElementById('v');
+    v.src = '/media/lesson2.wav';
+    document.getElementById('desc').innerHTML = '<h2>Benefit Driven Headline</h2><p>Your headline must promise the dream outcome without the downsides of the alternatives.</p><p>Attach a timeline to make it feel achievable now.</p>';
+  };
+</script>`;
+
 // 20-minute dubbing lesson: a sentence every 4 s (300 cues)
 const DUB_WAV = wav(1200, 4000);
 const dubVtt = (tag) => 'WEBVTT\n\n' + Array.from({ length: 300 }, (_, i) => {
@@ -149,6 +169,7 @@ await context.route(/^https:\/\/www\.skool\.com\//, (route) => {
   if (u.pathname === '/media/long.vtt') return route.fulfill(serve(LONG_VTT, 'text/vtt'));
   if (u.search.includes('textlesson')) return route.fulfill(serve(TEXT_PAGE, 'text/html'));
   if (u.search.includes('hlsuntouched')) return route.fulfill(serve(HLS_PAGE, 'text/html'));
+  if (u.search.includes('vidtext')) return route.fulfill(serve(VIDTEXT_PAGE, 'text/html'));
   if (u.pathname === '/media/lesson.mp4') return serveMedia(route, WAV);
   if (u.search.includes('dlfile')) return route.fulfill(serve('<!doctype html><meta charset="utf-8"><title>Downloadable lesson</title><main><h1>Downloadable lesson</h1><video id="v" controls muted crossorigin="anonymous" src="/media/lesson.mp4" style="width:960px;height:540px"><track kind="captions" srclang="en" label="English" src="/media/lesson.vtt"></video></main>', 'text/html'));
   if (u.search.includes('ccmenu')) return route.fulfill(serve(readFileSync(join(pages, 'skool-ccmenu.html')), 'text/html'));
@@ -798,6 +819,31 @@ await test('Full transcript WITHOUT playback: untouched 30-min HLS lesson at 00:
   const ft = d.frames.find((f) => f.report?.subtitles?.fullTranscript)?.report.subtitles.fullTranscript;
   assert(ft?.evidence?.complete && ft.evidence.expectedSegments === 180 && ft.evidence.retrievedSegments === 180, JSON.stringify(ft?.evidence));
   assert(!JSON.stringify(d).includes('page-issued') && !JSON.stringify(d).includes('token='), 'signed URL leaked into diagnostics');
+  await p.close();
+});
+
+await test('Video lesson: the written material below the video is translated automatically (opted in), also after switching to another video lesson (no F5); player untouched', async () => {
+  await setup.evaluate(async () => {
+    const { settings } = await chrome.storage.sync.get('settings');
+    await chrome.storage.sync.set({ settings: { ...settings, autoTranslateTextLessons: true, textDisplayMode: 'vi' } });
+  });
+  const p = await context.newPage();
+  await p.goto('https://www.skool.com/test-group/classroom/course90?md=vidtext1');
+  await p.waitForSelector('video');
+  const clone = () => p.evaluate(() => {
+    const c = document.querySelector('[data-sst-text]');
+    return c ? { h2: c.querySelector('h2')?.textContent, hasVideo: !!c.querySelector('video'), n: document.querySelectorAll('[data-sst-text]').length } : null;
+  });
+  await waitFor(async () => (await clone())?.h2 === '[VI] Hero Section Optimization', 12000, 'description translated');
+  assert(!(await clone()).hasVideo, 'the player must never be inside the translated view');
+  const player = await p.evaluate(() => ({ visible: getComputedStyle(document.getElementById('player')).display !== 'none', inDom: document.getElementById('v').isConnected }));
+  assert(player.visible && player.inDom, 'player hidden or moved');
+  await p.evaluate(() => document.querySelector('video').play());
+  await seek(p, 2);
+  await waitFor(async () => (await overlayText(p)) === '[VI] Welcome back to the course.', 8000, 'video subtitles still work');
+  await p.evaluate(() => window.goNextVideoLesson());
+  await waitFor(async () => (await clone())?.h2 === '[VI] Benefit Driven Headline', 12000, 'next lesson description translated without F5');
+  assert((await clone()).n === 1, 'duplicate translated views');
   await p.close();
 });
 

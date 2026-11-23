@@ -173,9 +173,24 @@ async function main(): Promise<void> {
       const r = detector.result;
       return !!(r.primary || r.embeds.length || r.videos.length || r.anchor || controller.currentVideoKey);
     };
+    // Light-DOM element that hosts a player (walks out of shadow roots), so the article never contains it.
+    const hostOf = (el: Element): Element => {
+      let n: Element = el;
+      for (let i = 0; i < 12; i++) {
+        const r = n.getRootNode();
+        if (r instanceof ShadowRoot) n = r.host;
+        else break;
+      }
+      return n;
+    };
+    const players = (): Element[] => {
+      const r = detector.result;
+      return [r.primary?.el, ...r.videos, ...r.embeds.map((e) => e.el), r.anchor, controller.mediaElement].filter((e): e is Element => !!e).map(hostOf);
+    };
     const tl = new TextLessonManager(window, {
       settings: () => settings,
       hasVideo,
+      players,
       translate: async (videoKey, units, context, priority) => {
         try {
           const res = await sendToBackground<TranslateResponse>({ type: 'translate:units', videoKey, units, context, priority, format: 'markup' }, { retries: 3 });
@@ -188,7 +203,7 @@ async function main(): Promise<void> {
       saveMode: (textDisplayMode) => void saveSettings({ textDisplayMode }).catch(orphaned),
       onChange: (info) => {
         panel?.setText(info);
-        learning?.setSource(info ? textSource : source);
+        learning?.setSource(info && !info.withVideo ? textSource : source); // video lessons keep the transcript panel
       },
     });
     textLessons = tl;
@@ -199,8 +214,7 @@ async function main(): Promise<void> {
     const recheck = () => tl.check();
     nav.onNavigate(recheck);
     detector.onChange((_r, changed) => {
-      if (hasVideo()) tl.stop();
-      else if (changed && !tl.active) recheck();
+      if (changed && !tl.active) recheck();
     });
     recheck();
   }
