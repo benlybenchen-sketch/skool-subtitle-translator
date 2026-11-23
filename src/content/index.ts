@@ -1,0 +1,347 @@
+import type { ContentMessage, HelloResponse, TranslateResponse } from '../shared/messages';
+import { isContextInvalidated, sendToBackground } from '../shared/messages';
+import { loadSettings, onSettingsChanged, saveSettings } from '../shared/settings';
+import type { Settings } from '../shared/types';
+import { adapterForFrame, isSkoolUrl } from '../players/adapters';
+import { VideoDetector } from '../players/detector';
+import { createLessonLifecycle } from './lifecycle';
+import { collectDiagnostics } from './diagnostics';
+import { SubtitleController, type ControllerBridge } from './controller';
+import { ControlPanel } from './panel';
+import { LearningPanel, type PanelTab } from './learningPanel';
+import { createVideoSource } from './learningSource';
+import { AiNotesView } from './notesView';
+import { TextLessonManager } from '../text/manager';
+import { lessonTitle } from './learningSource';
+import type { LearningSource, OfflineActions } from './learningPanel';
+import { notesToMarkdown, type NotesRecord } from '../notes/render';
+import { downloadBytes } from '../transcript/export';
+import { base64ToUint8 } from '../shared/util';
+import { OWNER_REQUEST_TEXT, findAuthorizedDownloads } from '../offline/videoDownload';
+
+const GUARD = '__sstContentScript__';
+
+async function main(): Promise<void> {
+  const w = window as unknown as Record<string, unknown>;
+  // Prevent double initialisation (e.g. programmatic re-injection).
+  if (w[GUARD]) return;
+  w[GUARD] = true;
+
+  const isTop = window.top === window;
+  const loc = new URL(location.href);
+  if (isTop && !isSkoolUrl(loc)) return;
+
+  // Player iframes only activate when the tab's top-level page is Skool.
+  // The background verifies this from the tab URL (ancestorOrigins can be masked).
+  let hello: HelloResponse;
+  try {
+    hello = await sendToBackground<HelloResponse>({ type: 'frame:hello', isTop });
+  } catch {
+    return;
+  }
+  if (!hello?.active) return;
+
+  let settings: Settings = await loadSettings();
+  const adapter = adapterForFrame(loc);
+
+  const bridge: ControllerBridge = {
+    async translate(videoKey, units, context, priority) {
+      try {
+        const res = await sendToBackground<TranslateResponse>({ type: 'translate:units', videoKey, units, context, priority }, { retries: 3 });
+        return res.results;
+      } catch (e) {
+        orphanCheck();
+        throw e;
+      }
+    },
+    cancel(videoKey) {
+      sendToBackground({ type: 'translate:cancel', videoKey }, { retries: 0 }).catch(orphaned);
+    },
+    reportStatus(status) {
+      sendToBackground({ type: 'frame:status', status }, { retries: 2 }).catch(orphaned);
+    },
+  };
+
+  const controller = new SubtitleController({
+    doc: document,
+    isTop,
+    adapter,
+    bridge,
+    settings,
+    dubSend: (m) => sendToBackground(m, { retries: 1 }),
+    lessonStore: {
+      get: async (lessonId) => (await sendToBackground<{ record: import('../transcript/store').LessonRecord | null }>({ type: 'lesson:get', lessonId }, { retries: 2 })).record,
+      put: (record) => sendToBackground({ type: 'lesson:put', record }, { retries: 2 }),
+    },
+    lessonTitle: () => (isTop ? lessonTitle(document) : document.title),
+  });
+  // A previous page in this tab may have muted the tab for dubbing and died: restore it.
+  if (isTop) sendToBackground({ type: 'dub:recover' }, { retries: 0 }).catch(() => undefined);
+  const detector = new VideoDetector(document, adapter);
+  let panel: ControlPanel | null = null;
+  let learning: LearningPanel | null = null;
+  let notesView: AiNotesView | null = null;
+  let textLessons: TextLessonManager | null = null;
+
+  const lifecycle = createLessonLifecycle(window, controller, detector);
+  const nav = lifecycle.nav;
+  lifecycle.start();
+
+  if (isTop) {
+    panel = new ControlPanel(
+      document,
+      settings,
+      (patch) => void saveSettings(patch).catch(orphaned),
+      () => void sendToBackground({ type: 'audio:stop' }).catch(() => undefined),
+      () => void sendToBackground({ type: 'session:start' }).catch(() => undefined),
+      (tab) => learning?.toggle(tab),
+      (a) => {
+        if (!textLessons) return;
+        if (a === 'translate') textLessons.translateNow();
+        else if (a === 'retry') textLessons.retry();
+        else textLessons.setMode(a);
+      },
+    );
+    if (settings.showPanel) panel.mount();
+    controller.onOverlayContainerChange((el) => panel?.follow(el));
+    // Transcript / notes / export drawer — opened only by the user (VI control or popup).
+    const source = createVideoSource(document, controller, (op) => sendToBackground({ type: 'learning:remote', op }, { retries: 1 }));
+    notesView = new AiNotesView(document, {
+      get: (lessonId) => sendToBackground({ type: 'notes:get', lessonId }),
+      generate: (transcript) => sendToBackground({ type: 'notes:generate', transcript }, { retries: 0 }),
+      cancel: (lessonId) => sendToBackground({ type: 'notes:cancel', lessonId }),
+      save: (lessonId, editedMarkdown) => sendToBackground({ type: 'notes:save', lessonId, editedMarkdown }),
+      model: () => sendToBackground({ type: 'notes:model' }),
+    });
+    const offline: OfflineActions = {
+      async save(t) {
+        let notesMarkdown: string | undefined;
+        try {
+          const n = await sendToBackground<{ record: NotesRecord | null }>({ type: 'notes:get', lessonId: t.lessonId });
+          if (n?.record) notesMarkdown = notesToMarkdown(n.record);
+        } catch {
+          /* no notes */
+        }
+        await sendToBackground({
+          type: 'lesson:put',
+          record: {
+            lessonId: t.lessonId,
+            title: t.title,
+            kind: t.kind,
+            units: t.segments.map((s) => ({ id: s.id, start: s.start, end: s.end, en: s.en, vi: s.vi, block: s.block })),
+            complete: t.coverage.state === 'complete',
+            source: t.coverage.sourceLabel ?? (t.kind === 'text' ? 'bài viết' : 'phụ đề'),
+            durationSec: t.coverage.durationSec,
+            sourceUntilSec: t.coverage.sourceUntilSec,
+            contentHash: t.version,
+            savedOffline: true,
+            savedAt: Date.now(),
+            notesMarkdown,
+            updatedAt: Date.now(),
+          },
+        });
+        const partial = t.coverage.state !== 'complete';
+        return `Đã lưu trên máy: ${t.segments.length} đoạn${partial ? ' (bản ghi MỘT PHẦN)' : ''} · đã dịch ${t.coverage.translated}${notesMarkdown ? ' · có ghi chú AI' : ''}.`;
+      },
+      async zip(t) {
+        await this.save(t);
+        const r = await sendToBackground<{ name: string; base64: string; files: string[] }>({ type: 'lesson:pack', lessonId: t.lessonId });
+        downloadBytes(document, r.name, 'application/zip', base64ToUint8(r.base64));
+        return `Đã tải ${r.name} (${r.files.length} tệp).`;
+      },
+      openReader() {
+        void sendToBackground({ type: 'reader:open' }).catch(orphaned);
+      },
+      video() {
+        const v = findAuthorizedDownloads(document, controller.mediaElement, { title: lessonTitle(document), iframeTarget: controller.targetIsIframe });
+        return v.ok ? { ok: true as const, count: v.options.length } : { ok: false as const, message: v.message };
+      },
+      async offerVideo(t) {
+        const v = findAuthorizedDownloads(document, controller.mediaElement, { title: lessonTitle(document), iframeTarget: controller.targetIsIframe });
+        if (!v.ok) return v.message;
+        await this.save(t);
+        await sendToBackground({ type: 'video:offer', lessonId: t.lessonId, title: t.title, options: v.options });
+        return 'Đã mở trang tải — chọn chất lượng và nơi lưu ở đó.';
+      },
+      ownerRequestText: OWNER_REQUEST_TEXT,
+    };
+    learning = new LearningPanel(document, source, notesView, offline);
+
+    // Text-only lessons (no video): detected after a grace period; translated only when opted in
+    // (setting) or requested ("Dịch bài này").
+    const hasVideo = () => {
+      const r = detector.result;
+      return !!(r.primary || r.embeds.length || r.videos.length || r.anchor || controller.currentVideoKey);
+    };
+    // Light-DOM element that hosts a player (walks out of shadow roots), so the article never contains it.
+    const hostOf = (el: Element): Element => {
+      let n: Element = el;
+      for (let i = 0; i < 12; i++) {
+        const r = n.getRootNode();
+        if (r instanceof ShadowRoot) n = r.host;
+        else break;
+      }
+      return n;
+    };
+    const players = (): Element[] => {
+      const r = detector.result;
+      return [r.primary?.el, ...r.videos, ...r.embeds.map((e) => e.el), r.anchor, controller.mediaElement].filter((e): e is Element => !!e).map(hostOf);
+    };
+    const tl = new TextLessonManager(window, {
+      settings: () => settings,
+      hasVideo,
+      players,
+      translate: async (videoKey, units, context, priority) => {
+        try {
+          const res = await sendToBackground<TranslateResponse>({ type: 'translate:units', videoKey, units, context, priority, format: 'markup' }, { retries: 3 });
+          return res.results;
+        } catch (e) {
+          orphanCheck();
+          throw e;
+        }
+      },
+      saveMode: (textDisplayMode) => void saveSettings({ textDisplayMode }).catch(orphaned),
+      onChange: (info) => {
+        panel?.setText(info);
+        learning?.setSource(info && !info.withVideo ? textSource : source); // video lessons keep the transcript panel
+      },
+    });
+    textLessons = tl;
+    const textSource: LearningSource = {
+      kind: () => 'text',
+      transcript: () => (tl.lessonId ? tl.translator.transcript(tl.lessonId, lessonTitle(document)) : null),
+    };
+    const recheck = () => tl.check();
+    nav.onNavigate(recheck);
+    detector.onChange((_r, changed) => {
+      if (changed && !tl.active) recheck();
+    });
+    recheck();
+  }
+
+  const offSettings = onSettingsChanged((s) => {
+    settings = s;
+    controller.updateSettings(s);
+    panel?.setSettings(s);
+    textLessons?.updateSettings(s);
+    if (panel) s.showPanel ? panel.mount() : panel.unmount();
+  });
+
+  const onMessage = (msg: ContentMessage, _sender: chrome.runtime.MessageSender, sendResponse: (r?: unknown) => void) => {
+    switch (msg.type) {
+      case 'frame:ping':
+        sendResponse({ ok: true });
+        return;
+      case 'live:segment':
+        controller.onLiveSegment(msg);
+        break;
+      case 'audio:state':
+        controller.setAudioState(msg.active, msg.primary, msg.error);
+        break;
+      case 'manual:cues':
+        controller.onManualCues(msg.cues, msg.label);
+        break;
+      case 'tab:status:changed':
+        panel?.setStatus(msg.status);
+        break;
+      case 'diag:collect':
+        sendResponse({
+          ...collectDiagnostics(document, detector.result, controller.status()),
+          subtitles: controller.debugState(),
+          detector: { observedShadowRoots: detector.observedShadowRoots, lastScanAgoMs: Date.now() - detector.lastScanAt },
+          trackLog: controller.trackLog(),
+        });
+        return;
+      case 'nav:check':
+        nav.check(); // URL change reported by the background (tabs.onUpdated)
+        break;
+      case 'session:start':
+        controller.startSession();
+        break;
+      case 'learning:open':
+        learning?.show(msg.tab as PanelTab);
+        break;
+      case 'text:get':
+        sendResponse(textLessons?.info() ?? null);
+        return;
+      case 'text:cmd':
+        if (textLessons) {
+          if (msg.cmd === 'translate') textLessons.translateNow();
+          else if (msg.cmd === 'retry') textLessons.retry();
+          else if (msg.mode) textLessons.setMode(msg.mode);
+        }
+        sendResponse(textLessons?.info() ?? null);
+        return;
+      case 'dub:event':
+        controller.onDubEvent(msg);
+        break;
+      case 'notes:progress':
+        notesView?.onProgress(msg.lessonId, msg.done, msg.total);
+        break;
+      case 'learning:op': {
+        const op = msg.op;
+        if (op.kind === 'get') {
+          sendResponse(controller.transcript(op.title));
+          return;
+        }
+        if (op.kind === 'acquire') {
+          controller.acquireFromPlayer().then(() => sendResponse({ ok: true }), () => sendResponse({ ok: false }));
+          return true;
+        }
+        if (op.kind === 'seek') {
+          sendResponse({ ok: controller.seek(op.sec) });
+          return;
+        }
+        controller.completeTranslations(Math.min(op.timeoutMs, 300_000)).then(sendResponse, () => sendResponse(null));
+        return true; // async response
+      }
+    }
+    sendResponse({ ok: true });
+  };
+  chrome.runtime.onMessage.addListener(onMessage);
+
+  // Runs once; every step is guarded because after an extension reload the chrome.* APIs of
+  // this (orphaned) script are gone — the UI must still be removed from the page.
+  let tornDown = false;
+  teardownRef = () => {
+    if (tornDown) return;
+    tornDown = true;
+    const safe = (f: () => void) => {
+      try {
+        f();
+      } catch {
+        /* extension context gone */
+      }
+    };
+    safe(() => lifecycle.stop());
+    safe(() => controller.destroy());
+    safe(() => panel?.destroy());
+    safe(() => learning?.destroy());
+    safe(() => textLessons?.destroy());
+    safe(() => offSettings());
+    safe(() => chrome.runtime.onMessage.removeListener(onMessage));
+    document.removeEventListener('visibilitychange', orphanCheck);
+    w[GUARD] = false;
+  };
+
+  // Tell the background when this frame goes away (lesson iframe swapped, tab navigated).
+  window.addEventListener('pagehide', () => {
+    if (!isContextInvalidated()) sendToBackground({ type: 'frame:gone' }, { retries: 0 }).catch(() => undefined);
+  });
+
+  // Extension reloaded/updated → this script is orphaned; clean up our DOM.
+  document.addEventListener('visibilitychange', orphanCheck);
+}
+
+let teardownRef: (() => void) | null = null;
+/** Called on visibility changes and whenever a message to the extension fails. */
+function orphanCheck(): void {
+  if (isContextInvalidated()) teardownRef?.();
+}
+function orphaned(): void {
+  orphanCheck();
+}
+
+main().catch((e) => {
+  if (!isContextInvalidated(e)) console.warn('[Skool VI Subtitles]', e);
+});

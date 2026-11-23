@@ -1,0 +1,50 @@
+<!-- Realistic (synthetic) Skool Classroom text-only lesson. Structure mirrors a Skool lesson page:
+     top nav, course sidebar, lesson header, rich-text body, action buttons, comments. -->
+<div id="__next">
+  <header class="styled__HeaderWrapper-sc-1">
+    <a href="/acme-academy" class="styled__GroupName">Acme Ads Academy</a>
+    <nav><a href="/acme-academy/community">Community</a><a href="/acme-academy/classroom">Classroom</a><a href="/acme-academy/calendar">Calendar</a></nav>
+    <div class="styled__NotificationsBell">3</div>
+    <div class="styled__UserAvatar"><span>John Carter</span></div>
+  </header>
+  <div class="styled__ClassroomLayout">
+    <aside class="styled__CourseSidebar">
+      <div>Module 1 — Foundations</div>
+      <ul><li><a href="?md=a1">READ ME BEFORE YOU GO ON</a></li><li><a href="?md=a2">Lesson 1: Market Awareness</a></li><li><a href="?md=a3">Lesson 2: Mass Desire</a></li></ul>
+    </aside>
+    <main class="styled__LessonMain">
+      <div class="styled__LessonHeader"><h1>READ ME BEFORE YOU GO ON</h1></div>
+      <div class="styled__RichTextBody" id="lesson-body">
+        <h2>Welcome to the program</h2>
+        <p>This course will teach you how to find a <strong>Mass Desire</strong> and turn it into <em>profitable</em> ads. Read this page <b>carefully</b> before you start.</p>
+        <p>Join the <a href="https://www.skool.com/acme-academy/about" target="_blank">community chat</a> and introduce yourself.</p>
+        <h3>What you need</h3>
+        <ul>
+          <li>A Facebook Business Manager account</li>
+          <li>A budget of at least <strong>$50 per day</strong>
+            <ul><li>Start small and scale winners</li></ul>
+          </li>
+          <li>Patience: results take <em>2–3 weeks</em></li>
+        </ul>
+        <h3>How to use this course</h3>
+        <ol>
+          <li>Watch every lesson in order.</li>
+          <li>Complete the <a href="/acme-academy/classroom/worksheet">research worksheet</a>.</li>
+          <li>Post your questions in the community.</li>
+        </ol>
+        <blockquote><p>The market decides what sells, not you.</p></blockquote>
+        <p>Run <code>npm run research</code> to generate your VOC report.</p>
+        <pre><code>const budget = 50; // do not translate this</code></pre>
+        <p><img src="https://assets.skool.com/f/diagram.png" alt="diagram"> The diagram above shows the funnel.</p>
+        <table><tr><th>Stage</th><th>Goal</th></tr><tr><td>Research</td><td>Find the desire</td></tr></table>
+      </div>
+      <div class="styled__LessonActions"><button>Mark as complete</button><button>Next lesson</button></div>
+      <div class="styled__CommentsSection">
+        <h3>Comments</h3>
+        <div class="styled__CommentItem"><span class="styled__UserName">Jane Doe</span><p>Thanks, this was really helpful for my first campaign!</p></div>
+        <div class="styled__CommentItem"><span class="styled__UserName">Mark Lee</span><p>Where can I find the worksheet mentioned above?</p></div>
+        <form><textarea placeholder="Your comment"></textarea><button>Post</button></form>
+      </div>
+    </main>
+  </div>
+</div>

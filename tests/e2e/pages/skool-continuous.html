@@ -1,0 +1,26 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Mock Skool lesson — captions delivered in chunks</title></head>
+<body style="margin:0">
+  <!-- Player that exposes English cues ~90 s at a time, adding a NEW TextTrack per chunk and
+       keeping the old one with stale cues (one of the behaviours that stopped translation after
+       1–2 minutes). NOT real Skool markup. -->
+  <div id="player" style="width:960px;height:540px;background:#000">
+    <video id="v" muted playsinline style="width:100%;height:100%" src="/media/long.wav"></video>
+  </div>
+  <script>
+    const v = document.getElementById('v');
+    let loadedUntil = 0, track = null;
+    function load(t) {
+      while (t > loadedUntil - 30 && loadedUntil < 720) {
+        const old = track;
+        track = v.addTextTrack('captions', 'English CC', 'en');
+        track.mode = 'showing';
+        if (old) old.mode = 'hidden';
+        for (let s = loadedUntil; s < loadedUntil + 90; s += 10) track.addCue(new VTTCue(s, s + 8, 'Chunked line ' + s / 10 + '.'));
+        loadedUntil += 90;
+      }
+    }
+    load(0);
+    v.addEventListener('timeupdate', () => load(v.currentTime));
+  </script>
+</body></html>

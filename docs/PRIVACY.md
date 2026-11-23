@@ -1,0 +1,53 @@
+# Privacy & security model
+
+- **Scope:** content scripts run only on `*.skool.com` and on the documented embed URLs of Loom,
+  Vimeo, YouTube and Wistia. Embedded-player frames stay inactive unless the tab's top-level page is
+  Skool (verified by the background from the tab URL).
+- **Permissions:** `storage`, `offscreen`, `tabCapture`, host access to `*.skool.com`. Translation /
+  STT endpoints are *optional* host permissions requested per origin when you save settings.
+  No `tabs`, `cookies`, `webRequest`, `scripting` or `<all_urls>` permissions.
+- **No credential collection:** the extension never reads cookies, tokens, passwords or Skool APIs.
+- **No DRM/paywall bypass:** only captions that the page itself exposes to the browser are read
+  (`TextTrack`, rendered DOM text) or files you import yourself.
+- **No hidden capture:** Audio Mode starts only from a click in the toolbar popup, captures only that
+  tab, shows a REC badge plus an on-video indicator, and stops on demand, on tab close, or when the
+  stream ends. Audio is processed in memory in short chunks; whole videos are never uploaded.
+- **Explicit consent for remote transmission:** subtitle text / audio chunks are sent to a non-local
+  endpoint only after you tick the corresponding consent box. Localhost backends need no consent.
+- **Secrets:** API keys live in `chrome.storage.local` (or `storage.session`), are read only by the
+  service worker, and are never synced. See the risks in PROVIDERS.md.
+- **No remote code:** all code is bundled; the extension-page CSP is `script-src 'self'`.
+- **AI Learning Assistant (v3.5.0):** transcripts, exports and AI notes are built from the current
+  lesson only (no course scraping, no media download). Exports are local downloads (Blob URLs).
+  AI notes are generated only on your click and send the transcript **text** of that lesson to the
+  provider you configured, under the same consent and host-permission rules as subtitles; notes are
+  saved in `chrome.storage.local` on this computer. Text-only lessons are translated only after you
+  opt in (setting) or click "Dịch bài này"; the page's DOM is not rewritten. No new permissions.
+- **AI dubbing (v4.0.0):**
+  - Off until you enable it. The new `tts` permission is used only for on-device Chrome TTS
+    voices, which send no data.
+  - Google Cloud TTS receives the Vietnamese sentence text only after you tick its own consent
+    box and grant the host permission. It uses its own API key, stored like the other keys
+    (`storage.local`/`session`, worker-only).
+  - The original audio is changed only on the lesson's media element. The tab is muted only as
+    a fallback, and its previous state is restored.
+  - Synthesized audio is cached locally in IndexedDB (bounded, prunable from the dashboard).
+- **Phase 5 (v5.0.0):**
+  - Lesson transcripts, translations and offline packs are stored in the extension's local
+    IndexedDB and can be deleted in the offline reader. ZIP packs are local downloads; nothing
+    is uploaded anywhere.
+  - Full-transcript retrieval (v5.1.0) reads only caption resources that the page's own player
+    has already loaded for the current viewer and lesson. Those are its HLS master/subtitle
+    playlist and the WebVTT files listed in it, requested with the same URL the player used.
+    - It never constructs, guesses, signs or extends a URL or token.
+    - It never requests video or audio.
+    - It does not send cookies (`credentials: omit`).
+    - It stops on 401/403/CORS errors.
+    - URLs are never logged or stored (diagnostics keep only the host).
+  - Video download uses the optional `downloads` permission, only for files the page itself
+    offers, started by the user.
+  - Gemini TTS sends Vietnamese sentence text to Google with the user's own Gemini key, after
+    the remote-TTS consent. No key is bundled, and keys never appear in exports.
+- **Local data:** translations are cached in IndexedDB (auto-pruned after 45 days of non-use, capped
+  at 60 000 entries; "Xóa cache" clears everything). Tab status is kept in `storage.session` and is
+  removed when the tab closes.

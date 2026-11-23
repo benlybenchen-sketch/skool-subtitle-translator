@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Thư viện học offline – Skool VI</title>
+    <link rel="stylesheet" href="./reader.css" />
+  </head>
+  <body>
+    <main>
+      <div class="head"><h1>📚 Thư viện học offline</h1><span id="usage" class="hint">…</span></div>
+      <p class="hint">Bản ghi, bản dịch và ghi chú AI được lưu trên máy này (không cần mạng để đọc). Video chỉ có sẵn offline nếu bạn đã tải tệp video được phép tải về máy.</p>
+      <section id="dl-card" class="hidden"></section>
+      <div class="layout">
+        <section class="list">
+          <input id="q" type="search" placeholder="Tìm trong mọi bài đã lưu…" />
+          <div class="row"><label><input id="only-offline" type="checkbox" checked /> Chỉ bài đã bấm "Lưu để học offline"</label></div>
+          <div id="items"></div>
+          <div class="row"><button id="clear-auto" type="button" class="danger" title="Xóa bản ghi tự lưu (không xóa bài đã lưu offline)">Xóa bản ghi tự động</button></div>
+        </section>
+        <section id="view"><p class="hint">Chọn một bài bên trái.</p></section>
+      </div>
+    </main>
+    <script type="module" src="./reader.ts"></script>
+  </body>
+</html>

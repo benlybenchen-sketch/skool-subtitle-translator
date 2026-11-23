@@ -1,0 +1,19 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Mock Skool lesson (20 min, dubbing)</title>
+<style>body{margin:0;font-family:sans-serif} .player{width:960px;height:540px;background:#000;position:relative} video{width:100%;height:100%}</style></head>
+<body>
+  <!-- Mock 20-minute Skool Classroom lesson for AI dubbing tests (NOT real Skool markup). -->
+  <h1 id="lesson-title">Dubbing lesson 1</h1>
+  <div class="player" id="player">
+    <video id="v" playsinline crossorigin="anonymous" src="/media/dub20.wav">
+      <track kind="captions" srclang="en" label="English" src="/media/dub20.vtt" default>
+    </video>
+  </div>
+  <script>
+    window.goNextDubLesson = () => {
+      history.pushState({}, '', location.pathname + '?md=dub2');
+      document.getElementById('lesson-title').textContent = 'Dubbing lesson 2';
+      document.getElementById('player').innerHTML = '<video id="v" playsinline crossorigin="anonymous" src="/media/dub20b.wav"><track kind="captions" srclang="en" label="English" src="/media/dub20b.vtt" default></video>';
+    };
+  </script>
+</body></html>

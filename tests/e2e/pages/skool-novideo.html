@@ -1,0 +1,18 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Mock Skool lesson — no accessible video element</title></head>
+<body style="margin:0;font-family:sans-serif">
+  <!-- Mirrors real diagnostic evidence: 0 <video>, 2 <audio>, 3 js.stripe.com iframes,
+       player rendered somewhere the extension cannot access (here: a closed shadow root + canvas),
+       captions visible to the user but not exposed. NOT real Skool markup. -->
+  <iframe src="https://js.stripe.com/v3/m-outer-1.html" style="display:none"></iframe>
+  <iframe src="https://js.stripe.com/v3/m-outer-2.html" style="display:none"></iframe>
+  <iframe src="https://js.stripe.com/v3/m-outer-3.html" style="display:none"></iframe>
+  <div class="LessonVideoPlayer" style="width:854px;height:480px;margin:40px;background:#223" id="player"></div>
+  <audio id="a1" src="/media/lesson.wav" muted></audio>
+  <audio id="a2" src="/media/lesson.wav" muted></audio>
+  <script>
+    const host = document.getElementById('player');
+    const root = host.attachShadow({ mode: 'closed' });
+    root.innerHTML = '<video muted style="width:100%;height:100%"></video><div style="position:absolute;bottom:20px;color:#fff">English caption shown by the player</div>';
+  </script>
+</body></html>

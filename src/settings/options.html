@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cài đặt – Skool VI Subtitles</title>
+    <link rel="stylesheet" href="./options.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Cài đặt phụ đề tiếng Việt</h1>
+
+      <section>
+        <h2>1. Dịch vụ dịch (Translation provider)</h2>
+        <div class="grid">
+          <label for="p-kind">Nhà cung cấp</label>
+          <select id="p-kind">
+            <option value="gemini">Google Gemini</option>
+            <option value="openai">OpenAI GPT</option>
+            <option value="anthropic">Anthropic Claude</option>
+            <option value="local">Backend cục bộ — server/ trong repo (giữ key ngoài trình duyệt)</option>
+            <option value="mock">Mock (thử nghiệm, không dịch thật)</option>
+          </select>
+          <label for="p-endpoint">Endpoint</label><input id="p-endpoint" type="url" spellcheck="false" />
+          <label for="p-model">Model</label><input id="p-model" type="text" spellcheck="false" />
+          <label for="p-temp">Temperature</label><input id="p-temp" type="number" min="0" max="1.5" step="0.1" />
+          <label for="p-key">API key</label>
+          <div><input id="p-key" type="password" autocomplete="off" spellcheck="false" placeholder="(không bắt buộc với backend cục bộ / Ollama)" />
+            <div class="hint">Mỗi nhà cung cấp có API key, endpoint, model riêng — đổi nhà cung cấp không làm mất cấu hình của nhà cung cấp khác. Có thể đổi nhanh trong popup.</div></div>
+        </div>
+        <p class="hint" id="p-hint"></p>
+      </section>
+
+      <section>
+        <h2>2. Audio Mode — nhận dạng giọng nói (STT)</h2>
+        <div class="grid">
+          <label for="s-kind">Backend STT</label>
+          <select id="s-kind">
+            <option value="local">Backend cục bộ (server/ trong repo → Whisper)</option>
+            <option value="openai">OpenAI-compatible /audio/transcriptions (OpenAI Whisper, faster-whisper-server…)</option>
+            <option value="mock">Mock (thử nghiệm)</option>
+          </select>
+          <label for="s-endpoint">Endpoint</label><input id="s-endpoint" type="url" spellcheck="false" />
+          <label for="s-model">Model</label><input id="s-model" type="text" spellcheck="false" />
+          <label for="s-key">API key STT</label><input id="s-key" type="password" autocomplete="off" spellcheck="false" />
+        </div>
+      </section>
+
+      <section class="privacy">
+        <h2>3. Quyền riêng tư &amp; bảo mật</h2>
+        <p>
+          Với endpoint <b>không phải localhost</b>, nội dung phụ đề (văn bản) và/hoặc các đoạn âm thanh ngắn của bài học sẽ được
+          gửi tới máy chủ của nhà cung cấp bạn chọn. Chỉ bật khi bạn có quyền xem nội dung khóa học và chấp nhận chính sách của nhà
+          cung cấp đó. Tiện ích <b>không</b> gửi cookie, thông tin đăng nhập hay toàn bộ tệp video.
+        </p>
+        <label class="check"><input id="c-text" type="checkbox" /> Cho phép gửi <b>văn bản phụ đề</b> tới dịch vụ dịch từ xa</label>
+        <label class="check"><input id="c-audio" type="checkbox" /> Cho phép gửi <b>đoạn âm thanh tab</b> tới dịch vụ STT từ xa (chỉ khi bạn bật Audio Mode)</label>
+        <div class="warn">
+          <b>Rủi ro khi lưu API key trong tiện ích:</b> key được lưu không mã hóa trong hồ sơ Chrome của bạn
+          (<code>chrome.storage.local</code>, không đồng bộ). Phần mềm độc hại trên máy, hoặc người dùng chung hồ sơ Chrome, có thể đọc được.
+          Hãy dùng key có giới hạn chi tiêu/quyền, hoặc tốt nhất là chạy <b>backend cục bộ</b> và giữ key trong biến môi trường của server.
+        </div>
+        <label class="check"><input id="k-session" type="checkbox" /> Chỉ nhớ API key trong phiên trình duyệt này (xóa khi thoát Chrome)</label>
+        <button id="k-clear" type="button">Xóa mọi API key đã lưu</button>
+      </section>
+
+      <section>
+        <h2>4. Chất lượng dịch</h2>
+        <div class="grid">
+          <label for="mode">Chế độ dịch</label>
+          <div>
+            <select id="mode">
+              <option value="fast">Nhanh (FAST) — lô nhỏ, ngữ cảnh ngắn, dịch trước ~45 giây</option>
+              <option value="balanced">Cân bằng (BALANCED, mặc định) — ~8–12 câu/lô, dịch trước ~90 giây</option>
+              <option value="quality">Chất lượng (QUALITY) — ngữ cảnh dài hơn, dịch trước ~120 giây</option>
+            </select>
+            <div class="hint">Chế độ chỉ đổi cách lên lịch và độ dài ngữ cảnh. Model chỉ đổi khi bạn tự nhập dưới đây.</div>
+          </div>
+          <label>Model theo chế độ<br /><small id="mm-provider" class="hint"></small></label>
+          <div class="mm">
+            <input id="mm-fast" type="text" spellcheck="false" placeholder="FAST: (dùng model của nhà cung cấp)" />
+            <input id="mm-balanced" type="text" spellcheck="false" placeholder="BALANCED: (dùng model của nhà cung cấp)" />
+            <input id="mm-quality" type="text" spellcheck="false" placeholder="QUALITY: (dùng model của nhà cung cấp)" />
+          </div>
+          <label for="merge">Gộp mảnh câu ngắn</label><input id="merge" type="checkbox" />
+          <label for="pretranslate">Dịch trước liên tục (toàn bộ phụ đề có sẵn)</label>
+          <div><input id="pretranslate" type="checkbox" /> <span class="hint">Sau khi đã dịch đủ khoảng dịch trước, tiếp tục dịch phần còn lại ở chế độ nền (tốn thêm token, nhưng tua/xem lại không phải chờ).</span></div>
+        </div>
+
+        <h3>Thuật ngữ (glossary)</h3>
+        <p class="hint">Mục "Chung" luôn áp dụng; mục theo chủ đề chỉ áp dụng khi chủ đề được bật. Để trống ô tiếng Việt = giữ nguyên thuật ngữ tiếng Anh. Thêm bộ mẫu không ghi đè thuật ngữ bạn đã có.</p>
+        <div class="row-wrap" id="gl-subjects"></div>
+        <div class="row-wrap" id="gl-presets"></div>
+        <div class="row-wrap">
+          <input id="gl-term" type="text" placeholder="Thuật ngữ tiếng Anh" />
+          <input id="gl-vi" type="text" placeholder="Tiếng Việt (để trống = giữ nguyên)" />
+          <select id="gl-subject"></select>
+          <button id="gl-add" type="button">Thêm</button>
+          <input id="gl-filter" type="search" placeholder="Lọc…" />
+        </div>
+        <table class="gl"><thead><tr><th>Thuật ngữ</th><th>Tiếng Việt</th><th>Chủ đề</th><th></th></tr></thead><tbody id="gl-rows"></tbody></table>
+        <div class="row-wrap">
+          <button id="gl-export" type="button">Xuất JSON</button>
+          <label class="file-btn">Nhập JSON<input id="gl-import" type="file" accept="application/json,.json" hidden /></label>
+          <span id="gl-msg" class="hint"></span>
+        </div>
+        <label for="dom-sel">Nâng cao: CSS selector của phụ đề hiển thị trong DOM (mỗi dòng một selector, tùy chọn)</label>
+        <textarea id="dom-sel" rows="2" spellcheck="false" placeholder=".my-player .caption-text"></textarea>
+      </section>
+
+      <section>
+        <h2>5. Tự động</h2>
+        <div class="grid">
+          <label for="src-lang">Ngôn ngữ phụ đề nguồn</label>
+          <select id="src-lang"><option value="en">Tiếng Anh (English)</option></select>
+          <label for="tgt-lang">Ngôn ngữ đích</label>
+          <select id="tgt-lang"><option value="vi">Tiếng Việt</option></select>
+        </div>
+        <label class="check"><input id="auto-start" type="checkbox" /> Tự động bắt đầu dịch khi mở bài học</label>
+        <label class="check"><input id="auto-nav" type="checkbox" /> Tự động khởi động lại khi chuyển bài học (không cần F5)</label>
+        <label class="check"><input id="full-tx" type="checkbox" /> <b>Tự tải toàn bộ phụ đề tiếng Anh khi mở bài</b> (không cần bấm Play hay tua): đọc playlist / tệp phụ đề mà trình phát đã nạp cho bài này — chỉ phụ đề, không tải video/âm thanh. Sau đó tự dịch cả bài. Bản ghi được lưu trên máy để mở lại tức thì.</label>
+        <label class="check"><input id="auto-text" type="checkbox" /> <b>Tự động dịch phần chữ của bài học</b> — bài chỉ có chữ (ví dụ "READ ME BEFORE YOU GO ON") và phần tài liệu chữ bên dưới video — dùng dịch vụ dịch và quyền gửi văn bản đã cấu hình ở trên. Có thể chuyển Anh / Việt / Song ngữ hoặc khôi phục bản gốc bất kỳ lúc nào.</label>
+        <label class="check"><input id="auto-cc" type="checkbox" /> <b>Tự bật phụ đề tiếng Anh để dịch</b> — nếu trình phát có track tiếng Anh nhưng CC đang tắt, tiện ích chuyển track sang chế độ <i>ẩn</i> (tải phụ đề nhưng không hiện chữ Anh gốc); nếu trình phát Skool chỉ tạo phụ đề qua menu CC của nó, tiện ích tự chọn <b>CC → English</b> một lần mỗi bài (không bao giờ tắt CC, không thử lặp vô hạn). Chỉ bật khi bạn đồng ý; trình phát có thể từ chối thao tác tự động — khi đó tiện ích báo rõ lý do.</label>
+      </section>
+
+      <section>
+        <h2>6. Giao diện</h2>
+        <label class="check"><input id="panel" type="checkbox" /> Hiện bảng điều khiển nổi trên trang Skool</label>
+      </section>
+
+      <section>
+        <h2>7. Lồng tiếng Việt (AI Dubbing)</h2>
+        <p class="hint">Đọc bản dịch tiếng Việt bằng giọng AI, đồng bộ với video, tắt tiếng giáo viên tiếng Anh. Bật/tắt và chọn giọng trong popup.
+          <b>Chrome TTS</b> dùng giọng tiếng Việt của máy (miễn phí, không gửi dữ liệu đi; cần giọng vi-VN của hệ điều hành).
+          <b>Google Cloud TTS</b> cho giọng tự nhiên hơn (Neural2 / WaveNet / Chirp 3 HD), tính phí theo số ký tự và cần <b>API key Cloud Text-to-Speech riêng</b> — key Gemini không dùng được.</p>
+        <div class="grid">
+          <label for="d-key">API key Google Cloud TTS</label><input id="d-key" type="password" autocomplete="off" spellcheck="false" placeholder="AIza… (chỉ khi dùng Google Cloud TTS)" />
+          <label for="d-endpoint">Endpoint</label><input id="d-endpoint" type="url" spellcheck="false" />
+          <label for="d-lookahead">Tạo giọng trước (giây)</label><input id="d-lookahead" type="number" min="30" max="90" step="5" />
+          <label for="d-speedup">Tăng tốc tối đa để kịp câu</label><input id="d-speedup" type="number" min="1" max="1.6" step="0.05" />
+          <label for="d-delay">Trễ tối đa (giây)</label><input id="d-delay" type="number" min="1" max="6" step="0.5" />
+          <label for="d-late">Câu đến muộn</label>
+          <select id="d-late"><option value="skip">Bỏ qua câu quá muộn (đồng bộ tốt nhất)</option><option value="delay">Đọc muộn (tối đa gấp đôi thời gian trễ)</option></select>
+        </div>
+        <p class="hint"><b>Gemini TTS</b> (Gemini 3.8 Flash-Lite TTS / Flash TTS) dùng <b>chính API key Gemini</b> ở mục 1 — không cần key Cloud TTS. Quyền dùng model và chi phí phụ thuộc dự án/gói Gemini của bạn (gói miễn phí có giới hạn, không phải không giới hạn).</p>
+        <label class="check"><input id="d-gstyle" type="checkbox" /> Gemini TTS: gửi chỉ dẫn giọng giảng dạy rõ ràng, bình tĩnh (dạng speech metadata, không đọc thành lời)</label>
+        <label class="check"><input id="d-consent" type="checkbox" /> Cho phép gửi <b>văn bản tiếng Việt</b> đã dịch tới dịch vụ TTS đám mây (Google Cloud TTS / Gemini TTS) — chỉ khi bạn chọn các dịch vụ này</label>
+        <label class="check"><input id="d-restore" type="checkbox" /> Lỗi giọng đọc kéo dài → tự bật lại âm thanh gốc</label>
+      </section>
+
+      <div class="actions">
+        <button id="save" class="primary" type="button">Lưu &amp; cấp quyền</button>
+        <button id="test" type="button">Thử dịch một câu</button>
+        <span id="msg" role="status"></span>
+      </div>
+      <pre id="test-out" class="hidden"></pre>
+    </main>
+    <script type="module" src="./options.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Skool VI Subtitles</title>
+    <link rel="stylesheet" href="./popup.css" />
+  </head>
+  <body>
+    <header>
+      <div class="brand"><span class="logo">VI</span><div><b>Phụ đề tiếng Việt</b><small>cho Skool</small></div></div>
+      <label class="switch" title="Bật/tắt dịch"><input id="enabled" type="checkbox" /><span></span></label>
+    </header>
+
+    <section id="status" class="card">
+      <div class="kv"><span>Trang</span><b id="st-page">…</b></div>
+      <div class="kv"><span>Trình phát</span><b id="st-provider">…</b></div>
+      <div class="kv"><span>Phần tử video</span><b id="st-media">…</b></div>
+      <div class="kv"><span>Phụ đề tiếng Anh</span><b id="st-captions">…</b></div>
+      <div class="kv"><span>Chế độ</span><b id="st-mode">…</b></div>
+      <div class="kv"><span>Đã dịch</span><b id="st-progress">–</b></div>
+      <div class="kv"><span>Dịch vụ dịch</span><b id="st-translator">…</b></div>
+      <div class="kv"><span>Kết nối dịch</span><b id="st-backend">…</b></div>
+      <div id="st-notice" class="notice hidden"></div>
+      <div id="st-error" class="error hidden"></div>
+    </section>
+
+    <section class="card">
+      <div class="row">
+        <label for="quickProvider">AI dịch</label>
+        <select id="quickProvider" title="Đổi nhanh — dùng API key/model đã lưu của từng nhà cung cấp">
+          <option value="gemini">Google Gemini</option>
+          <option value="openai">OpenAI GPT</option>
+          <option value="anthropic">Anthropic Claude</option>
+          <option value="local">Backend cục bộ</option>
+          <option value="mock">Mock</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="transMode">Chế độ dịch</label>
+        <select id="transMode">
+          <option value="fast">Nhanh</option>
+          <option value="balanced">Cân bằng</option>
+          <option value="quality">Chất lượng</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="displayMode">Hiển thị</label>
+        <select id="displayMode">
+          <option value="vi">Chỉ tiếng Việt</option>
+          <option value="bilingual">Song ngữ Anh / Việt</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="modePreference">Chế độ xử lý</label>
+        <select id="modePreference">
+          <option value="auto">Tự động (ưu tiên phụ đề)</option>
+          <option value="caption">Chỉ phụ đề (Caption Mode)</option>
+          <option value="audio">Âm thanh (Audio Mode)</option>
+        </select>
+      </div>
+      <div class="row"><label for="fontScale">Cỡ chữ <output id="fontScaleOut"></output></label><input id="fontScale" type="range" min="0.6" max="2" step="0.05" /></div>
+      <div class="row"><label for="bottomOffsetPct">Vị trí (từ đáy) <output id="bottomOut"></output></label><input id="bottomOffsetPct" type="range" min="3" max="45" step="1" /></div>
+      <div class="row checks">
+        <label><input id="background" type="checkbox" /> Nền</label>
+        <label><input id="outline" type="checkbox" /> Viền chữ</label>
+        <label><input id="shadow" type="checkbox" /> Bóng chữ</label>
+      </div>
+    </section>
+
+    <section class="card" id="dub-card">
+      <div class="row"><b>🔊 Lồng tiếng Việt (AI Dubbing)</b><label class="switch" title="Bật/tắt lồng tiếng"><input id="dub-enabled" type="checkbox" /><span></span></label></div>
+      <div class="row"><label for="dub-listen">Nghe</label>
+        <select id="dub-listen"><option value="vi">Chỉ giọng Việt</option><option value="mix">Giọng Việt + âm gốc nhỏ</option><option value="original">Âm thanh gốc</option></select></div>
+      <div class="row"><label for="dub-provider">Giọng đọc (TTS)</label>
+        <select id="dub-provider"><option value="chrome">Chrome TTS (trên máy, miễn phí)</option><option value="gemini">Gemini TTS (dùng key Gemini)</option><option value="google">Google Cloud TTS (key riêng, trả phí)</option><option value="mock">Mock (thử nghiệm)</option></select></div>
+      <div class="row hidden" id="dub-gemini-row"><label for="dub-gemini-model">Model Gemini TTS</label>
+        <select id="dub-gemini-model"><option value="gemini-3.8-flash-lite-tts">Nhanh — 3.8 Flash-Lite TTS</option><option value="gemini-3.8-flash-tts">Chất lượng — 3.8 Flash TTS</option></select></div>
+      <div id="dub-novoice" class="notice hidden">Chrome TTS Vietnamese voice unavailable — máy chưa có giọng tiếng Việt. <button id="dub-use-gemini">Dùng Gemini TTS</button></div>
+      <div class="row"><label for="dub-gender">Giọng</label>
+        <select id="dub-gender"><option value="female">Nữ</option><option value="male">Nam</option></select>
+        <select id="dub-voice" title="Giọng tiếng Việt có sẵn"></select><button id="dub-preview" title="Tạo một câu mẫu ngắn (có thể tính phí với dịch vụ đám mây)">▶ Nghe thử</button></div>
+      <div class="row"><label for="dub-rate">Tốc độ <output id="dub-rate-out"></output></label><input id="dub-rate" type="range" min="0.8" max="1.5" step="0.05" /></div>
+      <div class="row"><label for="dub-volume">Âm lượng giọng Việt <output id="dub-volume-out"></output></label><input id="dub-volume" type="range" min="0" max="1" step="0.05" /></div>
+      <div class="row"><label for="dub-orig">Âm gốc (chế độ trộn) <output id="dub-orig-out"></output></label><input id="dub-orig" type="range" min="0" max="1" step="0.05" /></div>
+      <div class="row checks"><label><input id="dub-subs" type="checkbox" /> Vẫn hiện phụ đề Việt</label></div>
+      <div class="kv small"><span>Trạng thái giọng đọc</span><b id="dub-state">–</b></div>
+      <div class="kv small"><span>Đã sẵn sàng phía trước</span><b id="dub-buffer">–</b></div>
+      <div class="kv small"><span>Đã đọc / bỏ qua / trễ</span><b id="dub-counts">–</b></div>
+      <div class="kv small"><span>Độ trễ giọng trung vị / p95</span><b id="dub-delay">–</b></div>
+      <div class="kv small"><span>Âm thanh gốc</span><b id="dub-muted">–</b></div>
+      <div class="kv small"><span>Kết nối TTS</span><b id="dub-conn">–</b></div>
+      <div id="dub-error" class="error hidden"></div>
+      <p class="hint">Chỉ bật khi bạn chọn. Cần phụ đề tiếng Anh của bài (dùng bản dịch hiện có). Google Cloud TTS cần API key riêng (Cài đặt → mục 7).</p>
+    </section>
+
+    <section class="card hidden" id="text-card">
+      <div class="row"><b>Bài học dạng văn bản</b><span id="text-state" class="small">…</span></div>
+      <div class="row" id="text-start-row"><button id="text-translate" class="primary">Dịch bài này</button></div>
+      <div class="row" id="text-mode-row">
+        <button data-text-mode="original" title="Khôi phục bản gốc">EN</button>
+        <button data-text-mode="vi">VI</button>
+        <button data-text-mode="bilingual">EN+VI</button>
+      </div>
+      <div class="row checks"><label><input id="autoTranslateTextLessons" type="checkbox" /> Tự động dịch bài học dạng văn bản</label></div>
+      <div id="text-error" class="error hidden"></div>
+    </section>
+
+    <section class="card">
+      <div class="row"><b>Trợ lý học tập</b></div>
+      <div class="row">
+        <button data-learn="transcript" title="Bản ghi Anh/Việt, tìm kiếm, tua theo mốc thời gian">📄 Bản ghi</button>
+        <button data-learn="notes" title="Ghi chú học tập do AI tạo — chỉ gọi API khi bạn bấm Tạo">🧠 Ghi chú AI</button>
+        <button data-learn="export" title="Tải SRT/VTT/TXT/MD về máy">⬇ Xuất</button>
+      </div>
+      <div class="row"><button id="open-reader">📚 Thư viện học offline</button></div>
+      <p class="hint">Mở bảng bên phải trang Skool. Bản ghi &amp; xuất dùng phụ đề đã tải/đã dịch — không gọi lại API.</p>
+    </section>
+
+    <section class="card">
+      <div class="row"><b>Audio Mode</b><span id="audio-state" class="pill">Tắt</span></div>
+      <p class="hint" id="audio-hint">Dùng khi video không có phụ đề. Tiện ích sẽ thu <b>chỉ âm thanh của tab này</b> sau khi bạn bấm nút, gửi từng đoạn ngắn tới dịch vụ nhận dạng giọng nói đã cấu hình, rồi dịch sang tiếng Việt.</p>
+      <div class="row"><button id="audio-btn" class="primary">Bắt đầu Audio Mode</button></div>
+      <div class="kv small"><span>Độ trễ STT / tổng</span><b id="audio-latency">–</b></div>
+    </section>
+
+    <section class="card">
+      <div class="row"><b>Bộ nhớ đệm</b><span id="cache-info" class="small">…</span></div>
+      <div class="kv small"><span>Tỷ lệ trúng cache</span><b id="cache-hit">–</b></div>
+      <div class="kv small"><span>Độ trễ dịch trung vị / p95</span><b id="latency">–</b></div>
+      <div class="kv small"><span>Phụ đề Việt đầu tiên sau</span><b id="ttfs">–</b></div>
+      <div class="kv small"><span>Đã dịch trước (theo chế độ)</span><b id="coverage">–</b></div>
+      <div class="kv small"><span>Hiện trễ (chưa kịp dịch)</span><b id="missed">–</b></div>
+      <div class="kv small"><span>Token (bài này) vào / ra</span><b id="tokens">–</b></div>
+      <div class="kv small"><span>Chi phí ước tính bài này / hôm nay</span><b id="cost">–</b></div>
+      <div id="cost-warn" class="notice hidden"></div>
+      <div class="row"><a href="#" id="open-dashboard">Thống kê chi tiết &amp; bảng giá →</a></div>
+      <div class="kv small"><span>Yêu cầu lỗi / thử lại</span><b id="failures">–</b></div>
+      <div class="row">
+        <button id="cache-clear">Xóa cache</button>
+        <label class="file">Nhập .vtt/.srt<input id="import" type="file" accept=".vtt,.srt,text/vtt" /></label>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="row"><b>Chẩn đoán trang</b><button id="diag-btn">Chạy chẩn đoán</button></div>
+      <p class="hint">Vị trí phát, thời lượng, trạng thái track tiếng Anh, số câu phụ đề hiện có, mốc câu cuối có sẵn / đã dịch, hàng đợi, lỗi… Không chứa nội dung bài học, API key, cookie hay URL đầy đủ.</p>
+      <div class="row hidden" id="diag-actions"><button id="diag-copy">Sao chép chẩn đoán (Copy Diagnostics)</button></div>
+      <pre id="diag-out" class="diag hidden"></pre>
+    </section>
+
+    <footer><a href="#" id="open-options">Cài đặt dịch vụ dịch &amp; quyền riêng tư →</a></footer>
+    <script type="module" src="./popup.ts"></script>
+  </body>
+</html>

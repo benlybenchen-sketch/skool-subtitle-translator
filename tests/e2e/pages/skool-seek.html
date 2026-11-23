@@ -1,0 +1,18 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Mock Skool lesson — player resets captions on seek</title></head>
+<body style="margin:0">
+  <!-- Reproduces the reported real-Skool symptom: the player disables its English track while
+       seeking (subtitles vanished until CC was toggled). NOT real Skool markup. -->
+  <div id="player" style="width:960px;height:540px;background:#000">
+    <video id="v" muted playsinline style="width:100%;height:100%" src="/media/long.wav">
+      <track kind="captions" srclang="en" label="English CC" src="/media/long.vtt" default>
+    </video>
+  </div>
+  <script>
+    const v = document.getElementById('v');
+    v.addEventListener('seeking', () => { for (const t of v.textTracks) if (t.label === 'English CC') t.mode = 'disabled'; });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'f') document.fullscreenElement ? document.exitFullscreen() : document.getElementById('player').requestFullscreen();
+    });
+  </script>
+</body></html>
