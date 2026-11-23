@@ -1,5 +1,23 @@
 # Changelog
 
+## 5.1.1 — Fix: thumbnail storyboard text in subtitles
+- **Real report.** Lines such as `ae5a…d5.jpg#xywh=249,1960,249,140 Giờ hãy tưởng tượng…` appeared,
+  and some segments stayed in English next to the Vietnamese.
+- **Cause.** Mux Player also loads a thumbnail **storyboard** WebVTT (image references for
+  seek-bar previews). v5.1.0 accepted it as a "standalone caption file" and merged it into the
+  transcript. The image names then stuck to spoken sentences, so those segments were not
+  translated cleanly. The lesson was also wrongly marked complete.
+- **Fix:**
+  - storyboard, thumbnail, sprite and chapter resources (and `image.mux.com`) are never caption
+    candidates;
+  - a WebVTT whose cues are image references is rejected by its content;
+  - image references are stripped from every cue in all sources;
+  - saved lessons polluted in v5.1.0 are cleaned automatically and lose their "complete" claim,
+    so they are re-acquired and re-translated (the cleaned sentences have new text, so no wrong
+    cached translation is reused).
+- **Tests.** Unit tests for each part, and the E2E untouched-lesson page now also loads a
+  storyboard; the SRT must not contain it.
+
 ## 5.1.0 — Full transcript without playback or seeking (critical fix)
 
 ### Root cause (v5.0.0)

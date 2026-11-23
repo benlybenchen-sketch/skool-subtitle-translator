@@ -47,6 +47,8 @@ const HLS_PAGE = `<!doctype html><meta charset="utf-8"><title>Untouched HLS less
   const v = document.getElementById('v');
   v.src = '/media/hls30.wav';
   const tr = v.addTextTrack('subtitles', 'English CC', 'en'); // empty until fragments are buffered
+  // Mux Player also loads a thumbnail storyboard (WebVTT of image references) — must never become captions.
+  fetch('https://image.mux.com/LESSON/storyboard.vtt').catch(() => undefined);
   fetch('https://stream.cdn-mock.test/v/LESSON.m3u8?token=page-issued').then((r) => r.text()).then(() => (window.manifestLoaded = true));
 </script>`;
 function hlsRoute(route) {
@@ -154,6 +156,9 @@ await context.route(/^https:\/\/www\.skool\.com\//, (route) => {
   return route.fulfill(serve(readFileSync(join(pages, page)), 'text/html'));
 });
 await context.route(/^https:\/\/stream\.cdn-mock\.test\//, hlsRoute);
+await context.route(/^https:\/\/image\.mux\.com\//, (route) =>
+  route.fulfill(serve('WEBVTT\n\n' + Array.from({ length: 360 }, (_, i) => `${hlsTs(i * 5)} --> ${hlsTs(i * 5 + 5)}\nae5a1e69edfa49feab494476b3e546d5.jpg#xywh=${(i % 10) * 249},1960,249,140\n`).join('\n'), 'text/vtt')),
+);
 await context.route(/^https:\/\/js\.stripe\.com\//, (route) => route.fulfill(serve('<!doctype html><title>stripe mock</title>', 'text/html')));
 await context.route(/^https:\/\/www\.loom\.com\//, (route) => {
   const u = new URL(route.request().url());
@@ -784,6 +789,7 @@ await test('Full transcript WITHOUT playback: untouched 30-min HLS lesson at 00:
   const srt = readFileSync(await dl.path(), 'utf8');
   const blocks = srt.replace(/^\uFEFF/, '').trim().split(/\n\n/);
   assert(blocks.length === HLS_N, `SRT has ${blocks.length} cues, source has ${HLS_N}`);
+  assert(!/#xywh|\.jpg/.test(srt), 'storyboard image references leaked into the subtitles');
   assert(blocks[HLS_N - 1].includes(`[VI] Untouched lesson sentence ${HLS_N - 1}.`) && blocks[HLS_N - 1].includes(`${hlsTs((HLS_N - 1) * 4 + 0.5).replace('.', ',')} -->`), blocks[HLS_N - 1]);
   const d = await setup.evaluate(async () => {
     const [t] = await chrome.tabs.query({ url: '*://www.skool.com/*course80*' });

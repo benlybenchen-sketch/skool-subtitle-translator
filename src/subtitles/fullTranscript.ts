@@ -1,6 +1,7 @@
 import type { Cue } from '../shared/types';
 import { parseSubtitleFile } from './parse';
 import { fetchHlsCaptions, findPlaylist } from './hlsCaptions';
+import { isImageRefCue } from './normalize';
 
 /**
  * FullTranscriptAcquisitionService — the complete English captions of a lesson, independent of
@@ -52,6 +53,8 @@ export interface TranscriptEvidence {
 
 const PLAYLIST = /\.m3u8(\?|#|$)/i;
 const CAPTION_FILE = /\.(vtt|webvtt|srt)(\?|#|$)/i;
+/** Thumbnail / storyboard / chapter tracks (WebVTT that is NOT speech), e.g. Mux image.mux.com/…/storyboard.vtt. */
+const NOT_CAPTIONS = /storyboard|thumbnail|thumbs|sprite|preview|chapters?|keyframes?/i;
 /** Segment-style caption names (part of an HLS rendition, not a standalone file). */
 const SEGMENT_NAME = /(seg|segment|chunk|frag|fileSequence|part)[-_]?\d+|\/\d+\.(vtt|webvtt)(\?|$)/i;
 
@@ -82,7 +85,7 @@ export function discoverCaptionSources(
   const playlists = names.filter((n) => PLAYLIST.test(n));
   for (const n of playlists) if (/subtitle|subs|caption|text|webvtt|vtt/i.test(new URL(n).pathname)) add('hls-subtitles', n);
   for (const n of playlists) add('hls-master', n);
-  const files = names.filter((n) => CAPTION_FILE.test(n) && !SEGMENT_NAME.test(n));
+  const files = names.filter((n) => CAPTION_FILE.test(n) && !SEGMENT_NAME.test(n) && !NOT_CAPTIONS.test(n) && !/(^|\.)image\.mux\.com$/i.test(hostOf(n)));
   for (const n of files) add('caption-file', n);
   if (media) {
     const f = findPlaylist(media);
@@ -97,7 +100,7 @@ function categorize(e: unknown): TranscriptEvidence['errorCategory'] {
   if (status === 404) return 'http-404';
   if (status) return 'http-other';
   if (e instanceof TypeError || (e as Error)?.name === 'AbortError') return 'network-or-cors';
-  if (/subtitle playlist/i.test((e as Error)?.message ?? '')) return 'not-subtitles';
+  if (/subtitle (playlist|track)/i.test((e as Error)?.message ?? '')) return 'not-subtitles';
   return 'parse';
 }
 
@@ -126,7 +129,11 @@ export async function acquireFullTranscript(
       if (c.kind === 'caption-file') {
         const r = await f(c.url, { credentials: 'omit', signal: o.signal });
         if (!r.ok) throw Object.assign(new Error(`HTTP ${r.status}`), { status: r.status });
-        const cues = parseSubtitleFile(await r.text()).sort((a, b) => a.start - b.start);
+        const raw = parseSubtitleFile(await r.text());
+        // A thumbnail/storyboard WebVTT has image references instead of speech → not captions.
+        const images = raw.filter((c) => isImageRefCue(c.text)).length;
+        if (raw.length && images / raw.length > 0.3) throw new Error('not a subtitle track (thumbnail/storyboard)');
+        const cues = raw.filter((c) => !isImageRefCue(c.text)).sort((a, b) => a.start - b.start);
         if (!cues.length) throw new Error('empty caption file');
         // A standalone WebVTT/SRT file is the whole track by definition (not a fragment).
         const res: AcquisitionResult = { cues, label: 'tệp phụ đề của bài', evidence: { sourceType: 'caption-file', complete: true, reason: 'Tệp phụ đề WebVTT/SRT hoàn chỉnh của bài (không phải phân đoạn).', host: c.host, timing: 'file', ...range(cues), checkedAt: now() } };

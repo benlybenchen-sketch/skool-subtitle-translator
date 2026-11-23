@@ -12,6 +12,7 @@ import { DomCaptionSource, ManualSource, TextTrackSource, findEnglishTrack, type
 import { CaptionBootstrap, type BootstrapState } from '../players/captionBootstrap';
 import { DubbingSession, type DubSend } from '../dubbing/session';
 import { CachedSource } from '../subtitles/sources';
+import { isImageRefCue } from '../subtitles/normalize';
 import { verifyAlignment } from '../subtitles/hlsCaptions';
 import { acquireFullTranscript, discoverCaptionSources, type AcquisitionResult, type TranscriptEvidence } from '../subtitles/fullTranscript';
 import type { LessonRecord } from '../transcript/store';
@@ -189,7 +190,10 @@ export class SubtitleController {
     if (!key || !t || t.kind === 'iframe') return;
     const rec = store ? await store.get(hash53(key)).catch(() => null) : null;
     if (this.videoKey !== key) return;
-    const provenComplete = !!rec?.evidence?.complete; // records without evidence (≤ v5.0.0) are not trusted as complete
+    // Records without evidence (≤ v5.0.0), or polluted by a thumbnail/storyboard track (v5.1.0), are not trusted as complete.
+    const polluted = !!rec?.cues.some((c) => isImageRefCue(c.text));
+    if (rec && polluted) rec.cues = rec.cues.filter((c) => !isImageRefCue(c.text));
+    const provenComplete = !!rec?.evidence?.complete && !polluted;
     if (rec?.cues.length) {
       this.cachedVi = new Map(rec.units.filter((u) => u.vi).map((u) => [`${u.id}|${u.en}`, u.vi!]));
       if (provenComplete) {

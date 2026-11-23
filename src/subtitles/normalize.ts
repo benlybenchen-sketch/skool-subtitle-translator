@@ -14,8 +14,16 @@ const ENTITIES: Record<string, string> = {
 };
 
 /** Strip WebVTT/HTML markup, speaker tags, inline timestamps and entities. */
+/** Image references of thumbnail/storyboard tracks (e.g. "abc.jpg#xywh=0,0,249,140") — never speech. */
+export const IMAGE_REF = /\S*\.(?:jpe?g|png|webp|gif|avif)(?:\?\S*)?(?:#xywh=[\d.,]+)?|\S*#xywh=[\d.,]+/gi;
+
+export function isImageRefCue(text: string): boolean {
+  return /#xywh=|^\s*\S+\.(?:jpe?g|png|webp|gif|avif)(?:\?\S*)?\s*$/i.test(text);
+}
+
 export function cleanCueText(raw: string): string {
   let t = raw;
+  t = t.replace(IMAGE_REF, ' '); // storyboard thumbnails leaking into a caption source
   t = t.replace(/<\d{2}:\d{2}[:.\d]*>/g, ''); // inline karaoke timestamps
   t = t.replace(/<v(?:\.[^\s>]+)?\s+([^>]+)>/gi, ''); // <v Speaker>
   t = t.replace(/<\/?[a-z][^>]*>/gi, ''); // <c>, <i>, <b>, <font ...>

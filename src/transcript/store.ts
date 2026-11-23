@@ -1,3 +1,4 @@
+import { isImageRefCue } from '../subtitles/normalize';
 import type { Cue } from '../shared/types';
 
 /**
@@ -130,7 +131,10 @@ function approxBytes(...parts: unknown[]): number {
 }
 
 export function mergeRecords(prev: LessonRecord | null, next: Partial<LessonRecord> & { lessonId: string }): LessonRecord {
-  const base: LessonRecord = prev ?? {
+  // A record polluted by a thumbnail/storyboard track (v5.1.0) loses its "complete" claim and those cues.
+  const polluted = !!prev?.cues.some((c) => isImageRefCue(c.text));
+  const cleanPrev: LessonRecord | null = prev && polluted ? { ...prev, cues: prev.cues.filter((c) => !isImageRefCue(c.text)), complete: false, evidence: undefined, units: prev.units.filter((u) => !/#xywh=/.test(u.en)) } : prev;
+  const base: LessonRecord = cleanPrev ?? {
     lessonId: next.lessonId,
     title: '',
     kind: 'video',
@@ -146,7 +150,7 @@ export function mergeRecords(prev: LessonRecord | null, next: Partial<LessonReco
   };
   // cues: union by id (a newer partial snapshot never removes cues we already had)
   const cues = new Map(base.cues.map((c) => [c.id, c]));
-  for (const c of next.cues ?? []) cues.set(c.id, c);
+  for (const c of next.cues ?? []) if (!isImageRefCue(c.text)) cues.set(c.id, c);
   // units: the newest snapshot is the current segmentation, but a known translation of the same
   // English text is never replaced by "untranslated"
   const oldVi = new Map(base.units.filter((u) => u.vi).map((u) => [`${u.start.toFixed(2)}|${u.en}`, u.vi!]));

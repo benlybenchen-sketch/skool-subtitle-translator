@@ -303,3 +303,36 @@ describe('SPA safety', () => {
     expect(discoverCaptionSources(perf, null, { exclude: new Set(['https://cdn.test/old/lesson1.vtt']) }).map((c) => c.kind)).toEqual(['hls-master']);
   });
 });
+
+describe('thumbnail / storyboard tracks are never captions (real report: "….jpg#xywh=249,1960,249,140" in a Vietnamese line)', () => {
+  const STORYBOARD = 'WEBVTT\n\n' + Array.from({ length: 20 }, (_, i) => `${ts(i * 5)} --> ${ts(i * 5 + 5)}\nae5a1e69edfa49feab494476b3e546d5.jpg#xywh=${i * 249},1960,249,140\n`).join('\n');
+  it('image references are stripped from cue text everywhere', async () => {
+    const { cleanCueText, isImageRefCue } = await import('../../src/subtitles/normalize');
+    expect(cleanCueText('ae5a1e69edfa49feab494476b3e546d5.jpg#xywh=249,1960,249,140 Now imagine this is your ad and landing page.')).toBe('Now imagine this is your ad and landing page.');
+    expect(cleanCueText('https://image.mux.com/x/storyboard.webp#xywh=0,0,10,10')).toBe('');
+    expect(isImageRefCue('abc.jpg#xywh=1,2,3,4')).toBe(true);
+    expect(isImageRefCue('Use the JPG format for ads.')).toBe(false);
+  });
+  it('storyboard/thumbnail resources are not candidates; an image-only WebVTT is rejected by content', async () => {
+    expect(discoverCaptionSources(perfWith(['https://image.mux.com/ABC/storyboard.vtt', 'https://cdn.test/thumbnails.vtt']), null)).toEqual([]);
+    const f = (async (u: string) => (u.includes('x.vtt') ? new Response(STORYBOARD) : new Response('', { status: 404 }))) as unknown as typeof fetch;
+    const r = await acquireFullTranscript(discoverCaptionSources(perfWith(['https://cdn.test/captions/x.vtt']), null), { fetchImpl: f });
+    expect(r.evidence.complete).toBe(false);
+    expect(r.evidence.errorCategory).toBe('not-subtitles');
+  });
+  it('the HLS subtitle playlist wins even when the page also loaded a storyboard', async () => {
+    const srv = server();
+    const { c } = setup({ srv, perf: ['https://image.mux.com/ABC/storyboard.vtt', srv.master] });
+    live.push(c);
+    expect(await waitFor(() => c.transcriptEvidence?.complete === true)).toBe(true);
+    expect(c.transcriptEvidence!.sourceType).toBe('hls-vod');
+    expect(c.transcript('x')!.segments.some((s) => /#xywh|\.jpg/.test(s.en))).toBe(false);
+  });
+  it('a saved lesson polluted by a storyboard is cleaned and no longer trusted as complete', () => {
+    const bad = { ...mergeRecords(null, { lessonId: 'L', complete: true, source: 'tệp phụ đề', units: [] }), cues: [{ id: 'a', start: 0, end: 5, text: 'x.jpg#xywh=0,0,1,1' }, { id: 'b', start: 1, end: 3, text: 'Hello.' }], evidence: { complete: true } as any };
+    const m = mergeRecords(bad as any, { lessonId: 'L', cues: [{ id: 'c', start: 6, end: 8, text: 'World.' }] });
+    expect(m.cues.map((c) => c.id)).toEqual(['b', 'c']);
+    expect(m.complete).toBe(false);
+    expect(m.evidence).toBeUndefined();
+  });
+});
