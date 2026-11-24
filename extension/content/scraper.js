@@ -16,30 +16,61 @@
       this.detailCache = opts.detailCache || new Map();
       this.labels = {};
       this.groupInfo = null;
+      this.requestCount = 0;
+      // Nghỉ chủ động sau mỗi N request để tránh bị Skool chặn (403/429).
+      this.burstSize = opts.burstSize == null ? 40 : opts.burstSize;
+      this.burstPause = opts.burstPause == null ? 20000 : opts.burstPause;
+      this.blockWaits = opts.blockWaits || [20000, 45000, 90000, 180000, 300000];
     }
 
     checkStop() { if (this.signal && this.signal.aborted) throw new StopError(); }
 
+    /** Chờ nhưng vẫn dừng được ngay khi bấm Dừng. */
+    async wait(ms) {
+      const end = Date.now() + ms;
+      while (Date.now() < end) {
+        this.checkStop();
+        await sleep(Math.min(500, end - Date.now()));
+      }
+    }
+
     async fetchText(url, attempt = 0) {
       this.checkStop();
+      if (this.burstSize && this.requestCount > 0 && this.requestCount % this.burstSize === 0 && attempt === 0) {
+        this.log(`☕ Nghỉ ${Math.round(this.burstPause / 1000)}s sau ${this.requestCount} request để tránh bị chặn...`);
+        await this.wait(this.burstPause);
+      }
+      if (attempt === 0) this.requestCount++;
       let res;
       try {
         res = await fetch(url, { credentials: 'include', headers: { Accept: 'text/html,application/json' } });
       } catch (e) {
-        if (attempt < 4) { await sleep(2000 * (attempt + 1)); return this.fetchText(url, attempt + 1); }
+        if (attempt < 4) { await this.wait(3000 * (attempt + 1)); return this.fetchText(url, attempt + 1); }
         throw e;
       }
-      if (res.status === 429 || res.status >= 500) {
-        if (attempt < 6) {
-          const wait = Number(res.headers.get('retry-after')) * 1000 || 5000 * (attempt + 1);
-          this.log(`⏳ Máy chủ báo bận (${res.status}), chờ ${Math.round(wait / 1000)}s...`);
-          await sleep(wait);
+      const blocked = res.status === 403 || res.status === 429;
+      if (blocked || res.status >= 500) {
+        const waits = blocked ? this.blockWaits : [5000, 10000, 20000, 40000];
+        if (attempt < waits.length) {
+          const wait = Number(res.headers.get('retry-after')) * 1000 || waits[attempt];
+          if (blocked) {
+            // Bị chặn tạm thời: giảm tốc độ cho các request sau.
+            this.delay = Math.min(8000, Math.max(2000, Math.round((this.delay || 0) * 2)));
+          }
+          this.log(`⏳ Skool trả về ${res.status}${blocked ? ' (tạm chặn vì quá nhiều request)' : ''}. Chờ ${Math.round(wait / 1000)}s rồi thử lại (lần ${attempt + 1}/${waits.length})` +
+            `${blocked ? `, giảm tốc còn 1 request/${(this.delay / 1000).toFixed(1)}s` : ''}...`);
+          await this.wait(wait);
           return this.fetchText(url, attempt + 1);
         }
       }
-      if (!res.ok) throw new Error(`HTTP ${res.status} khi tải ${url}`);
+      if (!res.ok) {
+        const err = new Error(`HTTP ${res.status} khi tải ${url}` +
+          (blocked ? ' — Skool đang chặn tạm thời. Hãy đợi 15–30 phút (hoặc tải lại trang Skool, kiểm tra còn đăng nhập), rồi bấm lại để quét tiếp.' : ''));
+        err.status = res.status;
+        throw err;
+      }
       const text = await res.text();
-      if (this.delay) await sleep(this.delay);
+      if (this.delay) await this.wait(this.delay);
       return text;
     }
 
@@ -52,23 +83,33 @@
       return data;
     }
 
-    /** Quét toàn bộ feed cộng đồng: trả về Map id -> post đã chuẩn hóa (chưa có bình luận đầy đủ). */
-    async scanFeed({ maxPages = 200, onPage } = {}) {
+    /**
+     * Quét feed cộng đồng từ trang startPage. Không ném lỗi khi bị chặn giữa chừng:
+     * trả về { posts, nextPage, complete, error } để có thể quét tiếp sau.
+     */
+    async scanFeed({ maxPages = 200, startPage = 1, onPage } = {}) {
       const posts = this.feedCache || new Map();
       let total = null;
       let pageSize = null;
       let emptyStreak = 0;
       const seenThisRun = new Set();
-      for (let p = 1; p <= maxPages; p++) {
+      let p = startPage;
+      for (; p <= maxPages; p++) {
         this.checkStop();
         const url = `https://www.skool.com/${this.group}?p=${p}`;
-        const data = await this.fetchNext(url);
+        let data;
+        try {
+          data = await this.fetchNext(url);
+        } catch (e) {
+          if (e.name === 'StopError') throw e;
+          return { posts, nextPage: p, complete: false, error: e };
+        }
         const pp = (data.props && data.props.pageProps) || data;
         if (total == null) total = P().findNumberKey(pp, ['totalPosts', 'total', 'postsCount']);
         const trees = P().findPostTrees(pp);
         let added = 0;
         for (const t of trees) {
-          const post = P().normPost(t.post, this.group);
+          const post = P().normPost(t.post, this.group, { keepRaw: false });
           if (post.parentId && post.parentId !== post.id && post.rootId && post.rootId !== post.id) continue; // là bình luận
           if (!seenThisRun.has(post.id)) { seenThisRun.add(post.id); added++; }
           if (!posts.has(post.id)) posts.set(post.id, post);
@@ -78,10 +119,10 @@
         this.log(`📄 Trang ${p}${totalPages ? '/' + totalPages : ''}: +${added} bài (tổng ${posts.size}${total ? '/' + total : ''})`);
         if (onPage) onPage({ page: p, totalPages, count: posts.size, total });
         if (!trees.length || added === 0) emptyStreak++; else emptyStreak = 0;
-        if (emptyStreak >= 2 || !trees.length) break;
-        if (total && seenThisRun.size >= total) break;
+        if (emptyStreak >= 2 || !trees.length) return { posts, nextPage: p + 1, complete: true };
+        if (total && posts.size >= total) return { posts, nextPage: p + 1, complete: true };
       }
-      return posts;
+      return { posts, nextPage: p, complete: false, hitMaxPages: true };
     }
 
     /** Tải trang chi tiết bài: nội dung đầy đủ + cây bình luận. */

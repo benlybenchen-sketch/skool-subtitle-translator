@@ -216,7 +216,7 @@ body.mode-t .pair>.o,body.mode-t h2 .o{display:none}body.mode-t .pair{grid-templ
   ${hasTr ? '<button data-m="b" class="on">Song ngữ</button><button data-m="o">Bản gốc</button><button data-m="t">Bản dịch</button>' : ''}
 </div>
 <div class="wrap">
-<nav><div style="padding:4px 8px;color:var(--muted);font-size:12px">Xuất lúc ${esc(fmtDate(result.exportedAt))} · ${posts.length} bài</div><ol>${toc}</ol>${mc ? '<div style="padding:8px"><a href="#member-comments">💬 Bình luận trên bài khác</a></div>' : ''}</nav>
+<nav><div style="padding:4px 8px;color:var(--muted);font-size:12px">Xuất lúc ${esc(fmtDate(result.exportedAt))} · ${posts.length} bài${result.incompleteNote ? '<br><b style="color:#d1242f">⚠️ ' + esc(result.incompleteNote) + '</b>' : ''}</div><ol>${toc}</ol>${mc ? '<div style="padding:8px"><a href="#member-comments">💬 Bình luận trên bài khác</a></div>' : ''}</nav>
 <main>${cards}${mc}</main>
 </div>
 <script>
@@ -254,7 +254,7 @@ document.getElementById('q').oninput=e=>{const q=e.target.value.trim().toLowerCa
     });
 
     const filterTitle = result.title || `${member.name || ''} ${member.handle ? '(@' + member.handle + ')' : ''}`;
-    const header = (t) => `# ${t}\n\n- Bộ lọc: ${filterTitle}\n- Nhóm: ${(result.groupInfo && result.groupInfo.name) || result.group} (https://www.skool.com/${result.group})\n- Số bài viết: ${posts.length}\n- Xuất lúc: ${fmtDate(result.exportedAt)}\n\n## Mục lục\n\n` +
+    const header = (t) => `# ${t}\n\n- Bộ lọc: ${filterTitle}\n- Nhóm: ${(result.groupInfo && result.groupInfo.name) || result.group} (https://www.skool.com/${result.group})\n- Số bài viết: ${posts.length}\n${result.incompleteNote ? '- ⚠️ ' + result.incompleteNote + '\n' : ''}- Xuất lúc: ${fmtDate(result.exportedAt)}\n\n## Mục lục\n\n` +
       posts.map((p, i) => `${i + 1}. ${(p.createdAt || '').slice(0, 10)} — ${p.title || '(không tiêu đề)'}${result.multiAuthor ? ' — ' + authorLabel(p.author) : ''}`).join('\n') + '\n\n---\n\n';
 
     zip.add('TAT-CA-BAI-VIET-goc.md', header('Toàn bộ bài viết (bản gốc)') + allOrig.join('\n\n---\n\n'));
@@ -293,6 +293,7 @@ document.getElementById('q').oninput=e=>{const q=e.target.value.trim().toLowerCa
       '  data/posts.json              -> Dữ liệu đầy đủ (kể cả dữ liệu thô từ Skool)',
       result.options.downloadImages ? '  images/                      -> Ảnh đã tải về' : '',
       '',
+      result.incompleteNote ? '⚠️ ' + result.incompleteNote : '',
       'Bản dịch được tạo tự động bằng máy (Google Translate) — chỉ dùng để tham khảo.'
     ].filter((l) => l !== '').join('\n'));
     for (const f of extraFiles || []) zip.add(f.path, f.bytes);

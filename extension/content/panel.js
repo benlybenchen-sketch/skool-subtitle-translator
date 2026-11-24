@@ -5,13 +5,14 @@
   const NS = root.SkoolExp;
 
   const DEFAULTS = {
-    group: '', mode: 'member', member: '', category: '', keyword: '', maxPages: 200, delay: 700, fetchDetails: true, memberComments: false,
+    group: '', mode: 'member', member: '', category: '', keyword: '', maxPages: 1000, delay: 1500, fetchDetails: true, memberComments: false,
     translate: true, sourceLang: 'auto', targetLang: 'vi', downloadImages: false, sortOrder: 'asc'
   };
 
   const state = {
     host: null, shadow: null, running: false, controller: null,
-    feedCache: new Map(), feedGroup: '', detailCache: new Map(), labels: {}
+    feedCache: new Map(), feedGroup: '', detailCache: new Map(), labels: {},
+    feedMeta: { nextPage: 1, complete: false }, groupInfo: null
   };
 
   const CSS = `
@@ -84,6 +85,7 @@
       <select id="sortOrder"><option value="asc">Cũ → mới</option><option value="desc">Mới → cũ</option><option value="upvotes">Nhiều lượt thích nhất</option></select>
       <div class="btns">
         <button class="b" id="list">🔍 Quét nhóm</button>
+        <button class="b" id="reset" title="Xóa danh sách bài đã quét/lưu của nhóm này và quét lại từ đầu" style="flex:0 0 auto">🗑</button>
         <button class="b p" id="start">⬇️ Bắt đầu xuất</button>
         <button class="b s hidden" id="stop">⏹ Dừng</button>
       </div>
@@ -172,6 +174,9 @@
 
     let saved = {};
     try { saved = (await chrome.storage.local.get('settings')).settings || {}; } catch (e) { /* ignore */ }
+    // Nâng giá trị mặc định cũ (v1.0/1.1) lên an toàn hơn cho nhóm lớn.
+    if (saved.maxPages === 200) saved.maxPages = DEFAULTS.maxPages;
+    if (saved.delay === 700) saved.delay = DEFAULTS.delay;
     const v = Object.assign({}, DEFAULTS, saved);
     const fromUrl = NS.parser.parseSkoolUrl(location.href);
     if (fromUrl.group) v.group = fromUrl.group;
@@ -188,6 +193,7 @@
     shadow.querySelectorAll('input,select').forEach((el) => el.addEventListener('change', save));
     $('start').onclick = () => run().catch(handleErr);
     $('list').onclick = () => listAuthors().catch(handleErr);
+    $('reset').onclick = () => resetFeed().catch(handleErr);
     $('stop').onclick = () => { if (state.controller) state.controller.abort(); log('⏹ Đang dừng...'); };
     makeDraggable(shadow.querySelector('.box'), shadow.querySelector('.hd'));
   }
@@ -205,10 +211,54 @@
     state.host.style.display = state.host.style.display === 'none' ? '' : 'none';
   }
 
-  function newScraper(opts) {
+  /* ---------- Lưu tiến độ quét (chrome.storage.local) để quét tiếp khi bị chặn / tải lại trang ---------- */
+  const FEED_KEY = (g) => 'feed:' + g;
+  function slimPost(p) {
+    const o = Object.assign({}, p);
+    for (const k of ['raw', 'comments', 'tr', 'localImages', 'detailLoaded', '_base']) delete o[k];
+    return o;
+  }
+  async function loadFeed(group) {
+    try {
+      const d = (await chrome.storage.local.get(FEED_KEY(group)))[FEED_KEY(group)];
+      if (!d || !Array.isArray(d.posts)) return false;
+      state.feedCache = new Map(d.posts.map((p) => [p.id, p]));
+      state.feedMeta = { nextPage: d.nextPage || 1, complete: !!d.complete };
+      Object.assign(state.labels, d.labels || {});
+      state.groupInfo = d.groupInfo || null;
+      return true;
+    } catch (e) { return false; }
+  }
+  async function saveFeed() {
+    if (!state.feedGroup) return;
+    try {
+      await chrome.storage.local.set({
+        [FEED_KEY(state.feedGroup)]: {
+          savedAt: Date.now(), nextPage: state.feedMeta.nextPage, complete: state.feedMeta.complete,
+          labels: state.labels, groupInfo: state.groupInfo,
+          posts: Array.from(state.feedCache.values()).map(slimPost)
+        }
+      });
+    } catch (e) { log('⚠️ Không lưu được tiến độ: ' + (e && e.message || e)); }
+  }
+  async function resetFeed() {
+    const opts = readForm();
+    if (!opts.group) throw new Error('Chưa nhập group slug.');
+    try { await chrome.storage.local.remove(FEED_KEY(opts.group)); } catch (e) { /* ignore */ }
+    state.feedGroup = ''; state.feedCache = new Map(); state.detailCache = new Map();
+    state.labels = {}; state.groupInfo = null; state.feedMeta = { nextPage: 1, complete: false };
+    log(`🗑 Đã xóa dữ liệu đã quét của nhóm "${opts.group}". Lần quét sau sẽ bắt đầu từ trang 1.`);
+    status('Đã xóa dữ liệu quét.', 0);
+  }
+
+  async function newScraper(opts) {
     if (state.feedGroup !== opts.group) {
       state.feedCache = new Map(); state.detailCache = new Map(); state.feedGroup = opts.group;
-      state.labels = {}; state.groupInfo = null;
+      state.labels = {}; state.groupInfo = null; state.feedMeta = { nextPage: 1, complete: false };
+      if (await loadFeed(opts.group)) {
+        log(`💾 Đã nạp ${state.feedCache.size} bài đã quét trước đó` +
+          (state.feedMeta.complete ? ' (đầy đủ).' : ` — sẽ quét tiếp từ trang ${state.feedMeta.nextPage}.`));
+      }
     }
     state.controller = new AbortController();
     const sc = new NS.Scraper({
@@ -222,26 +272,50 @@
   }
 
   async function ensureFeed(scraper, opts) {
-    if (state.feedCache.size && state.feedCache.__complete) {
-      log(`♻️ Dùng lại danh sách ${state.feedCache.size} bài đã quét trước đó (tải lại trang để quét mới).`);
-      return state.feedCache;
+    if (state.feedCache.size && state.feedMeta.complete) {
+      log(`♻️ Dùng lại danh sách ${state.feedCache.size} bài đã quét (bấm 🗑 để quét lại từ đầu).`);
+      return { posts: state.feedCache, complete: true };
     }
+    const start = state.feedMeta.nextPage || 1;
+    if (start > 1) log(`▶ Quét tiếp từ trang ${start} (đã có ${state.feedCache.size} bài).`);
     status('Đang quét danh sách bài viết của nhóm...', 2);
-    const posts = await scraper.scanFeed({
-      maxPages: opts.maxPages,
-      onPage: ({ page, totalPages, count }) => status(`Quét feed: trang ${page}${totalPages ? '/' + totalPages : ''} · ${count} bài`, totalPages ? (page / totalPages) * 30 : 10)
-    });
-    posts.__complete = true;
+    let r;
+    try {
+      r = await scraper.scanFeed({
+        maxPages: opts.maxPages,
+        startPage: start,
+        onPage: ({ page, totalPages, count }) => {
+          state.feedMeta.nextPage = page + 1;
+          if (scraper.groupInfo) state.groupInfo = scraper.groupInfo;
+          if (page % 10 === 0) saveFeed();
+          status(`Quét feed: trang ${page}${totalPages ? '/' + totalPages : ''} · ${count} bài`, totalPages ? (page / totalPages) * 30 : 10);
+        }
+      });
+    } catch (e) {
+      await saveFeed();
+      if (e && e.name === 'StopError') log(`💾 Đã lưu ${state.feedCache.size} bài. Bấm lại để quét tiếp từ trang ${state.feedMeta.nextPage}.`);
+      throw e;
+    }
+    state.feedMeta = { nextPage: r.nextPage, complete: r.complete };
     if (scraper.groupInfo) state.groupInfo = scraper.groupInfo;
-    return posts;
+    await saveFeed();
+    if (r.error) {
+      log(`⚠️ Dừng quét ở trang ${r.nextPage}: ${r.error.message}`);
+      log(`💾 Đã lưu ${state.feedCache.size} bài. Đợi một lúc rồi bấm lại để quét tiếp từ trang ${r.nextPage} (không phải quét lại từ đầu).`);
+    }
+    if (r.hitMaxPages) log(`⚠️ Đã chạm giới hạn ${opts.maxPages} trang — tăng “Số trang feed tối đa” rồi bấm lại để quét tiếp.`);
+    r.incompleteNote = r.complete ? '' :
+      `Chưa quét hết nhóm: dừng ở trang ${r.nextPage} (${state.feedCache.size} bài đã quét). Một số bài có thể bị thiếu.`;
+    return r;
   }
 
   async function listAuthors() {
     const opts = readForm();
     if (!opts.group) throw new Error('Chưa nhập group slug.');
     setRunning(true);
-    const scraper = newScraper(opts);
-    const posts = await ensureFeed(scraper, opts);
+    const scraper = await newScraper(opts);
+    const feed = await ensureFeed(scraper, opts);
+    const posts = feed.posts;
     const counts = new Map();
     for (const p of posts.values()) {
       const key = p.author.handle || p.author.id;
@@ -268,7 +342,9 @@
       box.appendChild(d);
     }
     box.classList.remove('hidden');
-    status(`Tìm thấy ${arr.length} tác giả trong ${posts.size} bài. Bấm tên để thêm; chọn chủ đề ở ô “Chủ đề”.`, 100);
+    status(feed.complete
+      ? `Tìm thấy ${arr.length} tác giả trong ${posts.size} bài. Bấm tên để thêm; chọn chủ đề ở ô “Chủ đề”.`
+      : `⚠️ Mới quét được ${posts.size} bài (${arr.length} tác giả) — bấm “Quét nhóm” lần nữa để quét tiếp.`, feed.complete ? 100 : 30);
     setRunning(false);
   }
 
@@ -325,10 +401,12 @@
     $('log').textContent = '';
     log(`▶ Bắt đầu: nhóm "${opts.group}", ${allMode ? 'tất cả thành viên' : 'thành viên: ' + members.join(', ')}` +
       `${opts.category ? ', chủ đề: ' + (opts.categoryName || opts.category) : ''}${opts.keyword ? ', từ khóa: "' + opts.keyword + '"' : ''}`);
-    const scraper = newScraper(opts);
+    const scraper = await newScraper(opts);
 
     // 1. Quét feed + lọc
-    const all = await ensureFeed(scraper, opts);
+    const feed = await ensureFeed(scraper, opts);
+    const all = feed.posts;
+    if (!feed.complete) log(`⚠️ ${feed.incompleteNote} Vẫn xuất với dữ liệu hiện có; bấm “Bắt đầu xuất” lần nữa sau để quét tiếp và xuất lại đầy đủ.`);
     fillCategories(all, scraper);
     const kw = (opts.keyword || '').toLowerCase();
     const isMember = (a) => allMode || NS.parser.authorMatchesAny(a, members);
@@ -430,6 +508,7 @@
       labels: scraper.labels,
       labelName: (id) => scraper.labelName(id),
       options: opts,
+      incompleteNote: feed.incompleteNote || '',
       posts: mine,
       memberComments
     };

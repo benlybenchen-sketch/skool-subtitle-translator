@@ -52,9 +52,14 @@ function page(pageProps) {
   return `<html><body><script id="__NEXT_DATA__" type="application/json">${JSON.stringify({ props: { pageProps } })}</script></body></html>`;
 }
 const requested = [];
+let block403 = 0; // số lần trả 403 cho trang p=2
 ctx.fetch = async (url) => {
   requested.push(url);
   const u = new URL(url);
+  if (block403 > 0 && u.searchParams.get('p') === '2') {
+    block403--;
+    return { ok: false, status: 403, headers: { get: () => null }, text: async () => '' };
+  }
   let body;
   if (u.pathname === '/grp') {
     const p = Number(u.searchParams.get('p'));
@@ -100,7 +105,9 @@ ctx.fetch = async (url) => {
 
   // scraper
   const s = new NS.Scraper({ group: 'grp', delay: 0, log: () => {} });
-  const all = await s.scanFeed({ maxPages: 50 });
+  const scan = await s.scanFeed({ maxPages: 50 });
+  assert.ok(scan.complete);
+  const all = scan.posts;
   assert.strictEqual(all.size, 5);
   assert.ok(requested.filter((u) => u.includes('?p=')).length <= 4, 'phải dừng phân trang sớm');
   assert.strictEqual(s.groupInfo.name, 'My Group');
@@ -113,6 +120,29 @@ ctx.fetch = async (url) => {
   assert.strictEqual(full[0].comments[1].depth, 1);
   assert.strictEqual(full[0].comments[1].replyTo, 'Bob Smith');
   assert.strictEqual(full[0].videos[0].url, 'https://youtu.be/abc');
+
+  // 403: tự chờ rồi thử lại thành công
+  block403 = 2;
+  const s2 = new NS.Scraper({ group: 'grp', delay: 0, log: () => {}, blockWaits: [10, 10, 10] });
+  const r2 = await s2.scanFeed({ maxPages: 50 });
+  assert.ok(r2.complete && r2.posts.size === 5, 'retry sau 403');
+  assert.ok(s2.delay >= 2000, 'giảm tốc sau khi bị chặn');
+  // 403 kéo dài: trả về dữ liệu đã có + trang để quét tiếp, không ném lỗi
+  block403 = 99;
+  const s3 = new NS.Scraper({ group: 'grp', delay: 0, log: () => {}, blockWaits: [10, 10] });
+  s3.wait = async () => {};
+  const r3 = await s3.scanFeed({ maxPages: 50 });
+  assert.strictEqual(r3.complete, false);
+  assert.strictEqual(r3.nextPage, 2);
+  assert.strictEqual(r3.posts.size, 3);
+  assert.match(r3.error.message, /403/);
+  // quét tiếp từ trang 2 với cache cũ
+  block403 = 0;
+  const s4 = new NS.Scraper({ group: 'grp', delay: 0, log: () => {}, feedCache: r3.posts });
+  const r4 = await s4.scanFeed({ maxPages: 50, startPage: 2 });
+  assert.ok(r4.complete);
+  assert.strictEqual(r4.posts.size, 5);
+  assert.ok(!r4.posts.get('p1').raw, 'feed không giữ dữ liệu thô (tiết kiệm bộ nhớ)');
 
   // translator
   const tr = new NS.Translator({ tl: 'vi', delay: 0 });

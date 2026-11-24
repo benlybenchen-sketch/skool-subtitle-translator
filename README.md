@@ -49,6 +49,18 @@ Kết quả được tải về dưới dạng **một file ZIP**:
 4. Bấm **⬇️ Bắt đầu xuất**. Theo dõi tiến trình trong panel. Có thể bấm **⏹ Dừng** bất cứ lúc nào.
 5. Khi xong, file ZIP tự tải về. Giải nén và mở `bao-cao.html`.
 
+## Nhóm lớn & lỗi 403 / 429 (Skool tạm chặn)
+
+Skool có thể tạm chặn khi bị gửi quá nhiều yêu cầu liên tục (lỗi **HTTP 403** hoặc **429**). Từ v1.2.0:
+
+- Extension **tự chờ rồi thử lại** (20s → 45s → 1,5 phút → 3 phút → 5 phút) và **tự giảm tốc độ**.
+- Cứ 40 yêu cầu sẽ **nghỉ 20 giây** để hạn chế bị chặn.
+- **Tiến độ quét được lưu lại** (kể cả khi đóng/tải lại tab). Nếu vẫn bị chặn, panel báo dừng ở trang nào — đợi 15–30 phút rồi bấm lại nút, extension **quét tiếp từ trang đó**, không quét lại từ đầu.
+- Nút **🗑** xóa dữ liệu đã lưu của nhóm để quét lại từ đầu (dùng khi muốn lấy cả bài mới đăng).
+- Nếu xuất khi chưa quét hết, file xuất có ghi cảnh báo "Chưa quét hết nhóm".
+
+Khuyến nghị: để **Độ trễ ≥ 1500 ms** cho nhóm có hàng nghìn bài.
+
 > Giữ tab mở trong khi chạy. Nhóm lớn (hàng nghìn bài) có thể mất vài phút đến vài chục phút — tăng **Độ trễ** nếu gặp lỗi 429 (quá nhiều request).
 
 ## Cách hoạt động
