@@ -1,6 +1,15 @@
 # Skool Member Posts Exporter (Chrome Extension)
 
-Extension Chrome giúp **thu thập toàn bộ bài viết của một thành viên** trong một nhóm/khóa học trên [Skool](https://www.skool.com), kèm **toàn bộ bình luận**, video, tệp đính kèm, hình ảnh — và **tạo bản dịch tự động** (mặc định sang tiếng Việt) để bạn tham khảo, nghiên cứu.
+Extension Chrome giúp **thu thập bài viết** trong một nhóm/khóa học trên [Skool](https://www.skool.com), kèm **toàn bộ bình luận**, video, tệp đính kèm, hình ảnh — và **tạo bản dịch tự động** (mặc định sang tiếng Việt) để bạn tham khảo, nghiên cứu.
+
+Có thể lọc bài theo:
+
+- **Một thành viên** (theo `@handle`): lấy bài ở **tất cả chủ đề** của người đó — mặc định khi mở panel từ trang hồ sơ.
+- **Nhiều thành viên**: nhập nhiều `@handle`, cách nhau dấu phẩy.
+- **Tất cả thành viên** + **chủ đề** (vd. `🎉 | Wins`): lấy mọi bài "Wins" của cả nhóm.
+- **Từ khóa** (tùy chọn): chỉ lấy bài có chứa từ khóa trong tiêu đề/nội dung.
+
+Mỗi bài ghi rõ tác giả, cấp độ (level), ngày đăng (đánh dấu "đã sửa"), chủ đề, lượt thích, ảnh chụp màn hình đính kèm.
 
 Kết quả được tải về dưới dạng **một file ZIP**:
 
@@ -32,7 +41,10 @@ Kết quả được tải về dưới dạng **một file ZIP**:
 2. Mở **trang hồ sơ của thành viên** trong nhóm (vd. `https://www.skool.com/@ten-thanh-vien?g=ten-nhom`) — hoặc mở trang bất kỳ của nhóm.
 3. Bấm icon extension → panel hiện bên phải trang:
    - **Nhóm**: tự điền (phần sau `skool.com/`).
-   - **Thành viên**: tự điền từ trang hồ sơ; có thể nhập `@handle`, tên đầy đủ, hoặc link hồ sơ. Không chắc? Bấm **👥 Liệt kê tác giả** để quét nhóm và chọn từ danh sách.
+   - **Lấy bài của**: *Thành viên cụ thể* hoặc *Tất cả thành viên*.
+   - **Thành viên**: tự điền từ trang hồ sơ; có thể nhập `@handle`, tên đầy đủ, link hồ sơ; nhiều người thì cách nhau dấu phẩy. Bấm **🔍 Quét nhóm** để xem danh sách tác giả (bấm tên để thêm) và danh sách chủ đề.
+   - **Chủ đề**: để *Tất cả chủ đề* để lấy mọi bài; hoặc chọn một chủ đề (vd. Wins) sau khi Quét nhóm.
+   - **Từ khóa**: tùy chọn.
    - Chọn tùy chọn: tải chi tiết + bình luận, bình luận trên bài người khác, tải ảnh, dịch (ngôn ngữ nguồn/đích), thứ tự sắp xếp.
 4. Bấm **⬇️ Bắt đầu xuất**. Theo dõi tiến trình trong panel. Có thể bấm **⏹ Dừng** bất cứ lúc nào.
 5. Khi xong, file ZIP tự tải về. Giải nén và mở `bao-cao.html`.

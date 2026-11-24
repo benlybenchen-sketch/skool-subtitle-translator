@@ -92,6 +92,11 @@ ctx.fetch = async (url) => {
   assert.ok(P.authorMatches({ handle: 'alice-nguyen', name: 'Alice Nguyen' }, 'https://www.skool.com/@alice-nguyen?g=grp'));
   assert.ok(P.authorMatches({ handle: 'alice-nguyen', name: 'Alice Nguyen' }, 'alice nguyen'));
   assert.ok(!P.authorMatches({ handle: 'bob', name: 'Bob' }, '@alice'));
+  assert.deepStrictEqual(Array.from(P.splitMembers('@a, @b;\n@c')), ['@a', '@b', '@c']);
+  assert.ok(P.authorMatchesAny({ handle: 'b' }, ['@a', '@b']));
+  assert.strictEqual(P.normUser({ id: 'x', metadata: { spData: '{"lv":8}' } }).level, 8);
+  const att = P.normPost({ id: 'z', metadata: { title: 't', content: '', attachmentsData: '[{"url":"https://assets.skool.com/a/shot.png","file_name":"shot.png"}]' } }, 'grp');
+  assert.deepStrictEqual(Array.from(att.images), ['https://assets.skool.com/a/shot.png']);
 
   // scraper
   const s = new NS.Scraper({ group: 'grp', delay: 0, log: () => {} });

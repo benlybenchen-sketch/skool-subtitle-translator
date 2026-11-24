@@ -21,6 +21,16 @@
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
+  function isEdited(p) {
+    if (!p.updatedAt || !p.createdAt) return false;
+    return Math.abs(new Date(p.updatedAt) - new Date(p.createdAt)) > 60000;
+  }
+
+  function authorLabel(a) {
+    a = a || {};
+    return `${a.name || a.handle || '?'}${a.level ? ' (Cấp ' + a.level + ')' : ''}`;
+  }
+
   function wordCount(s) { return (String(s || '').match(/\S+/g) || []).length; }
 
   function fileBase(post, i) {
@@ -48,9 +58,9 @@
     lines.push(`# ${title}`);
     if (t && post.title) lines.push('', `> *Tiêu đề gốc:* ${post.title}`);
     lines.push('');
-    lines.push(`- **${L.orig.author}:** ${a.name || ''}${a.handle ? ` (@${a.handle})` : ''}`);
-    lines.push(`- **${L.orig.date}:** ${fmtDate(post.createdAt)}`);
-    if (post.updatedAt && post.updatedAt !== post.createdAt) lines.push(`- **${L.orig.updated}:** ${fmtDate(post.updatedAt)}`);
+    lines.push(`- **${L.orig.author}:** ${a.name || ''}${a.handle ? ` (@${a.handle})` : ''}${a.level ? ` · Cấp ${a.level}` : ''}`);
+    lines.push(`- **${L.orig.date}:** ${fmtDate(post.createdAt)}${isEdited(post) ? ' (đã sửa)' : ''}`);
+    if (isEdited(post)) lines.push(`- **${L.orig.updated}:** ${fmtDate(post.updatedAt)}`);
     const cat = labelName(post.labelId);
     if (cat) lines.push(`- **${L.orig.category}:** ${cat}`);
     lines.push(`- **${L.orig.upvotes}:** ${post.upvotes || 0} · **${L.orig.comments}:** ${post.commentsCount || (post.comments || []).length}${post.pinned ? ' · 📌 ' + L.orig.pinned : ''}`);
@@ -115,10 +125,10 @@
     return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   }
   function toCsv(posts, labelName) {
-    const head = ['STT', 'Ngày đăng', 'Tiêu đề', 'Tiêu đề (dịch)', 'Chủ đề', 'Lượt thích', 'Bình luận', 'Số từ', 'Video', 'Link', 'File'];
+    const head = ['STT', 'Ngày đăng', 'Tác giả', 'Handle', 'Tiêu đề', 'Tiêu đề (dịch)', 'Chủ đề', 'Lượt thích', 'Bình luận', 'Số từ', 'Video', 'Link', 'File'];
     const rows = posts.map((p, i) => [
-      i + 1, fmtDate(p.createdAt), p.title, (p.tr && p.tr.title) || '', labelName(p.labelId), p.upvotes,
-      p.commentsCount || (p.comments || []).length, wordCount(p.content), (p.videos || []).length, p.url, fileBase(p, i) + '.md'
+      i + 1, fmtDate(p.createdAt), (p.author && p.author.name) || '', (p.author && p.author.handle) || '', p.title, (p.tr && p.tr.title) || '', labelName(p.labelId), p.upvotes,
+      p.commentsCount || (p.comments || []).length, wordCount(p.content), (p.videos || []).length, p.url, (p._base || fileBase(p, i)) + '.md'
     ]);
     return '﻿' + [head].concat(rows).map((r) => r.map(csvCell).join(',')).join('\r\n');
   }
@@ -129,9 +139,9 @@
     const posts = result.posts;
     const hasTr = !!result.options.translate;
     const labelName = result.labelName || (() => '');
-    const member = result.member || {};
+    const heading = result.title || (result.member && (result.member.name || result.member.handle)) || 'Skool';
     const cards = posts.map((p, i) => {
-      const meta = `${esc(fmtDate(p.createdAt))} · 👍 ${p.upvotes || 0} · 💬 ${p.commentsCount || (p.comments || []).length}${labelName(p.labelId) ? ' · 🏷 ' + esc(labelName(p.labelId)) : ''}${p.pinned ? ' · 📌' : ''}`;
+      const meta = `👤 <b>${esc(authorLabel(p.author))}</b> · ${esc(fmtDate(p.createdAt))}${isEdited(p) ? ' (đã sửa)' : ''} · 👍 ${p.upvotes || 0} · 💬 ${p.commentsCount || (p.comments || []).length}${labelName(p.labelId) ? ' · 🏷 ' + esc(labelName(p.labelId)) : ''}${p.pinned ? ' · 📌' : ''}`;
       const orig = mdToHtml(rewriteImages(p.content, p, ''));
       const tr = hasTr && p.tr ? mdToHtml(rewriteImages(p.tr.content, p, '')) : '';
       const extras = [];
@@ -163,7 +173,7 @@
       </article>`;
     }).join('\n');
 
-    const toc = posts.map((p, i) => `<li><a href="#post-${i + 1}"><span class="d">${esc((p.createdAt || '').slice(0, 10))}</span> <span class="o">${esc(p.title || '(không tiêu đề)')}</span>${hasTr ? `<span class="t">${esc((p.tr && p.tr.title) || '')}</span>` : ''}</a></li>`).join('');
+    const toc = posts.map((p, i) => `<li><a href="#post-${i + 1}"><span class="d">${esc((p.createdAt || '').slice(0, 10))}${result.multiAuthor ? ' · ' + esc((p.author && p.author.name) || '') : ''}</span> <span class="o">${esc(p.title || '(không tiêu đề)')}</span>${hasTr ? `<span class="t">${esc((p.tr && p.tr.title) || '')}</span>` : ''}</a></li>`).join('');
 
     let mc = '';
     if ((result.memberComments || []).length) {
@@ -174,7 +184,7 @@
 
     return `<!doctype html>
 <html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(member.name || member.handle || 'Skool')} – Bài viết</title>
+<title>${esc(heading)} – Bài viết Skool</title>
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--fg:#1f2328;--muted:#656d76;--line:#e3e6ea;--acc:#2563eb;--tr:#f0f7ff}
 @media (prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#171a21;--fg:#e6e8eb;--muted:#9aa3ad;--line:#2a2f38;--acc:#7aa2ff;--tr:#151d2b}}
@@ -201,7 +211,7 @@ body.mode-t .pair>.o,body.mode-t h2 .o{display:none}body.mode-t .pair{grid-templ
 </style></head>
 <body class="${hasTr ? 'mode-b' : 'mode-o'}">
 <div class="top">
-  <h1>${esc(member.name || member.handle || '')} · ${esc((result.groupInfo && result.groupInfo.name) || result.group)}</h1>
+  <h1>${esc(heading)} · ${esc((result.groupInfo && result.groupInfo.name) || result.group)}</h1>
   <input id="q" placeholder="🔎 Tìm trong ${posts.length} bài viết...">
   ${hasTr ? '<button data-m="b" class="on">Song ngữ</button><button data-m="o">Bản gốc</button><button data-m="t">Bản dịch</button>' : ''}
 </div>
@@ -228,7 +238,11 @@ document.getElementById('q').oninput=e=>{const q=e.target.value.trim().toLowerCa
     const allOrig = [];
     const allTr = [];
     posts.forEach((p, i) => {
-      const base = fileBase(p, i);
+      p._base = fileBase(p, i);
+      if (result.multiAuthor) p._base = p._base.replace(/^(\d+-[^-]+-[^-]+-[^-]+)-/, `$1-${slugify((p.author && (p.author.handle || p.author.name)) || 'x', 25)}-`);
+    });
+    posts.forEach((p, i) => {
+      const base = p._base;
       const o = postToMd(p, { labelName, imgPrefix: '../' });
       zip.add(`goc/${base}.md`, o);
       allOrig.push(postToMd(p, { labelName, imgPrefix: '' }));
@@ -239,8 +253,9 @@ document.getElementById('q').oninput=e=>{const q=e.target.value.trim().toLowerCa
       }
     });
 
-    const header = (t) => `# ${t}\n\n- Thành viên: ${member.name || ''} ${member.handle ? '(@' + member.handle + ')' : ''}\n- Nhóm: ${(result.groupInfo && result.groupInfo.name) || result.group} (https://www.skool.com/${result.group})\n- Số bài viết: ${posts.length}\n- Xuất lúc: ${fmtDate(result.exportedAt)}\n\n## Mục lục\n\n` +
-      posts.map((p, i) => `${i + 1}. ${(p.createdAt || '').slice(0, 10)} — ${p.title || '(không tiêu đề)'}`).join('\n') + '\n\n---\n\n';
+    const filterTitle = result.title || `${member.name || ''} ${member.handle ? '(@' + member.handle + ')' : ''}`;
+    const header = (t) => `# ${t}\n\n- Bộ lọc: ${filterTitle}\n- Nhóm: ${(result.groupInfo && result.groupInfo.name) || result.group} (https://www.skool.com/${result.group})\n- Số bài viết: ${posts.length}\n- Xuất lúc: ${fmtDate(result.exportedAt)}\n\n## Mục lục\n\n` +
+      posts.map((p, i) => `${i + 1}. ${(p.createdAt || '').slice(0, 10)} — ${p.title || '(không tiêu đề)'}${result.multiAuthor ? ' — ' + authorLabel(p.author) : ''}`).join('\n') + '\n\n---\n\n';
 
     zip.add('TAT-CA-BAI-VIET-goc.md', header('Toàn bộ bài viết (bản gốc)') + allOrig.join('\n\n---\n\n'));
     if (hasTr) zip.add(`TAT-CA-BAI-VIET-ban-dich-${lang}.md`, header(`Toàn bộ bài viết (bản dịch ${LANG_NAMES[lang] || lang})`) + allTr.join('\n\n---\n\n'));
@@ -263,7 +278,7 @@ document.getElementById('q').oninput=e=>{const q=e.target.value.trim().toLowerCa
     zip.add('README.txt', [
       'XUẤT BÀI VIẾT SKOOL',
       '===================',
-      `Thành viên : ${member.name || ''} (@${member.handle || ''})`,
+      `Bộ lọc     : ${filterTitle}`,
       `Nhóm       : ${(result.groupInfo && result.groupInfo.name) || result.group}`,
       `Số bài     : ${posts.length}`,
       `Xuất lúc   : ${fmtDate(result.exportedAt)}`,

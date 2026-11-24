@@ -99,12 +99,16 @@
     u = u || {};
     const md = u.metadata || {};
     const name = [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || md.displayName || u.name || '';
+    let level = u.level || md.level || '';
+    const sp = maybeJson(md.spData);
+    if (!level && sp && typeof sp === 'object') level = sp.lv || sp.level || '';
     return {
       id: u.id || fallbackId || '',
       handle: u.name || '',
       name,
       bio: md.bio || '',
-      avatar: md.pictureProfile || md.pictureBubble || ''
+      avatar: md.pictureProfile || md.pictureBubble || '',
+      level: level ? Number(level) || level : ''
     };
   }
 
@@ -113,6 +117,15 @@
     const m = /skool\.com\/@([^/?#\s]+)/i.exec(q);
     if (m) q = m[1];
     return q.replace(/^@/, '').trim().toLowerCase();
+  }
+
+  /** Tách danh sách thành viên: phân cách bằng dấu phẩy, chấm phẩy hoặc xuống dòng. */
+  function splitMembers(s) {
+    return String(s || '').split(/[,;\n]+/).map((x) => x.trim()).filter(Boolean);
+  }
+
+  function authorMatchesAny(author, queries) {
+    return (queries || []).some((q) => authorMatches(author, q));
   }
 
   function authorMatches(author, query) {
@@ -255,6 +268,7 @@
             name: n.title || n.name || n.fileName || n.file_name || n.filename || '',
             url,
             thumbnail: n.thumbnail || n.thumbnailUrl || n.thumbnail_url || '',
+            contentType: n.contentType || n.content_type || n.mimeType || n.mime_type || n.type || '',
             duration: n.duration || n.len || ''
           });
           return;
@@ -275,6 +289,10 @@
     const attachments = collectLinks(md.attachmentsData);
     const attachmentIds = typeof md.attachments === 'string' ? md.attachments.split(',').filter(Boolean) : [];
     const images = content.images.slice();
+    // Ảnh chụp màn hình đính kèm (vd. bài "Wins") nằm trong attachments
+    for (const f of attachments) {
+      if ((/\.(png|jpe?g|gif|webp|avif)(\?|$)/i.test(f.url) || /^image\//i.test(f.contentType || '')) && !images.includes(f.url)) images.push(f.url);
+    }
     if (md.imagePreview && /^https?:/.test(md.imagePreview) && !images.includes(md.imagePreview)) images.push(md.imagePreview);
     return {
       id: p.id,
@@ -336,7 +354,8 @@
 
   NS.parser = {
     extractNextData, parseSkoolUrl, findPostTrees, findNumberKey, findGroupInfo, findLabels,
-    normUser, normPost, flattenComments, renderContent, nodeToMd, authorMatches, normalizeMemberQuery, isPostObj,
+    normUser, normPost, flattenComments, renderContent, nodeToMd, authorMatches, authorMatchesAny, splitMembers,
+    normalizeMemberQuery, isPostObj,
     collectLinks
   };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -5,13 +5,13 @@
   const NS = root.SkoolExp;
 
   const DEFAULTS = {
-    group: '', member: '', maxPages: 200, delay: 700, fetchDetails: true, memberComments: false,
+    group: '', mode: 'member', member: '', category: '', keyword: '', maxPages: 200, delay: 700, fetchDetails: true, memberComments: false,
     translate: true, sourceLang: 'auto', targetLang: 'vi', downloadImages: false, sortOrder: 'asc'
   };
 
   const state = {
     host: null, shadow: null, running: false, controller: null,
-    feedCache: new Map(), feedGroup: '', detailCache: new Map()
+    feedCache: new Map(), feedGroup: '', detailCache: new Map(), labels: {}
   };
 
   const CSS = `
@@ -52,10 +52,22 @@
     <div class="bd">
       <label>Nhóm (group slug)</label>
       <input type="text" id="group" placeholder="vd: my-community">
-      <label>Thành viên</label>
-      <input type="text" id="member" placeholder="@handle, tên đầy đủ hoặc link hồ sơ">
-      <div class="hint">Mẹo: mở hồ sơ thành viên (skool.com/@ten?g=nhom) rồi mở panel để tự điền. Hoặc bấm “Liệt kê tác giả”.</div>
-      <div id="authors" class="authors hidden"></div>
+      <label>Lấy bài của</label>
+      <select id="mode">
+        <option value="member">Thành viên cụ thể (1 hoặc nhiều người)</option>
+        <option value="all">Tất cả thành viên</option>
+      </select>
+      <div id="memberRow">
+        <label>Thành viên</label>
+        <input type="text" id="member" placeholder="@handle, tên hoặc link hồ sơ — nhiều người: cách nhau dấu phẩy">
+        <div class="hint">Mẹo: mở hồ sơ thành viên (skool.com/@ten?g=nhom) rồi mở panel để tự điền. Hoặc bấm “Quét nhóm” rồi bấm tên để thêm.</div>
+        <div id="authors" class="authors hidden"></div>
+      </div>
+      <div class="row">
+        <div><label>Chủ đề (category)</label><select id="category"><option value="">Tất cả chủ đề</option></select></div>
+        <div><label>Từ khóa (tùy chọn)</label><input type="text" id="keyword" placeholder="vd: sales, ads"></div>
+      </div>
+      <div class="hint">Danh sách chủ đề (vd. 🎉 Wins) hiện sau khi bấm “Quét nhóm”.</div>
       <div class="row">
         <div><label>Số trang feed tối đa</label><input type="number" id="maxPages" min="1" max="2000"></div>
         <div><label>Độ trễ (ms)</label><input type="number" id="delay" min="0" max="10000" step="100"></div>
@@ -71,7 +83,7 @@
       <label>Sắp xếp</label>
       <select id="sortOrder"><option value="asc">Cũ → mới</option><option value="desc">Mới → cũ</option><option value="upvotes">Nhiều lượt thích nhất</option></select>
       <div class="btns">
-        <button class="b" id="list">👥 Liệt kê tác giả</button>
+        <button class="b" id="list">🔍 Quét nhóm</button>
         <button class="b p" id="start">⬇️ Bắt đầu xuất</button>
         <button class="b s hidden" id="stop">⏹ Dừng</button>
       </div>
@@ -102,6 +114,8 @@
       if (!el) continue;
       v[k] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Number(el.value) : el.value.trim();
     }
+    const cat = $('category');
+    v.categoryName = cat && cat.selectedIndex > 0 ? cat.options[cat.selectedIndex].textContent.replace(/\s*\(\d+\)$/, '') : '';
     v.group = v.group.replace(/^https?:\/\/www\.skool\.com\//, '').split(/[/?#]/)[0];
     return v;
   }
@@ -109,10 +123,22 @@
     for (const k of Object.keys(DEFAULTS)) {
       const el = $(k);
       if (!el) continue;
+      if (k === 'category' && v[k] && !Array.from(el.options).some((o) => o.value === v[k])) {
+        const o = document.createElement('option');
+        o.value = v[k]; o.textContent = v.categoryName || '(chủ đề đã chọn)';
+        el.appendChild(o);
+      }
       if (el.type === 'checkbox') el.checked = !!v[k]; else el.value = v[k] == null ? '' : v[k];
     }
     $('langRow').style.display = v.translate ? '' : 'none';
+    updateModeUi();
   }
+  function updateModeUi() {
+    const all = $('mode').value === 'all';
+    $('memberRow').style.display = all ? 'none' : '';
+    $('memberComments').closest('label').style.display = all ? 'none' : '';
+  }
+
   function save() { try { chrome.storage.local.set({ settings: readForm() }); } catch (e) { /* ignore */ } }
 
   function setRunning(on) {
@@ -149,10 +175,15 @@
     const v = Object.assign({}, DEFAULTS, saved);
     const fromUrl = NS.parser.parseSkoolUrl(location.href);
     if (fromUrl.group) v.group = fromUrl.group;
-    if (fromUrl.member) v.member = '@' + fromUrl.member;
+    if (fromUrl.member) {
+      // Mở từ trang hồ sơ: lấy TẤT CẢ chủ đề của thành viên này (bỏ bộ lọc cũ).
+      v.member = '@' + fromUrl.member;
+      v.mode = 'member'; v.category = ''; v.categoryName = ''; v.keyword = '';
+    }
     writeForm(v);
 
     $('close').onclick = () => { host.style.display = 'none'; };
+    $('mode').addEventListener('change', updateModeUi);
     $('translate').onchange = () => { $('langRow').style.display = $('translate').checked ? '' : 'none'; save(); };
     shadow.querySelectorAll('input,select').forEach((el) => el.addEventListener('change', save));
     $('start').onclick = () => run().catch(handleErr);
@@ -177,12 +208,17 @@
   function newScraper(opts) {
     if (state.feedGroup !== opts.group) {
       state.feedCache = new Map(); state.detailCache = new Map(); state.feedGroup = opts.group;
+      state.labels = {}; state.groupInfo = null;
     }
     state.controller = new AbortController();
-    return new NS.Scraper({
+    const sc = new NS.Scraper({
       group: opts.group, delay: opts.delay, signal: state.controller.signal, log,
       feedCache: state.feedCache, detailCache: state.detailCache
     });
+    // Dùng chung tên chủ đề & thông tin nhóm giữa các lần chạy (khi dùng lại feed đã quét).
+    sc.labels = state.labels;
+    if (state.groupInfo) sc.groupInfo = state.groupInfo;
+    return sc;
   }
 
   async function ensureFeed(scraper, opts) {
@@ -196,6 +232,7 @@
       onPage: ({ page, totalPages, count }) => status(`Quét feed: trang ${page}${totalPages ? '/' + totalPages : ''} · ${count} bài`, totalPages ? (page / totalPages) * 30 : 10)
     });
     posts.__complete = true;
+    if (scraper.groupInfo) state.groupInfo = scraper.groupInfo;
     return posts;
   }
 
@@ -212,6 +249,7 @@
       cur.n++; counts.set(key, cur);
     }
     const arr = Array.from(counts.values()).sort((x, y) => y.n - x.n);
+    fillCategories(posts, scraper);
     const box = $('authors');
     box.innerHTML = '';
     for (const { a, n } of arr) {
@@ -219,12 +257,34 @@
       d.innerHTML = `<span></span><b></b>`;
       d.firstChild.textContent = `${a.name || a.handle}${a.handle ? ' (@' + a.handle + ')' : ''}`;
       d.lastChild.textContent = n;
-      d.onclick = () => { $('member').value = '@' + (a.handle || a.id); save(); box.classList.add('hidden'); };
+      d.title = 'Bấm để thêm vào danh sách thành viên';
+      d.onclick = () => {
+        const list = NS.parser.splitMembers($('member').value);
+        const h = '@' + (a.handle || a.id);
+        if (!list.some((x) => NS.parser.normalizeMemberQuery(x) === NS.parser.normalizeMemberQuery(h))) list.push(h);
+        $('member').value = list.join(', ');
+        $('mode').value = 'member'; updateModeUi(); save();
+      };
       box.appendChild(d);
     }
     box.classList.remove('hidden');
-    status(`Tìm thấy ${arr.length} tác giả trong ${posts.size} bài. Bấm để chọn.`, 100);
+    status(`Tìm thấy ${arr.length} tác giả trong ${posts.size} bài. Bấm tên để thêm; chọn chủ đề ở ô “Chủ đề”.`, 100);
     setRunning(false);
+  }
+
+  function fillCategories(posts, scraper) {
+    Object.assign(state.labels, scraper.labels);
+    const counts = new Map();
+    for (const p of posts.values()) if (p.labelId) counts.set(p.labelId, (counts.get(p.labelId) || 0) + 1);
+    const sel = $('category');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">Tất cả chủ đề</option>';
+    for (const [id, n] of Array.from(counts.entries()).sort((a, b) => b[1] - a[1])) {
+      const o = document.createElement('option');
+      o.value = id; o.textContent = `${scraper.labelName(id) || id} (${n})`;
+      sel.appendChild(o);
+    }
+    if (Array.from(sel.options).some((o) => o.value === cur)) sel.value = cur;
   }
 
   function sortPosts(posts, order) {
@@ -256,21 +316,40 @@
   async function run() {
     const opts = readForm();
     if (!opts.group) throw new Error('Chưa nhập group slug (phần sau skool.com/).');
-    if (!opts.member) throw new Error('Chưa nhập thành viên.');
+    const allMode = opts.mode === 'all';
+    const members = allMode ? [] : NS.parser.splitMembers(opts.member);
+    if (!allMode && !members.length) throw new Error('Chưa nhập thành viên (hoặc chọn “Tất cả thành viên”).');
+    if (allMode) opts.memberComments = false;
     save();
     setRunning(true);
     $('log').textContent = '';
-    log(`▶ Bắt đầu: nhóm "${opts.group}", thành viên "${opts.member}"`);
+    log(`▶ Bắt đầu: nhóm "${opts.group}", ${allMode ? 'tất cả thành viên' : 'thành viên: ' + members.join(', ')}` +
+      `${opts.category ? ', chủ đề: ' + (opts.categoryName || opts.category) : ''}${opts.keyword ? ', từ khóa: "' + opts.keyword + '"' : ''}`);
     const scraper = newScraper(opts);
 
-    // 1. Quét feed
+    // 1. Quét feed + lọc
     const all = await ensureFeed(scraper, opts);
-    let mine = Array.from(all.values()).filter((p) => NS.parser.authorMatches(p.author, opts.member));
-    log(`✅ Tìm thấy ${mine.length} bài của thành viên trong ${all.size} bài của nhóm.`);
+    fillCategories(all, scraper);
+    const kw = (opts.keyword || '').toLowerCase();
+    const isMember = (a) => allMode || NS.parser.authorMatchesAny(a, members);
+    let mine = Array.from(all.values()).filter((p) =>
+      isMember(p.author) &&
+      (!opts.category || p.labelId === opts.category) &&
+      (!kw || ((p.title || '') + '\n' + (p.content || '')).toLowerCase().includes(kw)));
+    log(`✅ Tìm thấy ${mine.length} bài phù hợp trong ${all.size} bài của nhóm.`);
     if (!mine.length && !opts.memberComments) {
-      throw new Error('Không tìm thấy bài nào của thành viên này. Kiểm tra lại @handle (bấm “Liệt kê tác giả” để chọn).');
+      throw new Error('Không tìm thấy bài nào phù hợp. Kiểm tra lại thành viên / chủ đề / từ khóa (bấm “Quét nhóm” để chọn).');
     }
-    const member = mine[0] ? mine[0].author : { handle: NS.parser.normalizeMemberQuery(opts.member), name: opts.member };
+    if (mine.length > 300) log(`ℹ️ Số bài lớn (${mine.length}) — quá trình tải chi tiết và dịch có thể mất khá lâu.`);
+    const authorSet = new Map(mine.map((p) => [p.author.id || p.author.handle, p.author]));
+    const multiAuthor = authorSet.size > 1 || allMode;
+    const member = !multiAuthor && mine[0] ? mine[0].author
+      : { handle: allMode ? '' : members.map(NS.parser.normalizeMemberQuery).join(','), name: allMode ? 'Tất cả thành viên' : members.join(', ') };
+    const titleParts = [];
+    titleParts.push(allMode ? 'Tất cả thành viên' : multiAuthor ? Array.from(authorSet.values()).map((a) => a.name || a.handle).join(', ') : (member.name || member.handle));
+    if (opts.category) titleParts.push('Chủ đề: ' + (scraper.labelName(opts.category) || opts.categoryName || opts.category));
+    if (kw) titleParts.push(`Từ khóa: "${opts.keyword}"`);
+    const title = titleParts.join(' · ');
 
     // 2. Chi tiết + bình luận
     const memberComments = [];
@@ -285,9 +364,9 @@
         try {
           const full = await scraper.fetchDetail(p);
           if (mine.includes(p)) mine[mine.indexOf(p)] = Object.assign(full, { localImages: {} });
-          if (opts.memberComments && !NS.parser.authorMatches(full.author, opts.member)) {
+          if (opts.memberComments && !isMember(full.author)) {
             for (const c of full.comments || []) {
-              if (NS.parser.authorMatches(c.author, opts.member)) memberComments.push({ post: full, comment: c });
+              if (isMember(c.author)) memberComments.push({ post: full, comment: c });
             }
           }
         } catch (e) {
@@ -346,6 +425,8 @@
       group: opts.group,
       groupInfo: scraper.groupInfo,
       member,
+      title,
+      multiAuthor,
       labels: scraper.labels,
       labelName: (id) => scraper.labelName(id),
       options: opts,
@@ -353,7 +434,7 @@
       memberComments
     };
     const bytes = NS.exporters.buildZip(result, extraFiles);
-    const fname = `skool-${opts.group}-${NS.exporters.slugify(member.handle || member.name, 40)}-${new Date().toISOString().slice(0, 10)}.zip`;
+    const fname = `skool-${opts.group}-${NS.exporters.slugify(title, 50)}-${new Date().toISOString().slice(0, 10)}.zip`;
     const url = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' }));
     const a = document.createElement('a');
     a.href = url; a.download = fname;
