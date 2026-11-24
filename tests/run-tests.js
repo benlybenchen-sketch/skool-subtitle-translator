@@ -49,7 +49,7 @@ const feed = {
   3: [mkPost(1, alice, { pinned: 1 })]
 };
 function page(pageProps) {
-  return `<html><body><script id="__NEXT_DATA__" type="application/json">${JSON.stringify({ props: { pageProps } })}</script></body></html>`;
+  return `<html><body><script id="__NEXT_DATA__" type="application/json">${JSON.stringify({ props: { pageProps }, buildId: 'B1' })}</script></body></html>`;
 }
 const requested = [];
 let block403 = 0; // số lần trả 403 cho trang p=2
@@ -61,6 +61,12 @@ ctx.fetch = async (url) => {
     return { ok: false, status: 403, headers: { get: () => null }, text: async () => '' };
   }
   let body;
+  if (u.pathname === '/_next/data/B1/grp.json') {
+    const p = Number(u.searchParams.get('p'));
+    const c = u.searchParams.get('c');
+    const list = (feed[p] || []).filter((x) => !c || x.labelId === c);
+    return { ok: true, status: 200, headers: { get: () => null }, text: async () => JSON.stringify({ pageProps: { postTrees: list.map((post) => ({ post, children: [] })), totalPosts: c ? 1 : 5 } }) };
+  }
   if (u.pathname === '/grp') {
     const p = Number(u.searchParams.get('p'));
     body = page({ currentGroup: { id: 'g1', name: 'grp', metadata: { displayName: 'My Group' }, labels: [{ id: 'L1', metadata: { displayName: 'General' } }] },
@@ -107,6 +113,8 @@ ctx.fetch = async (url) => {
   const s = new NS.Scraper({ group: 'grp', delay: 0, log: () => {} });
   const scan = await s.scanFeed({ maxPages: 50 });
   assert.ok(scan.complete);
+  assert.ok(requested.some((x) => x.includes('/_next/data/B1/grp.json?group=grp&p=2')), 'trang 2+ dùng route JSON nhẹ');
+  assert.ok(!requested.some((x) => /\/grp\?p=2/.test(x)), 'không tải HTML trang 2');
   const all = scan.posts;
   assert.strictEqual(all.size, 5);
   assert.ok(requested.filter((u) => u.includes('?p=')).length <= 4, 'phải dừng phân trang sớm');

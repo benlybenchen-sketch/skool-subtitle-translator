@@ -18,9 +18,13 @@
       this.groupInfo = null;
       this.requestCount = 0;
       // Nghỉ chủ động sau mỗi N request để tránh bị Skool chặn (403/429).
-      this.burstSize = opts.burstSize == null ? 40 : opts.burstSize;
-      this.burstPause = opts.burstPause == null ? 20000 : opts.burstPause;
-      this.blockWaits = opts.blockWaits || [20000, 45000, 90000, 180000, 300000];
+      this.burstSize = opts.burstSize == null ? 30 : opts.burstSize;
+      this.burstPause = opts.burstPause == null ? 30000 : opts.burstPause;
+      // Bị chặn: tự chờ tăng dần (tổng ~33 phút) trước khi tạm dừng và lưu tiến độ.
+      this.blockWaits = opts.blockWaits || [30000, 60000, 120000, 300000, 600000, 900000];
+      this.category = opts.category || '';  // lọc chủ đề ngay trên URL (?c=) -> ít trang hơn
+      this.buildId = null;                  // dùng route JSON nhẹ của Next.js khi có thể
+      this.useJson = opts.useJson !== false;
     }
 
     checkStop() { if (this.signal && this.signal.aborted) throw new StopError(); }
@@ -80,7 +84,27 @@
       if (!data) throw new Error('Không đọc được dữ liệu trang (có thể chưa đăng nhập hoặc Skool đổi cấu trúc): ' + url);
       Object.assign(this.labels, P().findLabels(data));
       if (!this.groupInfo) this.groupInfo = P().findGroupInfo(data);
+      if (data.buildId) this.buildId = data.buildId;
       return data;
+    }
+
+    /** Tải 1 trang feed. Ưu tiên JSON (/_next/data, nhẹ hơn nhiều so với HTML), lỗi thì quay về HTML. */
+    async fetchFeedPage(p) {
+      const qs = `p=${p}` + (this.category ? `&c=${encodeURIComponent(this.category)}` : '');
+      if (this.useJson && this.buildId) {
+        try {
+          const txt = await this.fetchText(`https://www.skool.com/_next/data/${this.buildId}/${this.group}.json?group=${encodeURIComponent(this.group)}&${qs}`);
+          const j = JSON.parse(txt);
+          if (j && j.pageProps && !j.pageProps.__N_REDIRECT && P().findPostTrees(j.pageProps).length) {
+            Object.assign(this.labels, P().findLabels(j));
+            return { props: j };
+          }
+        } catch (e) {
+          if (e.name === 'StopError' || e.status === 403 || e.status === 429) throw e;
+        }
+        this.useJson = false;
+      }
+      return this.fetchNext(`https://www.skool.com/${this.group}?${qs}`);
     }
 
     /**
@@ -94,12 +118,13 @@
       let emptyStreak = 0;
       const seenThisRun = new Set();
       let p = startPage;
+      const t0 = Date.now();
+      let done = 0;
       for (; p <= maxPages; p++) {
         this.checkStop();
-        const url = `https://www.skool.com/${this.group}?p=${p}`;
         let data;
         try {
-          data = await this.fetchNext(url);
+          data = await this.fetchFeedPage(p);
         } catch (e) {
           if (e.name === 'StopError') throw e;
           return { posts, nextPage: p, complete: false, error: e };
@@ -107,6 +132,10 @@
         const pp = (data.props && data.props.pageProps) || data;
         if (total == null) total = P().findNumberKey(pp, ['totalPosts', 'total', 'postsCount']);
         const trees = P().findPostTrees(pp);
+        if (this.category && p === startPage && trees.some((t) => t.post.labelId && t.post.labelId !== this.category)) {
+          this.log('ℹ️ Skool không lọc chủ đề qua URL — chuyển sang quét toàn bộ feed rồi lọc.');
+          this.category = '';
+        }
         let added = 0;
         for (const t of trees) {
           const post = P().normPost(t.post, this.group, { keepRaw: false });
@@ -117,7 +146,10 @@
         if (pageSize == null && trees.length) pageSize = trees.length;
         const totalPages = total && pageSize ? Math.ceil(total / pageSize) : null;
         this.log(`📄 Trang ${p}${totalPages ? '/' + totalPages : ''}: +${added} bài (tổng ${posts.size}${total ? '/' + total : ''})`);
-        if (onPage) onPage({ page: p, totalPages, count: posts.size, total });
+        done++;
+        const perPage = (Date.now() - t0) / done;
+        const etaMs = totalPages ? Math.max(0, totalPages - p) * perPage : null;
+        if (onPage) onPage({ page: p, totalPages, count: posts.size, total, etaMs, perPage });
         if (!trees.length || added === 0) emptyStreak++; else emptyStreak = 0;
         if (emptyStreak >= 2 || !trees.length) return { posts, nextPage: p + 1, complete: true };
         if (total && posts.size >= total) return { posts, nextPage: p + 1, complete: true };

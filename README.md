@@ -61,6 +61,15 @@ Skool có thể tạm chặn khi bị gửi quá nhiều yêu cầu liên tục 
 
 Khuyến nghị: để **Độ trễ ≥ 1500 ms** cho nhóm có hàng nghìn bài.
 
+### Tối ưu để ít bị chặn (v1.3.0)
+
+- **Chọn chủ đề** (vd. Wins) → chỉ quét feed của chủ đề đó (`?c=`), số trang ít hơn nhiều. Danh sách chủ đề có ngay khi mở panel (chỉ tốn 1 request).
+- Trang feed từ trang 2 trở đi tải bằng **JSON nhẹ** của Next.js thay vì cả trang HTML.
+- Bài **không có bình luận** không cần mở trang chi tiết (extension tự kiểm tra trước rằng feed đã chứa đủ nội dung).
+- Panel hiển thị **thời gian còn lại ước tính** khi quét feed và khi tải chi tiết.
+
+Thời gian tham khảo (độ trễ 1500 ms): khoảng **3 giây/trang feed** (~30 bài/trang) → 150 trang ≈ 8 phút, 300 trang ≈ 16 phút; cộng thêm ~3 giây cho mỗi bài cần mở chi tiết và ~1–2 giây/bài khi dịch.
+
 > Giữ tab mở trong khi chạy. Nhóm lớn (hàng nghìn bài) có thể mất vài phút đến vài chục phút — tăng **Độ trễ** nếu gặp lỗi 429 (quá nhiều request).
 
 ## Cách hoạt động
