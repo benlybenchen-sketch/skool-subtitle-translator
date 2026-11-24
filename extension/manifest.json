@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "Skool Member Posts Exporter",
+  "short_name": "Skool Exporter",
+  "version": "1.0.0",
+  "description": "Thu thập toàn bộ bài viết (và bình luận) của một thành viên trong nhóm Skool, xuất ZIP gồm bản gốc + bản dịch (Markdown, HTML, JSON, CSV).",
+  "permissions": ["storage", "scripting", "activeTab"],
+  "host_permissions": [
+    "https://www.skool.com/*",
+    "https://api2.skool.com/*",
+    "https://translate.googleapis.com/*",
+    "https://*.skool.com/*",
+    "https://*.amazonaws.com/*",
+    "https://*.cloudfront.net/*",
+    "https://*.googleusercontent.com/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "action": {
+    "default_title": "Skool Member Posts Exporter",
+    "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+  },
+  "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "content_scripts": [
+    {
+      "matches": ["https://www.skool.com/*"],
+      "js": [
+        "content/parser.js",
+        "content/zip.js",
+        "content/markdown.js",
+        "content/exporters.js",
+        "content/translator.js",
+        "content/scraper.js",
+        "content/panel.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
